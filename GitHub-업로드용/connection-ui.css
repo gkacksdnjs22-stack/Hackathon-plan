@@ -1,0 +1,41 @@
+@media screen {
+  .day-connection-container { flex: 1 1 100%; min-width: 0; width: 100%; }
+  .connection-lookup { min-width: 0; border: 1px solid #e1ddcf; border-radius: 12px; background: #fffdf8; }
+  .connection-lookup>summary { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 8px 11px; list-style: none; cursor: pointer; }
+  .connection-lookup>summary::-webkit-details-marker { display: none; }
+  .connection-lookup>summary::marker { content: ''; }
+  .connection-heading { flex: 0 0 auto; color: #806d4c; font-size: 11px; font-weight: 650; }
+  .connection-summary-preview { flex: 1; min-width: 0; overflow: hidden; color: #687195; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .connection-summary-action { flex: 0 0 auto; color: #8d7754; font-size: 9px; }
+  .connection-body { min-width: 0; padding: 12px; border-top: 1px solid #eee6d5; }
+  .connection-note,.connection-message,.connection-date-hint { margin: 0; color: #756f66; font-size: 11px; line-height: 1.8; overflow-wrap: anywhere; }
+  .connection-via { min-width: 0; margin-top: 10px; }
+  .connection-settings { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+  .connection-gap-label,.connection-date-label { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 7px; color: #756f66; font-size: 10px; }
+  .connection-gap,.connection-date { min-height: 44px; padding: 0 9px; border: 1px solid #e1dacd; border-radius: 9px; background: #fffefb; color: #596683; font: inherit; font-size: 11px; }
+  .connection-gap { width: 72px; }
+  .connection-date { width: 145px; }
+  .connection-leg-label { margin: 13px 0 7px; color: #70674f; font-size: 11px; font-weight: 650; line-height: 1.7; overflow-wrap: anywhere; }
+  .connection-date-label { margin-bottom: 8px; }
+  .connection-preview { display: grid; gap: 4px; margin-top: 11px; padding: 10px; border-radius: 9px; background: #f5f4e9; }
+  .connection-preview p { margin: 0; color: #756f66; font-size: 10px; line-height: 1.8; overflow-wrap: anywhere; }
+  .connection-preview strong { color: #69704e; font-size: 11px; line-height: 1.8; }
+  .connection-message { margin-top: 8px; }
+  .connection-message.is-error { color: #a1644d; }
+  .connection-apply { min-height: 44px; margin-top: 10px; padding: 0 13px; border: 1px solid #d3d9bc; border-radius: 10px; background: #f0f3dc; color: #646e48; font: inherit; font-size: 11px; cursor: pointer; }
+  .connection-apply:disabled { opacity: .55; cursor: default; }
+  .connection-settings[hidden],.connection-apply[hidden],.connection-preview:empty,.connection-message:empty,.connection-via:empty { display: none; }
+  .connection-lookup :focus-visible { outline: 3px solid #8798c5; outline-offset: 2px; }
+}
+@media screen and (max-width: 500px) {
+  .connection-lookup>summary { gap: 6px; padding: 8px 9px; }
+  .connection-heading { font-size: 10px; }
+  .connection-summary-preview,.connection-summary-action { font-size: 9px; }
+  .connection-body { padding: 10px; }
+  .connection-gap-label,.connection-date-label { min-width: 0; max-width: 100%; }
+  .connection-date-label { width: 100%; }
+  .connection-gap,.connection-date { min-width: 0; max-width: 100%; font-size: 16px; }
+  .connection-date { flex: 1 1 145px; width: auto; }
+  .connection-apply { min-width: 0; max-width: 100%; padding: 7px 12px; white-space: normal; overflow-wrap: anywhere; }
+}
+@media print { .day-connection-container,.connection-lookup { display: none !important; } }

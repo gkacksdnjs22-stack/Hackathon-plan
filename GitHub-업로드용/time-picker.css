@@ -1,0 +1,34 @@
+@media screen {
+  .time-picker { position: relative; flex: 0 0 auto; width: 119px; min-width: 0; }
+  .day-start-form .time-trigger { display: flex; align-items: center; justify-content: space-between; gap: 7px; width: 100%; min-width: 0; height: 42px; padding: 0 10px; border: 1px solid #e0d7c8; border-radius: 10px; background: #fffefb; color: #56617e; font: inherit; font-size: 13px; font-weight: 550; line-height: 1.5; text-align: left; cursor: pointer; }
+  .time-trigger>svg { flex: 0 0 auto; color: #8c93ac; }
+  .time-trigger-value { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .time-trigger-arrow { flex: 0 0 auto; width: 6px; height: 6px; margin: -3px 1px 0; border-right: 1.5px solid #8b92aa; border-bottom: 1.5px solid #8b92aa; transform: rotate(45deg); }
+  .day-start-form .time-trigger:hover { border-color: #bfb395; background: #fffefb; }
+  .day-start-form .time-trigger[aria-expanded="true"] { border-color: #8797bf; background: #fffefb; color: #56617e; box-shadow: 0 0 0 3px #f0eef0; }
+  .time-trigger:disabled { color: #a39d92; background: #f8f4ed; cursor: default; opacity: .7; }
+  .time-popover { position: absolute; z-index: 125; top: calc(100% + 8px); left: 0; width: 280px; max-width: calc(100vw - 32px); padding: 15px; border: 1px solid #e3d9c9; border-radius: 18px; background: #fffefb; color: #586488; box-shadow: 0 12px 30px #4f47331a,2px 3px 0 #eee5d6; }
+  .time-popover[hidden] { display: none !important; }
+  .time-popover { overflow-y: auto; overscroll-behavior: contain; }
+  .time-popover-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 13px; }
+  .time-popover-heading h3 { margin: 0; color: #46598b; font-size: 14px; font-weight: 750; letter-spacing: -.025em; line-height: 1.5; }
+  .time-popover-heading>span { color: #9a907b; font-size: 10px; }
+  .time-columns { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+  .time-column { min-width: 0; }
+  .time-column-label { display: block; margin-bottom: 7px; color: #817669; font-size: 10px; font-weight: 650; line-height: 1.5; text-align: center; }
+  .time-list { position: relative; height: var(--time-list-height,170px); overflow-y: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid #e9e0d1; border-radius: 11px; background: #fcf9f2; scrollbar-width: thin; scrollbar-color: #d9d0bd transparent; }
+  .day-start-form .time-option { display: block; width: 100%; min-width: 0; min-height: 38px; margin: 0 0 3px; padding: 7px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #70788f; font: inherit; font-size: 13px; font-weight: 550; line-height: 1.6; text-align: center; font-variant-numeric: tabular-nums; cursor: pointer; }
+  .day-start-form .time-option:last-child { margin-bottom: 0; }
+  .day-start-form .time-option:hover { border-color: #e4dac4; background: #f8f0de; }
+  .day-start-form .time-option[aria-selected="true"] { border-color: #293f91; background: #293f91; color: #fffdf5; font-weight: 750; }
+  .day-start-form .time-option[aria-selected="true"]::after { margin-left: 8px; color: #f4d19a; content: "✓"; font-size: 10px; }
+  .time-popover-footer { display: flex; align-items: center; gap: 7px; margin-top: 13px; padding-top: 12px; border-top: 1px solid #eee5d7; }
+  .day-start-form .time-popover-footer button { flex: 1 1 auto; min-height: 40px; padding: 0 11px; border: 1px solid #e1d8c6; border-radius: 9px; background: #f8f4e8; color: #827348; font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; }
+  .day-start-form .time-popover-footer .time-commit { border-color: #293f91; background: #293f91; color: #fffdf5; }
+  .day-start-form .time-popover-footer .time-commit:hover { border-color: #203372; background: #203372; }
+  .day-start-form .time-popover-footer .time-cancel:hover { border-color: #bfb395; background: #f1ebd8; }
+  .time-trigger:focus-visible, .time-popover button:focus-visible { outline: 3px solid #8798c5; outline-offset: 3px; }
+  .time-popover .time-option:focus-visible { position: relative; outline-width: 2px; outline-offset: -2px; }
+}
+@media screen and (max-width: 600px) { .time-picker { width: 112px; } .day-start-form .time-trigger { padding: 0 8px; } }
+@media print { .time-picker { display: none !important; } }

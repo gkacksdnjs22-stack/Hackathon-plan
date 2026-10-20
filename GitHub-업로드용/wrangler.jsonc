@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gil-travel-planner",
+  "pages_build_output_dir": "./cloudflare-upload",
+  "compatibility_date": "2026-10-20",
+  // This placeholder is only for local Wrangler development. For CLI remote
+  // deployment replace it with the real D1 ID. Direct ZIP upload uses the
+  // dashboard DB binding instead of this file.
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "gil-plans",
+    "database_id": "00000000-0000-0000-0000-000000000000",
+    "preview_database_id": "DB"
+  }]
+}

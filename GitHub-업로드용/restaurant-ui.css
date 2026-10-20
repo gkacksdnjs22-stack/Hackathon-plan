@@ -1,0 +1,52 @@
+@media screen {
+  .meal-restaurants-container { width: 100%; min-width: 0; margin-top: 11px; }
+  .restaurant-lookup { min-width: 0; border: 1px solid #e6dfcf; border-radius: 12px; background: #fffdf7; }
+  .restaurant-lookup>summary { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 8px 11px; list-style: none; cursor: pointer; }
+  .restaurant-lookup>summary::-webkit-details-marker { display: none; }
+  .restaurant-lookup>summary::marker { content: ''; }
+  .restaurant-heading { flex: 0 0 auto; color: #866b4e; font-size: 11px; font-weight: 650; }
+  .restaurant-preview { flex: 1; min-width: 0; overflow: hidden; color: #756f66; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .restaurant-summary-action { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 7px; color: #756f66; font-size: 10px; }
+  .restaurant-summary-action::after { width: 5px; height: 5px; margin-top: -3px; border-right: 1px solid #a0957f; border-bottom: 1px solid #a0957f; transform: rotate(45deg); content: ''; }
+  .restaurant-lookup[open] .restaurant-summary-action::after { margin-top: 3px; transform: rotate(225deg); }
+  .restaurant-body { min-width: 0; padding: 12px; border-top: 1px solid #eee6d8; }
+  .restaurant-controls { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px 12px; }
+  .restaurant-introduction { flex: 1; min-width: 0; margin: 0; color: #756f66; font-size: 11px; line-height: 1.7; }
+  .restaurant-refresh,.restaurant-more { min-height: 44px; padding: 0 12px; border: 1px solid #dfe1ed; border-radius: 10px; background: #fffefb; color: #667497; font: inherit; font-size: 11px; cursor: pointer; }
+  .restaurant-refresh { margin-left: auto; }
+  .restaurant-refresh:disabled { opacity: .5; cursor: default; }
+  .restaurant-message,.restaurant-note { margin: 9px 0 0; color: #756f66; font-size: 11px; line-height: 1.8; overflow-wrap: anywhere; }
+  .restaurant-message:empty { display: none; }
+  .restaurant-message.is-error { color: #a1644d; }
+  .restaurant-results { display: grid; gap: 7px; max-height: 375px; margin: 10px 0 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; list-style: none; scrollbar-width: thin; scrollbar-color: #ddd5c4 transparent; }
+  .restaurant-results:empty { display: none; }
+  .restaurant-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; padding: 11px; border: 1px solid #e8e1d4; border-radius: 10px; background: #fffefa; }
+  .restaurant-copy { display: grid; gap: 3px; min-width: 0; }
+  .restaurant-name { color: #596683; font-size: 12px; font-weight: 650; line-height: 1.6; overflow-wrap: anywhere; }
+  .restaurant-meta { color: #8b7556; font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; }
+  .restaurant-address { margin: 0; color: #756f66; font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; }
+  .restaurant-map { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-height: 44px; padding: 0 9px; border: 1px solid #e4ddca; border-radius: 9px; background: #f8f5e9; color: #82704f; font-size: 10px; text-decoration: none; }
+  .restaurant-map:hover { border-color: #c8b995; background: #f3eedc; }
+  .restaurant-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; flex:0 1 auto; gap:6px; min-width:0; }
+  .restaurant-actions .restaurant-map { margin:0; }
+  .restaurant-select { min-height:44px; max-width:100%; padding:0 10px; border:1px solid #dfe1ed; border-radius:9px; background:#eef0fb; color:#596683; font:inherit; font-size:10px; line-height:1.5; cursor:pointer; }
+  .restaurant-select:hover { border-color:#a9b5d0; background:#e8ecfa; }
+  .restaurant-select:disabled { cursor:default; opacity:.6; }
+  .restaurant-more { max-width: 100%; margin-top: 10px; }
+  .restaurant-more[hidden] { display: none; }
+  .restaurant-note { margin-top: 10px; font-size: 10px; }
+  .restaurant-lookup :focus-visible { outline: 3px solid #8798c5; outline-offset: 2px; }
+}
+@media screen and (max-width: 500px) {
+  .restaurant-lookup>summary { gap: 6px; padding: 8px 9px; }
+  .restaurant-heading { font-size: 10px; }
+  .restaurant-preview,.restaurant-summary-action { font-size: 9px; }
+  .restaurant-body { padding: 10px; }
+  .restaurant-controls { align-items: flex-end; gap: 8px; }
+  .restaurant-introduction { font-size: 10px; }
+  .restaurant-card { flex-wrap: wrap; gap: 7px; padding: 10px; }
+  .restaurant-copy { flex: 1 1 160px; }
+  .restaurant-map { margin-left: auto; }
+  .restaurant-actions { flex:1 1 100%; }
+}
+@media print { .meal-restaurants-container,.restaurant-lookup { display: none !important; } }

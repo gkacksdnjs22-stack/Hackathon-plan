@@ -1,0 +1,49 @@
+@media screen {
+  .transit-route-container { min-width: 0; width: 100%; margin-top: 10px; }
+  .transit-route-lookup { min-width: 0; border: 1px solid #e0e2d3; border-radius: 12px; background: #fcfdf7; }
+  .transit-route-lookup>summary { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 8px 11px; list-style: none; cursor: pointer; }
+  .transit-route-lookup>summary::-webkit-details-marker { display: none; }
+  .transit-route-lookup>summary::marker { content: ''; }
+  .transit-route-heading { flex: 0 0 auto; color: #65734f; font-size: 11px; font-weight: 650; }
+  .transit-route-preview { flex: 1; min-width: 0; overflow: hidden; color: #756f66; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .transit-route-summary-action { flex: 0 0 auto; color: #756f66; font-size: 10px; }
+  .transit-route-body { min-width: 0; padding: 12px; border-top: 1px solid #e6e8db; }
+  .transit-route-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+  .transit-route-introduction { flex: 1 1 210px; min-width: 0; margin: 0; color: #756f66; font-size: 10px; line-height: 1.8; overflow-wrap: anywhere; }
+  .transit-route-refresh,.transit-route-edit { flex: 0 0 auto; min-width: 0; max-width: 100%; min-height: 44px; padding: 7px 12px; border: 1px solid #dadfca; border-radius: 10px; background: #fffefb; color: #66724e; font: inherit; font-size: 11px; white-space: normal; overflow-wrap: anywhere; cursor: pointer; }
+  .transit-route-refresh { margin-left: auto; }
+  .transit-route-refresh:disabled,.transit-route-edit:disabled { opacity: .55; cursor: default; }
+  .transit-route-message,.transit-route-note { margin: 8px 0 0; color: #756f66; font-size: 10px; line-height: 1.8; overflow-wrap: anywhere; }
+  .transit-route-message.is-error { color: #a1644d; }
+  .transit-route-choices { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 10px; min-width: 0; margin-top: 9px; color: #756f66; font-size: 10px; }
+  .transit-route-select { flex: 1 1 200px; min-width: 0; max-width: 100%; min-height: 44px; padding: 0 9px; border: 1px solid #dfdfd1; border-radius: 9px; background: #fffefb; color: #596683; font: inherit; font-size: 11px; }
+  .transit-route-result { min-width: 0; margin-top: 10px; padding: 11px; border: 1px solid #e4e5d8; border-radius: 10px; background: #fffefa; }
+  .transit-route-metrics { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 11px; min-width: 0; }
+  .transit-route-duration { color: #5d704d; font-size: 17px; font-weight: 700; line-height: 1.6; }
+  .transit-route-distance,.transit-route-type,.transit-route-transfers { color: #756f66; font-size: 10px; line-height: 1.7; }
+  .transit-route-type { color: #596683; }
+  .transit-route-steps { min-width: 0; margin-top: 8px; }
+  .transit-route-steps>summary { display: flex; align-items: center; min-height: 44px; color: #756f66; font-size: 10px; cursor: pointer; }
+  .transit-route-step-list { display: grid; gap: 7px; max-height: 260px; margin: 0; padding: 0 0 0 18px; overflow-y: auto; overscroll-behavior: contain; color: #8b8171; font-size: 10px; }
+  .transit-route-step-list li { min-width: 0; line-height: 1.7; overflow-wrap: anywhere; }
+  .transit-route-step-list strong,.transit-route-step-list span { display: block; font-size: 10px; font-weight: 500; }
+  .transit-route-step-list strong { color: #596683; }
+  .transit-route-edit { margin-top: 9px; }
+  .transit-route-note { font-size: 10px; }
+  .transit-route-message:empty,.transit-route-choices[hidden],.transit-route-result[hidden],.transit-route-edit[hidden] { display: none; }
+  .transit-route-compact { border: 0; border-radius: 0; background: transparent; }
+  .transit-route-compact>summary { min-height: 44px; padding: 5px 0; }
+  .transit-route-compact .transit-route-heading { flex: 1; font-size: 10px; }
+  .transit-route-compact .transit-route-body { padding: 8px 0 0; }
+  .transit-route-compact .transit-route-result { padding: 0; border: 0; background: transparent; }
+  .transit-route-compact .transit-route-duration { font-size: 14px; }
+  .transit-route-lookup :focus-visible { outline: 3px solid #8798c5; outline-offset: 2px; }
+}
+@media screen and (max-width: 500px) {
+  .transit-route-lookup>summary { flex-wrap: wrap; gap: 5px 8px; padding: 8px 9px; }
+  .transit-route-heading { flex: 1; font-size: 10px; }
+  .transit-route-preview { flex: 1 1 100%; order: 1; }
+  .transit-route-body { padding: 10px; }
+  .transit-route-compact>summary { padding-right: 0; padding-left: 0; }
+}
+@media print { .transit-route-container,.transit-route-lookup { display: none !important; } }

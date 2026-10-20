@@ -1,0 +1,48 @@
+@media screen {
+  .schedule-add-container { box-sizing:border-box; width:100%; min-width:0; padding:0 27px 0 127px; }
+  .schedule-add { width:fit-content; min-width:0; max-width:100%; margin:12px 0 0; border:1px solid #e4ddcf; border-radius:10px; background:#fffdf7; }
+  .schedule-add[open] { width:100%; max-width:620px; }
+  .schedule-add>summary { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:38px; padding:6px 12px; color:#667497; font-size:11px; list-style:none; cursor:pointer; }
+  .schedule-add>summary::-webkit-details-marker { display:none; }
+  .schedule-add>summary::marker { content:''; }
+  .schedule-add>summary strong { font-weight:650; }
+  .schedule-summary-mark { color:#8b8171; font-size:18px; line-height:1; }
+  .schedule-add[open] .schedule-summary-mark { transform:rotate(45deg); }
+  .schedule-form { min-width:0; padding:12px; border-top:1px solid #eee6d8; }
+  .schedule-help,.schedule-place-hint,.schedule-message { margin:0; color:#817669; font-size:10px; line-height:1.8; overflow-wrap:anywhere; }
+  .schedule-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 12px; min-width:0; margin-top:11px; }
+  .schedule-field { display:flex; flex-direction:column; gap:6px; min-width:0; margin:0; color:#756f66; font-size:11px; font-weight:600; line-height:1.6; }
+  .schedule-wide { grid-column:1/-1; }
+  .schedule-field input,.schedule-field textarea,.schedule-field select,.schedule-duration input { width:100%; min-width:0; max-width:100%; min-height:44px; padding:9px 11px; border:1px solid #e0d7c8; border-radius:9px; background:#fffefb; color:#596683; font:inherit; font-size:13px; font-weight:400; line-height:1.6; }
+  .schedule-field input[readonly] { background:#f4efe5; color:#756f66; }
+  .schedule-field textarea { min-height:64px; resize:vertical; }
+  .schedule-place-field .custom-select { width:100%; min-width:0; }
+  .schedule-place-field .select-trigger { width:100%; min-height:44px; }
+  .schedule-place-hint { margin-top:-7px; font-size:10px; font-weight:400; }
+  .schedule-duration { min-width:0; margin:0; padding:0; border:0; color:#756f66; }
+  .schedule-duration legend { padding:0; font-size:11px; font-weight:600; line-height:1.6; }
+  .schedule-duration-row { display:flex; flex-wrap:wrap; gap:9px; min-width:0; margin-top:6px; }
+  .schedule-duration-part { display:flex; align-items:center; gap:7px; min-width:0; margin:0; color:#756f66; font-size:11px; }
+  .schedule-duration-part input { width:80px; font-variant-numeric:tabular-nums; }
+  .schedule-duration-hint { display:block; margin-top:6px; color:#8b8171; font-size:10px; line-height:1.7; }
+  .schedule-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .schedule-actions button { min-height:44px; padding:9px 14px; border:1px solid #dfe1ed; border-radius:9px; background:#fffefb; color:#667497; font:inherit; font-size:12px; cursor:pointer; }
+  .schedule-actions .schedule-save { border-color:#596c9e; background:#596c9e; color:#fff; }
+  .schedule-actions .schedule-save:hover { border-color:#465b8c; background:#465b8c; }
+  .schedule-form :disabled { cursor:default; opacity:.6; }
+  .schedule-message { margin-top:10px; }
+  .schedule-message:empty { display:none; }
+  .schedule-message.is-error { color:#a1644d; }
+  .schedule-add :focus-visible { outline:3px solid #8798c5; outline-offset:2px; }
+}
+@media screen and (max-width:800px) { .schedule-add-container { padding:0 20px 0 120px; } }
+@media screen and (max-width:700px) { .schedule-add-container { padding-left:99px; } }
+@media screen and (max-width:600px) {
+  .schedule-add-container { padding:0 16px; }
+  .schedule-add>summary { min-height:44px; }
+  .schedule-grid { grid-template-columns:minmax(0,1fr); }
+  .schedule-field input,.schedule-field textarea,.schedule-field select,.schedule-duration input { font-size:16px; }
+  .schedule-field .select-trigger { font-size:16px; }
+  .schedule-duration-part input { width:85px; }
+}
+@media print { .schedule-add { display:none!important; } }

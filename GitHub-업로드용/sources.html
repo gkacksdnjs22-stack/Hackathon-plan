@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fff9f0">
+  <meta name="description" content="길 여행 플래너가 사용하는 관광지, 맛집, 교통편, 주소 검색 데이터의 출처와 이용 안내입니다.">
+  <title>데이터 출처 안내 — 길</title>
+  <link rel="stylesheet" href="./styles.css?v=10">
+  <link rel="stylesheet" href="./free-theme.css?v=1">
+  <link rel="stylesheet" href="./sources.css?v=1">
+  <link rel="icon" type="image/png" href="./travel-sticker-v1.png">
+</head>
+<body class="sources-page">
+  <a class="sources-skip" href="#sources-main">본문으로 건너뛰기</a>
+  <header class="site-header">
+    <a class="wordmark" href="./" aria-label="길 여행 계획으로 돌아가기"><span class="wordmark-mark" aria-hidden="true"><img class="travel-sticker" src="./travel-sticker-v1.png" alt="" width="44" height="44"></span><span>길<small>마음이 가는 쪽으로</small></span></a>
+    <a class="sources-back" href="./"><span aria-hidden="true">←</span> 여행 계획으로</a>
+  </header>
+
+  <main id="sources-main" class="sources-shell">
+    <div class="sources-heading">
+      <p class="sources-eyebrow">길을 함께 만드는 정보</p>
+      <h1>데이터 출처 안내</h1>
+      <p>여행지부터 출발지까지, 길의 여행 노트에 담긴 정보를 모았어요.<br class="sources-desktop-break"> 최신 정보와 이용 조건은 각 제공기관의 공식 안내에서 확인할 수 있어요.</p>
+    </div>
+
+    <div class="sources-grid">
+      <section id="tourism" class="source-card" aria-labelledby="tourism-title">
+        <div class="source-card-heading"><span class="source-icon" aria-hidden="true">📍</span><div><p class="source-category">여행지 · 문화시설</p><h2 id="tourism-title">한국관광공사 TourAPI</h2></div></div>
+        <p class="source-description">국내 지역과 관광지·문화시설의 이름, 주소, 좌표, 관광 유형을 불러와 여행 일정을 구성합니다.</p>
+        <div class="source-links">
+          <a href="https://www.data.go.kr/data/15101578/openapi.do" target="_blank" rel="noopener noreferrer">국문 관광정보 서비스 <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+
+      <section id="restaurants" class="source-card source-card-food" aria-labelledby="restaurants-title">
+        <div class="source-card-heading"><span class="source-icon" aria-hidden="true">🍽️</span><div><p class="source-category">지역 음식점 · 식사 후보</p><h2 id="restaurants-title">한국관광공사 음식점 정보</h2></div></div>
+        <p class="source-description">TourAPI의 지역기반 음식점 정보에서 이름·주소·좌표를 가져옵니다. 음식 종류를 구분하지 않고 등록된 지역 음식점을 모아 식사 후보로 보여드립니다.</p>
+        <div class="source-links">
+          <a href="https://www.data.go.kr/data/15101578/openapi.do" target="_blank" rel="noopener noreferrer">국문 관광정보 서비스 · 음식점 <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+
+      <section id="transport" class="source-card source-card-transport" aria-labelledby="transport-title">
+        <div class="source-card-heading"><span class="source-icon" aria-hidden="true">🚆</span><div><p class="source-category">교통편 · 예정 소요시간</p><h2 id="transport-title">국토교통부 TAGO</h2></div></div>
+        <p class="source-description">선택한 역·터미널·공항·항구 사이의 운행 시간표로 출발·도착 예정시각과 소요시간을 확인합니다. 환승 장소와 같은 서비스의 교통편 두 개를 선택하면 환승 대기시간을 포함해 일정을 조정합니다.</p>
+        <ul class="transport-sources">
+          <li><span>기차</span><a href="https://www.data.go.kr/data/15098552/openapi.do" target="_blank" rel="noopener noreferrer">열차정보 <span aria-hidden="true">↗</span></a></li>
+          <li><span>고속버스</span><a href="https://www.data.go.kr/data/15098522/openapi.do" target="_blank" rel="noopener noreferrer">고속버스정보 <span aria-hidden="true">↗</span></a></li>
+          <li><span>시외버스</span><a href="https://www.data.go.kr/data/15098541/openapi.do" target="_blank" rel="noopener noreferrer">시외버스정보 <span aria-hidden="true">↗</span></a></li>
+          <li><span>비행기</span><a href="https://www.data.go.kr/data/15098526/openapi.do" target="_blank" rel="noopener noreferrer">국내항공운항정보 <span aria-hidden="true">↗</span></a></li>
+          <li><span>여객선</span><a href="https://www.data.go.kr/data/15098523/openapi.do" target="_blank" rel="noopener noreferrer">국내선박운항정보 <span aria-hidden="true">↗</span></a></li>
+        </ul>
+        <p class="source-note">시간표 기준의 예정시각이며 실시간 지연 예측은 제공하지 않습니다. 시외버스는 현재 한국시간 기준 당일 배차를 조회합니다.</p>
+      </section>
+
+      <section id="car-routing" class="source-card source-card-transport" aria-labelledby="car-routing-title">
+        <div class="source-card-heading"><span class="source-icon" aria-hidden="true">🚙</span><div><p class="source-category">자동차 경로 · 예상 이동시간</p><h2 id="car-routing-title">카카오모빌리티 자동차 길찾기</h2></div></div>
+        <p class="source-description">출발지 또는 관광지 사이의 이동수단을 차량으로 선택하면 자동차 예상 이동시간·거리를 확인합니다. ‘일정에 적용’을 누르면 이동시간과 뒤 일정을 조정하고 저장합니다.</p>
+        <p class="source-note">조회 시점의 교통을 기준으로 한 추천 경로 요약입니다. 미래 여행일의 교통 예측이 아니며, 대기·주차·휴게시간은 직접 더해 주세요. 조회만으로 일정은 바뀌지 않고, 적용한 시간도 직접 수정할 수 있습니다.</p>
+        <div class="source-links"><a href="https://developers.kakaomobility.com/guide/navi-api/directions" target="_blank" rel="noopener noreferrer">자동차 길찾기 API 안내 <span aria-hidden="true">↗</span></a></div>
+      </section>
+
+      <section id="transit-routing" class="source-card source-card-transport" aria-labelledby="transit-routing-title">
+        <div class="source-card-heading"><span class="source-icon" aria-hidden="true">🚍</span><div><p class="source-category">대중교통 경로 · 시간 · 환승</p><h2 id="transit-routing-title">카카오맵 대중교통 경로 조회</h2></div></div>
+        <p class="source-description">선택한 두 지점 사이에서 버스·지하철을 포함한 실제 경로의 예상시간, 거리, 환승 횟수와 노선 요약을 조회합니다. 혼합 경로는 따로 표시합니다.</p>
+        <p class="source-note">조회 결과를 참고해 일정 시간은 직접 수정합니다. 미래 여행일의 배차·지연 예측이 아니며, 제공 정책에 따라 응답을 저장·캐시하거나 일정에 자동 저장하지 않습니다.</p>
+        <div class="source-links"><a href="https://developers.kakao.com/docs/ko/kakaomap/rest-api" target="_blank" rel="noopener noreferrer">카카오맵 API 안내 <span aria-hidden="true">↗</span></a><a href="https://devtalk.kakao.com/t/api-api/151980" target="_blank" rel="noopener noreferrer">응답 저장 정책 <span aria-hidden="true">↗</span></a></div>
+      </section>
+
+      <section id="geocoding" class="source-card source-card-geocoding" aria-labelledby="geocoding-title">
+        <div class="source-card-heading"><span class="source-icon" aria-hidden="true">🧭</span><div><p class="source-category">주소 · 주변 장소 검색</p><h2 id="geocoding-title">Photon / OpenStreetMap</h2></div></div>
+        <p class="source-description">숙소·주소·주변 장소의 이름과 위치를 검색할 때 OpenStreetMap 데이터를 바탕으로 한 Photon 검색을 사용합니다. 교통편을 선택할 때의 역·터미널·공항·항구 목록은 위의 TAGO에서 제공합니다.</p>
+        <div class="source-attribution">
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>
+          <a href="https://github.com/komoot/photon" target="_blank" rel="noopener noreferrer">Photon by komoot</a>
+        </div>
+        <div class="source-links">
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap 저작권·이용 안내 <span aria-hidden="true">↗</span></a>
+          <a href="https://github.com/komoot/photon#demo-server" target="_blank" rel="noopener noreferrer">Photon 서비스 안내 <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+    </div>
+
+    <section class="sources-notes" aria-labelledby="notes-title">
+      <div class="sources-notes-heading"><span aria-hidden="true">✦</span><h2 id="notes-title">떠나기 전, 잠깐만</h2></div>
+      <div class="sources-notes-grid">
+        <div><h3>여행 계획용 예상시간</h3><p>앱의 체류·이동 추천시간과 직접 입력한 시간은 계획용 예상값이에요. 실제 교통편의 지연·결항에 따라 도착시각이 달라질 수 있어요.</p></div>
+        <div><h3>가까운 정도는 직선거리로</h3><p>장소를 묶거나 주변 맛집을 찾을 때의 거리는 좌표로 계산한 직선거리예요. 실제 도로·도보 경로와 이동시간은 달라질 수 있어요.</p></div>
+        <div><h3>내부 이동수단 추천</h3><p>관광지 사이 직선거리800m 이내는 도보를, 그보다 먼 구간은 대중교통·차량을 고려하도록 안내해요. 버스·지하철을 고르면 실제 대중교통 예상시간을 조회할 수 있고, 일정 시간은 직접 수정합니다. 도보 추천은 실제 보행 경로가 아닙니다.</p></div>
+        <div><h3>운영정보는 방문 전 확인</h3><p>관광지·음식점의 운영시간, 휴무, 예약과 교통편의 실제 운행 여부는 방문 전에 각 시설과 운행기관에서 확인해 주세요.</p></div>
+      </div>
+    </section>
+    <div class="sources-return"><a class="sources-return-link" href="./">여행 노트로 돌아가기 <span aria-hidden="true">↗</span></a></div>
+  </main>
+
+  <footer class="site-footer"><span class="footer-brand"><img class="travel-sticker" src="./travel-sticker-v1.png" alt="" width="26" height="26"> 길</span><span>조금 돌아가도, 좋은 여행.</span><a href="./">여행 계획</a></footer>
+</body>
+</html>

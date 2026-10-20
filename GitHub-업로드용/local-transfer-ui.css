@@ -1,0 +1,24 @@
+@media screen {
+  .local-transfer-container { min-width: 0; width: 100%; margin-top: 9px; }
+  .local-transfer-controls { min-width: 0; }
+  .local-transfer-context { margin: 0 0 6px; color: #756f66; font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; }
+  .local-transfer-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 9px; min-width: 0; }
+  .local-transfer-recommendation { padding: 4px 7px; border-radius: 6px; background: #f1f3df; color: #68704b; font-size: 10px; line-height: 1.6; }
+  .local-transfer-basis { color: #8b8171; font-size: 9px; line-height: 1.6; }
+  .local-transfer-field { display: inline-flex; align-items: center; gap: 7px; min-width: 0; margin-left: auto; color: #756f66; font-size: 10px; }
+  .local-transfer-select { max-width: 100%; min-width: 130px; min-height: 44px; padding: 0 10px; border: 1px solid #e1dacd; border-radius: 10px; background: #fffdf8; color: #596683; font: inherit; font-size: 11px; cursor: pointer; }
+  .local-transfer-select:disabled { opacity: .6; cursor: default; }
+  .local-transfer-hint,.local-transfer-message { margin: 6px 0 0; color: #8b8171; font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; }
+  .local-transfer-message.is-error { color: #a1644d; }
+  .local-transfer-hint:empty,.local-transfer-message:empty,.local-transfer-route:empty { display: none; }
+  .local-transfer-route { min-width: 0; margin-top: 3px; }
+  .local-transfer-recommendation[hidden],.local-transfer-basis[hidden] { display: none; }
+  .local-transfer-controls :focus-visible { outline: 3px solid #8798c5; outline-offset: 2px; }
+}
+@media screen and (max-width: 500px) {
+  .local-transfer-row { gap: 5px 7px; }
+  .local-transfer-field { flex: 1 1 100%; justify-content: space-between; margin-left: 0; }
+  .local-transfer-field { flex-wrap: wrap; }
+  .local-transfer-select { flex: 1 1 145px; min-width: 0; max-width: 100%; font-size: 16px; }
+}
+@media print { .local-transfer-container,.local-transfer-controls { display: none !important; } }

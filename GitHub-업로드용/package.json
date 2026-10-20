@@ -1,0 +1,22 @@
+{
+  "name": "gil-travel-planner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "길 — 마음이 향하는 국내 여행 플래너",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test",
+    "build:cloudflare": "node build-cloudflare.mjs",
+    "db:local": "node setup-account-db.mjs",
+    "db:secret": "node setup-account-db.mjs --secret-only",
+    "dev:cloudflare": "wrangler pages dev cloudflare-upload --port 8788"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "wrangler": "4.151.2"
+  }
+}
