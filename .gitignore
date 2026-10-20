@@ -1,0 +1,7 @@
+node_modules/
+cloudflare-upload/
+*.zip
+.env
+.env.*
+.local/
+.wrangler/

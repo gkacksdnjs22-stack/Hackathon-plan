@@ -277,3 +277,19 @@ test('compact route lookup avoids duplicate vehicle heading and location context
   assert.match(app.find('car-route-distance').textContent, /거리 12\.3km/);
   assert.equal(app.find('car-route-apply').hidden, false); app.widget.destroy();
 });
+
+
+test('missing key and authorization failures show setup guidance and a safe external route fallback', async () => {
+  for (const code of ['KEY_MISSING', 'AUTH_ERROR']) {
+    const app = runtime(async () => ({ ok: false, status: code === 'KEY_MISSING' ? 503 : 502, json: async () => ({ error: { code, message: 'unsafe secret must not appear' } }) }));
+    await app.open();
+    assert.match(app.find('car-route-message').textContent, code === 'KEY_MISSING' ? /설정이 아직 없어요/ : /인증·사용 권한/);
+    const link = app.find('car-route-fallback');
+    assert.equal(link.hidden, false);
+    assert.match(link.href, /^https:\/\/map\.kakao\.com\/link\/by\//);
+    assert.equal(link.rel, 'noopener noreferrer');
+    assert.doesNotMatch(app.host.textContent, /unsafe secret/);
+    assert.equal(app.find('car-route-result').hidden, true);
+    app.widget.destroy();
+  }
+});

@@ -1,5 +1,7 @@
 // Only these files may be served publicly or included in the deployment archive.
 export const PUBLIC_FILES = new Map([
+  ['travel-backdrop.js', 'text/javascript; charset=utf-8'],
+  ['travel-atmosphere.css', 'text/css; charset=utf-8'],
   ['index.html', 'text/html; charset=utf-8'],
   ['styles.css', 'text/css; charset=utf-8'],
   ['places.js', 'text/javascript; charset=utf-8'],
@@ -32,6 +34,7 @@ export const PUBLIC_FILES = new Map([
   ['restaurant-ui.css', 'text/css; charset=utf-8'],
   ['schedule-ui.js', 'text/javascript; charset=utf-8'],
   ['schedule-ui.css', 'text/css; charset=utf-8'],
+  ['help.html', 'text/html; charset=utf-8'],
   ['sources.html', 'text/html; charset=utf-8'],
   ['sources.css', 'text/css; charset=utf-8'],
   ['travel-sticker-v1.png', 'image/png'],

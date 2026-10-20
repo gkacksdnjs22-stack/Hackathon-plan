@@ -23,7 +23,6 @@
   const vehicleMode=mode=>canonicalTravelMode(mode)==='car';
   const requiresArrival=mode=>['train','bus','flight','ferry'].includes(mode);
   const publicTransport=departure=>requiresArrival(departure?.mode);
-  const routeEstimate=sameArea=>sameArea?10:35;
   const formatTime=minutes=>{
     const offset=Math.floor(minutes/(24*60)),clock=minutes%(24*60);
     const time=`${String(Math.floor(clock/60)).padStart(2,'0')}:${String(clock%60).padStart(2,'0')}`;
@@ -285,7 +284,7 @@
           patch.description=edit.description.trim();
         }
         if(Object.hasOwn(edit,'duration')){
-          const minimum=['departure','arrival-transfer','finish'].includes(id)?0:1;
+          const minimum=['departure','arrival-transfer','finish',...TRANSFER_IDS].includes(id)?0:1;
           const maximum=id==='departure'?4320:720;
           if(!Number.isInteger(edit.duration)||edit.duration<minimum||edit.duration>maximum)return {ok:false,reason:`소요시간은 ${minimum}~${maximum}분의 정수로 입력해 주세요.`};
           patch.duration=edit.duration;
@@ -369,8 +368,8 @@
       ||places.some(place=>!place||place.areaId!==area.id||place.areaName!==area.name)
       ||new Set(places.map(place=>place.id)).size!==3)return {ok:false};
     const events=[];
-    const toSecond=routeEstimate(places[0].areaId===places[1].areaId);
-    const toThird=routeEstimate(places[1].areaId===places[2].areaId);
+    const toSecond=0; // Unknown until the user enters or applies a route duration.
+    const toThird=0;
     const flow=[
       {id:'departure',type:'departure',departure,title:departure?`${departure.name}에서 출발`:'출발지를 선택해 주세요',description:departure?departure.address:'역·숙소·주소에서 이날 출발할 곳을 골라주세요.',duration:0},
       ...(arrival?[
@@ -402,7 +401,7 @@
         description:firstPlace?`${arrival.name} → ${firstPlace.name}`:'도착 후 관광지로 이동 · 방문할 관광지를 담아 주세요.'};
       if(base.type==='meal'&&!extraId(base.id)){
         const localTime=clock%(24*60);
-        const meal=localTime<10*60?'아침 식사':localTime<15*60?'점심 식사':localTime<21*60?'저녁 식사':'늦은 식사';
+        const meal=localTime<10*60?'아침 식사':localTime<15*60?'점심 식사':localTime<17*60?'오후 식사':localTime<21*60?'저녁 식사':'늦은 식사';
         defaults={...base,meal,title:meal,description:`${area.name}에서 ${meal} · 식당을 특정하지 않음`};
       }
       const event={...defaults,...edits[base.id]};
@@ -412,9 +411,9 @@
     const travelDuration=events[0].duration;
     const arrivalTransfer=arrival?events.find(event=>event.id==='arrival-transfer').duration:null;
     const needsTravelTime=Boolean(departure&&(travelDuration===0||(publicTransport(departure)&&(!arrival||arrivalTransfer===0))));
-    const needsExtraTravelTime=events.some(event=>extraId(event.id)&&event.type==='transfer'&&event.duration===0);
+    const needsLocalTravelTime=events.some(event=>event.type==='transfer'&&event.duration===0);
     return {ok:true,area,events,hiddenEvents,start:startMinutes(startTime),end:clock,
-      needsTravelTime:needsTravelTime||needsExtraTravelTime,timesProvisional:!departure||needsTravelTime||needsExtraTravelTime};
+      needsTravelTime:needsTravelTime||needsLocalTravelTime,timesProvisional:!departure||needsTravelTime||needsLocalTravelTime};
   }
   function defaultSelection(area,excluded=new Set()){
     const candidates=area.places.filter(place=>!excluded.has(place.id));

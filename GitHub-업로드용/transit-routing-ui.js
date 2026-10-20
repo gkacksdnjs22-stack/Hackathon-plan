@@ -53,8 +53,14 @@
     const note = document.createElement('p'); note.className = 'transit-route-note'; note.textContent = '조회한 시간은 참고용이에요. 일정 시간은 직접 수정해 주세요.';
     body.append(controls, message, choices, result, manual, note); details.append(summary, body); host.replaceChildren(details);
 
+    const fallback = document.createElement('a'); fallback.className = 'transit-route-fallback';
+    fallback.textContent = '카카오맵에서 대중교통 경로 확인 ↗'; fallback.hidden = true;
+    fallback.target = '_blank'; fallback.rel = 'noopener noreferrer';
+    if (ready) fallback.href = `https://map.kakao.com/link/by/traffic/${encodeURIComponent('출발지')},${from.latitude},${from.longitude}/${encodeURIComponent('도착지')},${to.latitude},${to.longitude}`;
+    body.append(fallback);
+
     let destroyed = false, userIntent = false, version = 0, editing = false, routes = [], pending = null, timeout = null;
-    function showMessage(value, error = false) { message.textContent = value; message.classList.toggle('is-error', error); }
+    function showMessage(value, error = false) { fallback.hidden = !error || !ready; message.textContent = value; message.classList.toggle('is-error', error); }
     function initialMessage() {
       showMessage(ready ? '펼쳐서 현재 대중교통 경로를 조회해 보세요.' : '좌표가 있는 출발지와 도착지를 선택해 주세요.');
     }
@@ -124,10 +130,15 @@
         if (destroyed || requestVersion !== version) return;
         if (controller.signal.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
         if (!response.ok) {
-          showMessage(response.status === 422 ? '조회된 대중교통 경로가 없어요. 출발지·도착지나 이동수단을 확인해 주세요.'
+          let code; try { code = (await response.json())?.error?.code; } catch {}
+          if (destroyed || requestVersion !== version) return;
+          if (controller.signal.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
+          const setupMessage = code === 'KEY_MISSING' ? '이 사이트의 경로 API 설정이 아직 없어요. 카카오맵에서 경로를 확인하고 일정 시간을 직접 입력해 주세요.'
+            : code === 'AUTH_ERROR' ? '경로 API 인증·사용 권한을 확인해야 해요. 카카오맵에서 경로를 확인하거나 시간을 직접 입력해 주세요.' : null;
+          showMessage(setupMessage || (response.status === 422 ? '조회된 대중교통 경로가 없어요. 출발지·도착지나 이동수단을 확인해 주세요.'
             : response.status === 401 || response.status === 403 || response.status === 503 ? '대중교통 경로 연결을 준비 중이에요. 잠시 후 다시 확인해 주세요.'
               : response.status === 429 ? '조회가 많아 잠시 쉬고 있어요. 조금 뒤 다시 조회해 주세요.'
-                : response.status === 504 ? '대중교통 응답이 늦어지고 있어요. 다시 조회해 주세요.' : '대중교통 경로를 불러오지 못했어요. 다시 조회해 주세요.', true);
+                : response.status === 504 ? '대중교통 응답이 늦어지고 있어요. 다시 조회해 주세요.' : '대중교통 경로를 불러오지 못했어요. 다시 조회해 주세요.'), true);
           return;
         }
         const data = await response.json();

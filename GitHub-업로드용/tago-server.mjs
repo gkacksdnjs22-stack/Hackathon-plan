@@ -15,6 +15,7 @@ const ERRORS = Object.freeze({
   INVALID_QUERY: [400, '역·터미널·공항·항구 이름을 2~100자로 입력해 주세요.'],
   INVALID_DATE: [400, '운행일을 올바른 날짜로 선택해 주세요.'],
   TODAY_ONLY: [400, '시외버스는 현재 한국시간 기준 오늘의 배차만 조회할 수 있어요.'],
+  CATALOG_INCOMPLETE: [503, '일부 교통기관 목록을 불러오지 못했어요. 잠시 후 다시 검색하거나 시간을 직접 입력해 주세요.'],
   UNKNOWN_STOP: [400, '출발지와 도착지를 해당 교통수단의 검색 목록에서 다시 선택해 주세요.'],
   KEY_MISSING: [503, '서버의 .env에 DATA_GO_KR_SERVICE_KEY를 설정해 주세요.'],
   AUTH_ERROR: [502, '공공 교통정보 인증에 실패했어요. 해당 TAGO 서비스의 활용신청 승인 상태를 확인해 주세요.'],
@@ -93,7 +94,7 @@ async function readBody(response) {
 }
 
 export function createTransportClient({ serviceKey, fetchImpl = globalThis.fetch, now = Date.now,
-  timeoutMs = 8000, catalogCacheMs = DAY, tripCacheMs = 5 * 60 * 1000,
+  timeoutMs = 8000, catalogTimeoutMs = 18000, catalogCacheMs = DAY, tripCacheMs = 5 * 60 * 1000,
   pageSize = 1000, maximumItems = 1000, maxPages = 10 } = {}) {
   const catalogs = new Map(), trips = new Map(), pending = new Map();
   const rows = Math.min(1000, Math.max(1, Number.isSafeInteger(pageSize) ? pageSize : 1000));
@@ -104,8 +105,10 @@ export function createTransportClient({ serviceKey, fetchImpl = globalThis.fetch
     const url = new URL(`https://apis.data.go.kr/1613000/${CONFIG[service].base}/${operation}`);
     for (const [name, value] of Object.entries({ serviceKey: keyValue(serviceKey), _type: 'json',
       numOfRows: String(rows), pageNo: String(pageNo), ...query })) url.searchParams.set(name, value);
-    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeoutMs);
+    const controller = new AbortController(); let timer;
+    const deadline = new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new TransportApiError('TIMEOUT')); }, timeoutMs); });
     try {
+      return await Promise.race([deadline, (async () => {
       const response = await fetchImpl(url, { signal: controller.signal, redirect: 'manual', headers: { Accept: 'application/json' } });
       if ([401, 403].includes(response.status)) throw new TransportApiError('AUTH_ERROR');
       if (response.status === 429) throw new TransportApiError('RATE_LIMIT');
@@ -133,6 +136,7 @@ export function createTransportClient({ serviceKey, fetchImpl = globalThis.fetch
       const totalCount = body.totalCount === undefined ? items.length : Number(body.totalCount);
       if (!Number.isSafeInteger(totalCount) || totalCount < 0 || (totalCount > 0 && items.length === 0)) throw new TransportApiError('INVALID_RESPONSE');
       return { items, totalCount };
+      })()]);
     } catch (error) {
       if (error instanceof TransportApiError) throw error;
       throw new TransportApiError(controller.signal.aborted ? 'TIMEOUT' : 'NETWORK_ERROR');
@@ -159,7 +163,7 @@ export function createTransportClient({ serviceKey, fetchImpl = globalThis.fetch
     if (pending.size >= 30) throw new TransportApiError('RATE_LIMIT');
     const request = fetchData().then(payload => {
       while (map.size >= capacity) map.delete(map.keys().next().value);
-      map.set(key, { expiresAt: now() + ttl, payload }); return payload;
+      if (!payload.partial) map.set(key, { expiresAt: now() + ttl, payload }); return payload;
     }).finally(() => pending.delete(key));
     pending.set(key, request); return request;
   }
@@ -175,21 +179,38 @@ export function createTransportClient({ serviceKey, fetchImpl = globalThis.fetch
 
   async function catalog(service) {
     return cached(catalogs, `catalog:${service}`, catalogCacheMs, async () => {
-      const unique = new Map(); let truncated = false;
+      const unique = new Map(), catalogStarted = Date.now(); let truncated = false, partial = false;
       if (service === 'train') {
         const regions = await fetchList(service, 'GetCtyCodeList');
         truncated = regions.truncated;
         if (regions.items.length > 64) throw new TransportApiError('INVALID_RESPONSE');
-        const seen = new Set();
+        const seen = new Set(), validRegions = [];
         for (const region of regions.items) {
           const cityCode = clean(region?.citycode, 10), cityName = clean(region?.cityname);
           if (!/^\d{1,3}$/.test(cityCode) || !cityName || seen.has(cityCode)) continue;
-          seen.add(cityCode);
-          if (unique.size >= limit) { truncated = true; break; }
-          const result = await fetchList(service, CONFIG[service].stops, { cityCode });
-          truncated ||= result.truncated;
+          seen.add(cityCode); validRegions.push({ cityCode, cityName });
+        }
+        // A cold nationwide station search must not wait for every city serially.
+        // Four workers bound provider pressure; collect in source order for stable results.
+        const results = new Array(validRegions.length); let nextRegion = 0, stopped = false, catalogTimer;
+        const workers = Promise.all(Array.from({ length: Math.min(4, validRegions.length) }, async () => {
+          while (!stopped && nextRegion < validRegions.length) {
+            const index = nextRegion++, region = validRegions[index];
+            try { results[index] = await fetchList(service, CONFIG[service].stops, { cityCode: region.cityCode }); }
+            catch (error) { results[index] = { error }; }
+          }
+        }));
+        try {
+          await Promise.race([workers, new Promise(resolve => { catalogTimer = setTimeout(() => { stopped = true; resolve(); }, Math.max(1, catalogTimeoutMs - (Date.now() - catalogStarted))); })]);
+        } finally { clearTimeout(catalogTimer); stopped = true; }
+        partial = results.filter(result => result && !result.error).length < validRegions.length;
+        if (partial && !results.some(result => result && !result.error)) {
+          throw results.find(result => result?.error)?.error || new TransportApiError('TIMEOUT');
+        }
+        for (let index = 0; index < results.length; index++) {
+          const result = results[index]; if (!result || result.error) continue; truncated ||= result.truncated;
           for (const raw of result.items) {
-            const stop = normalizeStop(service, raw, cityName);
+            const stop = normalizeStop(service, raw, validRegions[index].cityName);
             if (stop && unique.size < limit) unique.set(stop.providerId, stop);
             else if (stop && !unique.has(stop.providerId)) truncated = true;
           }
@@ -202,7 +223,7 @@ export function createTransportClient({ serviceKey, fetchImpl = globalThis.fetch
           if (stop) unique.set(stop.providerId, stop);
         }
       }
-      return { items: [...unique.values()], truncated, fetchedAt: new Date(now()).toISOString() };
+      return { items: [...unique.values()], truncated, partial, fetchedAt: new Date(now()).toISOString() };
     }, 5);
   }
 
@@ -236,15 +257,19 @@ export function createTransportClient({ serviceKey, fetchImpl = globalThis.fetch
       if (!['train', 'bus', 'flight', 'ferry'].includes(mode)) throw new TransportApiError('INVALID_REQUEST');
       const services = service ? [service] : mode === 'bus' ? ['express', 'intercity'] : [mode];
       if (services.some(name => !Object.hasOwn(CONFIG, name) || CONFIG[name].mode !== mode)) throw new TransportApiError('INVALID_REQUEST');
-      const catalogs = [];
-      for (const name of services) catalogs.push(await catalog(name));
+      const loaded = await Promise.allSettled(services.map(name => catalog(name)));
+      const catalogs = loaded.filter(result => result.status === 'fulfilled').map(result => result.value);
+      if (!catalogs.length) throw loaded.find(result => result.status === 'rejected').reason;
+      const unavailableServices = loaded.flatMap((result, index) => result.status === 'rejected'
+        ? [{ service: services[index], code: result.reason instanceof TransportApiError ? result.reason.code : 'UPSTREAM_ERROR' }]
+        : result.value.partial ? [{ service: services[index], code: 'CATALOG_INCOMPLETE' }] : []);
       const needle = comparable(query);
       const alias = mode === 'train' && needle.endsWith('역') ? needle.slice(0, -1) : needle;
       const matches = catalogs.flatMap(entry => entry.items).filter(stop => comparable(stop.name).includes(needle)
         || (alias.length && comparable(stop.name).includes(alias)));
       const rank = stop => comparable(stop.name) === alias ? 0 : comparable(stop.name).startsWith(alias) ? 1 : 2;
       matches.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, 'ko') || a.id.localeCompare(b.id));
-      return { provider: PROVIDER, items: matches.slice(0, 10), truncated: catalogs.some(entry => entry.truncated) || matches.length > 10,
+      return { provider: PROVIDER, items: matches.slice(0, 10), partial: unavailableServices.length > 0, unavailableServices, truncated: catalogs.some(entry => entry.truncated) || matches.length > 10,
         fetchedAt: catalogs.map(entry => entry.fetchedAt).sort()[0] };
     },
     async getTrips({ service, from, to, date } = {}) {
@@ -253,7 +278,7 @@ export function createTransportClient({ serviceKey, fetchImpl = globalThis.fetch
       if (service === 'intercity' && date !== koreanDate(now())) throw new TransportApiError('TODAY_ONLY');
       const stops = await catalog(service);
       const departure = stops.items.find(stop => stop.providerId === from), arrival = stops.items.find(stop => stop.providerId === to);
-      if (!departure || !arrival) throw new TransportApiError('UNKNOWN_STOP');
+      if (!departure || !arrival) throw new TransportApiError(stops.partial ? 'CATALOG_INCOMPLETE' : 'UNKNOWN_STOP');
       return cached(trips, `trips:${service}:${from}:${to}:${date}`, tripCacheMs, async () => {
         const config = CONFIG[service], query = { [config.from]: from, depPlandTime: date.replaceAll('-', '') };
         if (config.to) query[config.to] = to;

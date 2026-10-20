@@ -420,3 +420,35 @@ test('legacy taxi and rental-car departure selections restore as the single vehi
     assert.equal(app.calls.length, 0); app.widget.destroy();
   }
 });
+
+
+test('partial bus catalogs retain usable matches and explain the missing service', async () => {
+  const app = mobileDepartureRuntime('bus'); app.find('origin-query').value = '서울'; app.enter();
+  app.finish({ ok: true, json: async () => ({ items: [stop('SEOUL', '서울경부', 'express')], partial: true, unavailableServices: [{ service: 'intercity', code: 'AUTH_ERROR' }] }) });
+  await settle();
+  assert.match(app.find('origin-message').textContent, /시외버스 목록은 불러오지 못해 일부 결과/);
+  assert.equal(app.find('origin-results').children.length, 1);
+  app.widget.destroy();
+});
+
+test('missing key is explained as configuration, not an empty station search', async () => {
+  const app = mobileDepartureRuntime('train'); app.find('origin-query').value = '서울'; app.enter();
+  app.finish({ ok: false, status: 503, json: async () => ({ error: { code: 'KEY_MISSING', message: 'must not show raw details' } }) });
+  await settle(); assert.match(app.find('origin-message').textContent, /API 설정이 아직 없어요/);
+  assert.doesNotMatch(app.host.textContent, /must not show/); app.widget.destroy();
+});
+
+test('ferry schedules retain provider times with a visible operator-confirmation notice', async () => {
+  const from = stop('SEA1', '출발항', 'ferry'), to = stop('SEA2', '도착항', 'ferry');
+  const short = trip(from, to, { departureMinutes: 510, arrivalMinutes: 516, durationMinutes: 6 });
+  const context = vm.createContext({ window: {}, document: { createElement: tag => new Element(tag) }, Intl,
+    AbortController, URLSearchParams, setTimeout: () => 1, clearTimeout: () => {},
+    fetch: async () => ({ ok: true, json: async () => ({ items: [short] }) }) });
+  vm.runInContext(plannerCode, context); vm.runInContext(transportCode, context);
+  const host = new Element('div'), selected = [];
+  const widget = context.window.TravelTransport.mount(host, { date, departure: from, arrival: to, startTime: '00:00', onApply: value => selected.push(value) });
+  const details = find(host, 'transport-lookup'); details.open = true; details.dispatch('toggle'); await settle();
+  assert.match(find(host, 'transport-ferry-notice').textContent, /선사에 확인/);
+  find(host, 'transport-trip').dispatch('click'); assert.equal(selected[0].durationMinutes, 6);
+  widget.destroy();
+});

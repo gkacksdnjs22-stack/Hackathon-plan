@@ -36,7 +36,12 @@ test('real planner output with hidden recommendations, a whole-catalog tourist a
   current=planner.replaceTouristEvent({city,itinerary:current,dayIndex:0,eventId:'place-0',replacementId:'tourapi-104'}).itinerary;
   current=planner.addEvent({city,itinerary:current,dayIndex:0,type:'transfer',travelMode:'local-bus',duration:0}).itinerary;
   current=planner.moveEvent({city,itinerary:current,dayIndex:0,eventId:'place-2',direction:-1}).itinerary;
+  for (const eventId of ['transfer-0','transfer-1']) {
+    const updated=planner.updateEvent({city,itinerary:current,dayIndex:0,eventId,duration:0});
+    assert.equal(updated.ok,true,updated.reason);current=updated.itinerary;
+  }
   const saved=normalizePlanDocument({version:8,itinerary:clone(current)});
+  for (const eventId of ['transfer-0','transfer-1']) assert.equal(saved.itinerary.eventEdits[0][eventId].duration,0);
   const restored=planner.createItinerary({city,...saved.itinerary});
   assert.equal(restored.ok,true,restored.reason);assert.deepEqual(clone(restored.days),clone(current.days));
 });
@@ -52,7 +57,7 @@ test('unknown top-level and nested API fields are rejected rather than stored', 
 test('dates, source identities, day maps, duplicates and protected rows are validated', () => {
   for(const patch of [{startDate:'2026-02-30'},{dayCount:8},{dayStarts:null},{dayStarts:{1:'09:00'}},{dayStarts:{0:'25:10'}},
     {selections:{0:['tourapi-100','tourapi-100','tourapi-102']}},{dayAreaIds:['../PRIVATE']},
-    {eventEdits:{0:{arrival:{duration:0}}}},{eventEdits:{0:{'transfer-0':{duration:0}}}},
+    {eventEdits:{0:{arrival:{duration:0}}}},{eventEdits:{0:{'place-0':{duration:0}}}},
     {excludedEvents:{0:['departure']}},{eventOrders:{0:['finish']}},
     {extraEvents:{0:[{id:'extra-1',type:'place',placeId:'tourapi-100',duration:60}]}},
     {extraEvents:{0:[{id:'extra-1',type:'free',beforeId:'arrival-transfer',duration:30}]}},

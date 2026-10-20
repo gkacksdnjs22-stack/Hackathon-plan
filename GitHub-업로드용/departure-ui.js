@@ -11,12 +11,12 @@
     flight: { mode: 'flight', label: '항공', sourceUrl: 'https://www.data.go.kr/data/15098526/openapi.do' },
     ferry: { mode: 'ferry', label: '여객선', sourceUrl: 'https://www.data.go.kr/data/15098523/openapi.do' }
   };
-  const placeholders = { train: '예: 서울역', bus: '예: 서울고속버스터미널', flight: '예: 김포국제공항', ferry: '예: 부산항여객터미널', car: '예: 도로명 주소 또는 장소 이름' };
+  const placeholders = { train: '예: 서울역', bus: '예: 서울, 부산 또는 터미널 이름', flight: '예: 김포국제공항', ferry: '예: 목포, 제주 또는 항구 이름', car: '예: 도로명 주소 또는 장소 이름' };
   const arrivals = {
     train: { heading: '도착역', empty: '도착역을 골라주세요', placeholder: '예: 부산역', intro: '기차에서 내릴 도착역을 검색해 주세요.' },
-    bus: { heading: '도착터미널', empty: '도착터미널을 골라주세요', placeholder: '예: 부산종합버스터미널', intro: '버스에서 내릴 도착 터미널을 검색해 주세요.' },
+    bus: { heading: '도착터미널', empty: '도착터미널을 골라주세요', placeholder: '예: 부산 또는 터미널 이름', intro: '버스에서 내릴 도착 터미널을 검색해 주세요.' },
     flight: { heading: '도착공항', empty: '도착공항을 골라주세요', placeholder: '예: 제주국제공항', intro: '비행기에서 내릴 도착 공항을 검색해 주세요.' },
-    ferry: { heading: '도착항구', empty: '도착항구를 골라주세요', placeholder: '예: 제주항여객터미널', intro: '배에서 내릴 여객터미널이나 항구를 검색해 주세요.' }
+    ferry: { heading: '도착항구', empty: '도착항구를 골라주세요', placeholder: '예: 제주 또는 항구 이름', intro: '배에서 내릴 여객터미널이나 항구를 검색해 주세요.' }
   };
   let sequence = 0;
 
@@ -234,7 +234,12 @@
         if (destroyed || token !== requestToken) return;
         if (controller.signal.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
         if (!response.ok) {
-          setMessage(response.status === 429 ? '검색 요청이 잠시 몰렸어요. 잠시 후 다시 시도해 주세요.' : `${noun}를 불러오지 못했어요. 잠시 후 다시 검색해 주세요.`, true);
+          let errorCode; try { errorCode = (await response.json())?.error?.code; } catch {}
+          if (destroyed || token !== requestToken) return;
+          if (controller.signal.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
+          const setup = errorCode === 'KEY_MISSING' ? '이 사이트의 교통정보 API 설정이 아직 없어요. 관리자 설정이 필요하며, 일정 시간은 직접 입력할 수 있어요.'
+            : errorCode === 'AUTH_ERROR' ? '교통정보 API 인증·서비스 사용 권한을 확인해야 해요. 일정 시간은 직접 입력할 수 있어요.' : null;
+          setMessage(setup || (response.status === 429 ? '검색 요청이 잠시 몰렸어요. 잠시 후 다시 시도해 주세요.' : `${noun}를 불러오지 못했어요. 잠시 후 다시 검색해 주세요.`), true);
           return;
         }
         const body = await response.json();
@@ -242,9 +247,12 @@
         if (controller.signal.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
         if (!Array.isArray(body.items)) throw new Error('Invalid search response');
         const items = body.items.map(normalize).filter(item => item && item.source === (useTransportStops ? 'TAGO' : 'OpenStreetMap') && matchesContext(item, searchMode)).slice(0, 10);
-        if (!items.length) { setMessage('검색 결과가 없어요. 장소 이름이나 주소를 더 구체적으로 입력해 주세요.'); return; }
+        const missing = useTransportStops && body.partial === true && Array.isArray(body.unavailableServices)
+          ? body.unavailableServices.map(item => transportServices[item?.service]?.label).filter(Boolean).join('·') : '';
+        const partialNotice = missing ? ` ${missing} 목록은 불러오지 못해 일부 결과만 표시해요. 잠시 후 다시 검색해 주세요.` : '';
+        if (!items.length) { setMessage(missing ? `조회된 목록에는 일치하는 결과가 없어요.${partialNotice}` : '검색 결과가 없어요. 장소 이름이나 주소를 더 구체적으로 입력해 주세요.'); return; }
         renderResults(items, searchMode);
-        setMessage(`${items.length}개의 검색 결과에서 ${noun}를 선택해 주세요.`);
+        setMessage(`${items.length}개의 검색 결과에서 ${noun}를 선택해 주세요.${partialNotice}${body.truncated ? ' 더 많은 결과가 있을 수 있으니 검색어를 구체적으로 입력해 주세요.' : ''}`);
       } catch (error) {
         if (destroyed || token !== requestToken) return;
         setMessage(error.name === 'AbortError' ? '검색 시간이 길어지고 있어요. 잠시 후 다시 검색해 주세요.' : `${noun} 검색에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.`, true);

@@ -88,7 +88,7 @@
         if (destroyed || version !== selectionVersion || listVersion !== token) return;
         if (outcome?.ok === true) {
           selectedId = item.id;
-          showMessage('선택한 식당을 식사 일정에 담았어요.');
+          showMessage('선택한 식당을 담았어요. 식당까지 오가는 이동시간은 포함되지 않으니 이동 일정을 직접 추가해 주세요.');
         } else showMessage(text(outcome?.reason, 500) ? outcome.reason : '식사 일정에 담지 못했어요. 다시 시도해 주세요.', true);
       } catch (_error) {
         if (!destroyed && version === selectionVersion && listVersion === token)

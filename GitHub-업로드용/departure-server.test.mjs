@@ -103,16 +103,12 @@ test('같은 검색어의 동시 요청을 합치고 1시간 캐시를 사용한
   assert.equal(calls, 2);
 });
 
-test('서로 다른 검색은 초당 1회로 순차 실행하며 실패 후에도 계속된다', async () => {
+test('서로 다른 검색은 초당 1회로 시작하며 실패 후에도 계속된다', async () => {
   const clock = clockOptions();
   const starts = [];
-  let active = 0;
   const client = createDepartureClient({ ...clock, fetchImpl: async url => {
-    assert.equal(active, 0);
-    active++;
     starts.push(clock.now());
     await Promise.resolve();
-    active--;
     if (url.searchParams.get('q') === '실패역') throw new Error('raw private query');
     return response();
   } });
@@ -184,4 +180,47 @@ test('대기열이 가득 차면 같은 검색어 병합은 허용하고 새 검
   await assert.rejects(client.search('부산역'), error => error.code === 'SEARCH_RATE_LIMIT' && error.status === 429);
   finish();
   assert.strictEqual(await first, await same);
+});
+
+
+test('slow searches do not block other starts and preserve one-second spacing', async () => {
+  const clock = clockOptions(), starts = [];
+  let finish;
+  const gate = new Promise(resolve => { finish = resolve; });
+  const client = createDepartureClient({ ...clock, fetchImpl: async url => {
+    starts.push(clock.now());
+    if (url.searchParams.get('q') === '서울역') await gate;
+    return response();
+  } });
+  const first = client.search('서울역');
+  const second = await client.search('부산역');
+  assert.equal(second.items.length, 1);
+  assert.deepEqual(starts, [10000, 11000]);
+  finish(); await first;
+});
+
+test('total deadline settles an abort-ignoring upstream and frees the pending slot', async () => {
+  const clock = clockOptions(); let calls = 0;
+  const client = createDepartureClient({ ...clock, totalTimeoutMs: 10, maxPending: 1,
+    fetchImpl: async () => ++calls === 1 ? new Promise(() => {}) : response() });
+  await assert.rejects(client.search('서울역'), error => error.code === 'SEARCH_TIMEOUT');
+  assert.equal((await client.search('부산역')).items.length, 1);
+});
+
+test('a search whose total deadline expires in the rate gate never starts upstream', async () => {
+  let release; let calls = 0;
+  const client = createDepartureClient({ now: () => 10000, totalTimeoutMs: 10,
+    delayImpl: () => new Promise(resolve => { release = resolve; }),
+    fetchImpl: async () => { calls++; return response(); } });
+  await client.search('서울역');
+  await assert.rejects(client.search('부산역'), error => error.code === 'SEARCH_TIMEOUT');
+  release(); await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(calls, 1);
+});
+
+
+test('per-request deadline also settles an upstream that ignores cancellation', async () => {
+  const client = createDepartureClient({ timeoutMs: 10, totalTimeoutMs: 100,
+    fetchImpl: async () => new Promise(() => {}) });
+  await assert.rejects(client.search('서울역'), error => error.code === 'SEARCH_TIMEOUT');
 });

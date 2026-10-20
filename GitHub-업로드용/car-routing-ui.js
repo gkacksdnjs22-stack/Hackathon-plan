@@ -47,10 +47,17 @@
     apply.textContent = '일정에 적용'; apply.hidden = true; apply.disabled = true;
     result.append(duration, distance, apply); body.append(controls, message, result); details.append(summary, body); host.replaceChildren(details);
 
+    const fallback = document.createElement('a'); fallback.className = 'car-route-fallback';
+    fallback.textContent = '카카오맵에서 차량 경로 확인 ↗'; fallback.hidden = true;
+    fallback.target = '_blank'; fallback.rel = 'noopener noreferrer';
+    if (ready) fallback.href = `https://map.kakao.com/link/by/car/${encodeURIComponent('출발지')},${from.latitude},${from.longitude}/${encodeURIComponent('도착지')},${to.latitude},${to.longitude}`;
+    body.append(fallback);
+
     let destroyed = false, attempted = false, userIntent = false, version = 0;
     let pending = null, timeout = null, route = null, applying = false, applied = false;
 
     function showMessage(value, error = false) {
+      fallback.hidden = !error || !ready;
       message.textContent = value; message.classList.toggle('is-error', error);
     }
     function samePoint(first, second) {
@@ -90,12 +97,17 @@
         if (destroyed || requestVersion !== version) return;
         if (controller.signal.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
         if (!response.ok) {
-          showMessage(response.status === 422 ? '두 지점 사이에 조회할 수 있는 차량 경로가 없어요. 출발지와 도착지를 확인해 주세요.'
+          let code; try { code = (await response.json())?.error?.code; } catch {}
+          if (destroyed || requestVersion !== version) return;
+          if (controller.signal.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' });
+          const setupMessage = code === 'KEY_MISSING' ? '이 사이트의 경로 API 설정이 아직 없어요. 카카오맵에서 경로를 확인하고 일정 시간을 직접 입력해 주세요.'
+            : code === 'AUTH_ERROR' ? '경로 API 인증·사용 권한을 확인해야 해요. 카카오맵에서 경로를 확인하거나 시간을 직접 입력해 주세요.' : null;
+          showMessage(setupMessage || (response.status === 422 ? '두 지점 사이에 조회할 수 있는 차량 경로가 없어요. 출발지와 도착지를 확인해 주세요.'
             : response.status === 503 ? '차량 이동시간 연결을 준비 중이에요. 잠시 후 다시 확인해 주세요.'
               : response.status === 401 || response.status === 403 ? '차량 이동시간을 조회할 수 없어요. 잠시 후 다시 확인해 주세요.'
                 : response.status === 429 ? '조회가 많아 잠시 쉬고 있어요. 조금 뒤 다시 조회해 주세요.'
                   : response.status === 504 ? '차량 이동시간 응답이 늦어지고 있어요. 다시 조회해 주세요.'
-                    : '차량 이동시간을 불러오지 못했어요. 다시 조회해 주세요.', true);
+                    : '차량 이동시간을 불러오지 못했어요. 다시 조회해 주세요.'), true);
           return;
         }
         const data = await response.json();

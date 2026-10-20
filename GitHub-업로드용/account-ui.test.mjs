@@ -124,7 +124,7 @@ test('ready awaits the initial account transition and does not fetch plans befor
 test('unconfigured and unknown sessions settle gracefully, preserve local editing, and use distinct identity callbacks', async () => {
   const unavailable = runtime({ configured: false }); await unavailable.ready();
   assert.equal(unavailable.state.users[0].user, null);
-  await unavailable.click('로그인 · 회원가입'); assert.match(unavailable.find('account-dialog-message').textContent, /계정 저장을 준비/);
+  await unavailable.click('계정 저장 준비 중'); assert.match(unavailable.find('account-dialog-message').textContent, /계정 저장을 준비/);
   assert.equal(unavailable.find('account-username'), null); assert.equal(unavailable.reads, 0); unavailable.controller.destroy();
   const failed = runtime({ handler: request => request.path === '/api/auth/session' ? Promise.reject(Error('private error')) : undefined });
   await failed.ready(); assert.equal(failed.state.users[0].user, undefined);
@@ -318,4 +318,14 @@ test('broadcast notifications contain no identity or credentials and the channel
   assert.doesNotMatch(JSON.stringify(app.signals), /traveler_1|user-one|password/);
   app.state.user = null; app.channels[0].emit({ type: 'session-changed' }); await settle();
   assert.equal(app.find('account-user'), null); app.controller.destroy(); assert.equal(app.channels[0].closed, true);
+});
+
+
+test('cloud load preserves the document owners local persistence warning', async () => {
+  const warning='이 기기 자동저장에 실패했어요.';
+  const app=runtime({user:person,plans:[planFixture()],loadDocument:()=>({ok:true,warning})});await app.ready();
+  await app.click('불러오기',app.roots.libraryRoot);await app.click('불러오기',app.find('account-dialog-actions'));
+  assert.equal(app.state.messages.at(-1).text,warning);assert.equal(app.state.messages.at(-1).kind,'error');
+  assert.equal(app.find('account-dialog-backdrop').hidden,true);
+  assert.match(app.roots.saveRoot.textContent,/변경사항 저장/);app.controller.destroy();
 });

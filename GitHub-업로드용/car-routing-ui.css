@@ -46,3 +46,6 @@
   .car-route-compact>summary,.car-route-compact .car-route-refresh,.car-route-compact .car-route-apply { min-height: 44px; }
 }
 @media print { .car-route-container,.car-route-lookup { display: none !important; } }
+
+.car-route-fallback { display: inline-block; margin-top: 10px; color: #46577e; font-size: 13px; text-underline-offset: 3px; }
+.car-route-fallback[hidden] { display: none; }

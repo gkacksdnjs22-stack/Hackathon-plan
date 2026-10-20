@@ -153,7 +153,7 @@ test('untrusted names and step text produce text nodes and never create links, i
   await app.open(); assert.match(app.find('transit-route-preview').textContent, /<img/); assert.equal(app.find('transit-route-preview').children.length, 0);
   assert.match(app.find('transit-route-step-list').textContent, /<img/);
   const tags = []; const visit = node => { tags.push(node.tagName); node.children.forEach(visit); }; visit(app.host);
-  assert.equal(tags.includes('img'), false); assert.equal(tags.includes('script'), false); assert.equal(tags.includes('a'), false); app.widget.destroy();
+  assert.equal(tags.includes('img'), false); assert.equal(tags.includes('script'), false); assert.equal(tags.filter(tag => tag === 'a').length, 1); assert.match(app.find('transit-route-fallback').href, /^https:\/\/map\.kakao\.com\/link\/by\/traffic\//); assert.doesNotMatch(app.find('transit-route-fallback').href, /img|onerror/); app.widget.destroy();
 });
 
 test('timeouts and close cancel requests and reject late data even when fetch ignores abort', async () => {
@@ -177,4 +177,20 @@ test('manual editing is protected from double clicks and synchronous parent dest
   assert.match(app.find('transit-route-message').textContent, /일정을 다시 확인/); assert.equal(button.disabled, false); app.widget.destroy();
   let destroyed; destroyed = runtime(async () => ok(), { onEdit: () => { destroyed.widget.destroy(); } });
   destroyed.find('transit-route-edit').dispatch('click'); await settle(); assert.equal(destroyed.host.children.length, 0);
+});
+
+
+test('missing key and authorization failures show setup guidance and a safe external route fallback', async () => {
+  for (const code of ['KEY_MISSING', 'AUTH_ERROR']) {
+    const app = runtime(async () => ({ ok: false, status: code === 'KEY_MISSING' ? 503 : 502, json: async () => ({ error: { code, message: 'unsafe secret must not appear' } }) }));
+    await app.open();
+    assert.match(app.find('transit-route-message').textContent, code === 'KEY_MISSING' ? /설정이 아직 없어요/ : /인증·사용 권한/);
+    const link = app.find('transit-route-fallback');
+    assert.equal(link.hidden, false);
+    assert.match(link.href, /^https:\/\/map\.kakao\.com\/link\/by\//);
+    assert.equal(link.rel, 'noopener noreferrer');
+    assert.doesNotMatch(app.host.textContent, /unsafe secret/);
+    assert.equal(app.find('transit-route-result').hidden, true);
+    app.widget.destroy();
+  }
 });

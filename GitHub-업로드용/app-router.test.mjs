@@ -195,7 +195,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   });
   const city = cityData || { id: 'test-city', country: 'KR', name: '테스트시', timezone: 'Asia/Seoul', supportedDays: 1,
     dataSource: 'tourapi', areas: [{ id: 'area-a', name: '중구 · 공원', places: [] }] };
-  const behavior = { createError: null };
+  const behavior = { createError: null, confirmClear: true, confirmations: [] };
   const window = {
     location, history: {
       replaceState(_state, _title, value) { currentHash = value; history[historyIndex] = value; },
@@ -204,6 +204,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
     },
     addEventListener(type, listener) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(listener); },
     scrollTo: options => scrolls.push(options), print() {},
+    confirm(text) { behavior.confirmations.push(text); return behavior.confirmClear; },
     TRAVEL_DATA: { countries: { KR: '대한민국' }, cities: { [city.id]: city } },
     TourData: {
       async loadDestinations() { if (loadError) throw loadError; return destinationsPromise ? await destinationsPromise : [city]; },
@@ -744,4 +745,53 @@ test('loading remains visible until completion, while errors persist until the n
   assert.equal(app.$('app-message').hidden, false);
   app.document.dispatch('input', app.$('start-date'));
   assert.equal(app.$('app-message').hidden, true);
+});
+
+
+test('built-in transfer editor saves a memo with pending zero duration and lets a known duration return to pending', async () => {
+  const app = runtime(actualPlannerFixture()); await settle(); await app.create();
+  for (const minutes of [0, 25, 0]) {
+    const row = app.$('day-list').querySelector('[data-event-id="transfer-0"]');
+    row.querySelector('.event-edit-button').click();
+    const editor = row.querySelector('.event-editor');
+    const inputs = editor.querySelectorAll('input');
+    const hours = inputs.find(input => input.getAttribute('aria-label') === '이동시간: 시간');
+    const minuteInput = inputs.find(input => input.getAttribute('aria-label') === '이동시간: 분');
+    hours.value = '0'; minuteInput.value = String(minutes);
+    editor.querySelector('textarea').value = '수동 이동시간 확인';
+    editor.dispatch('submit');
+    const saved = JSON.parse(app.stored.get(storageKey)).itinerary;
+    assert.equal(saved.eventEdits[0]['transfer-0'].duration, minutes);
+    assert.equal(saved.eventEdits[0]['transfer-0'].description, '수동 이동시간 확인');
+    assert.match(app.$('app-message').textContent, /수정한 내용을 저장/);
+  }
+});
+
+
+test('invalid JSON draft envelopes preserve storage and do not derail destination setup', async () => {
+  for (const raw of ['null','true','7','"text"','[]']) {
+    const app=runtime({raw});await settle();screen(app,'start');
+    assert.equal(app.stored.get(storageKey),raw);assert.equal(app.removals.length,0);
+    assert.equal(app.$('destinations-retry').hidden,true);
+    assert.equal(app.$('day-count').disabled,false);
+    assert.match(app.$('app-message').textContent,/저장 데이터 형식/);
+  }
+});
+
+test('canceling clear preserves the local note and rendered itinerary', async () => {
+  const raw=savedNote(),app=runtime({hash:'#/note',raw});await settle();
+  const rendered=app.$('day-list').children[0];app.behavior.confirmClear=false;
+  await app.clear();screen(app,'note');
+  assert.equal(app.stored.get(storageKey),raw);assert.equal(app.removals.length,0);
+  assert.equal(app.$('day-list').children[0],rendered);
+  assert.match(app.behavior.confirmations[0],/되돌릴 수 없어요/);
+});
+
+test('cloud load reports local persistence failure without replacing it with success', async () => {
+  const fixture=actualPlannerFixture(),app=runtime({...fixture,withAccount:true,storageError:{set:true}});await settle();
+  const source=fixture.planner.createItinerary({city:fixture.cityData,startDate:'2026-10-20',dayCount:1});
+  const result=await app.account.options.loadDocument({version:8,itinerary:source});await settle();
+  assert.equal(result.ok,true);assert.match(result.warning,/자동저장에 실패/);
+  screen(app,'note');assert.match(app.$('app-message').textContent,/자동저장에 실패/);
+  assert.ok(app.$('app-message').classList.contains('is-error'));assert.equal(app.writes.length,0);
 });

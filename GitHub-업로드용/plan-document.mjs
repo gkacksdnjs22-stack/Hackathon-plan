@@ -132,7 +132,7 @@ export function normalizePlanDocument(input) {
       const patch = {};
       if (Object.hasOwn(edit,'title')) patch.title=string(edit.title,80,1);
       if (Object.hasOwn(edit,'description')) patch.description=string(edit.description,500);
-      if (Object.hasOwn(edit,'duration')) { if (!integer(edit.duration,['departure','arrival-transfer','finish'].includes(id)?0:1,id==='departure'?4320:720)) fail(); patch.duration=edit.duration; }
+      if (Object.hasOwn(edit,'duration')) { if (!integer(edit.duration,['departure','arrival-transfer','finish','transfer-0','transfer-1'].includes(id)?0:1,id==='departure'?4320:720)) fail(); patch.duration=edit.duration; }
       if (Object.hasOwn(edit,'travelMode')) { if (!['transfer-0','transfer-1'].includes(id) || !MODES.includes(mode(edit.travelMode))) fail(); patch.travelMode=mode(edit.travelMode); }
       return [id,patch];
     }));

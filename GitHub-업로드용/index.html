@@ -37,9 +37,12 @@
   <script src="./connection-ui.js?v=2" defer></script>
   <script src="./schedule-ui.js?v=3" defer></script>
   <script src="./account-ui.js?v=2" defer></script>
+  <link rel="stylesheet" href="./travel-atmosphere.css?v=1">
   <script src="./app.js?v=35" defer></script>
+  <script src="./travel-backdrop.js?v=1" defer></script>
 </head>
 <body>
+  <div id="travel-backdrop" class="travel-backdrop" aria-hidden="true"></div>
   <header class="site-header">
     <a class="wordmark" href="#/start" aria-label="길, 여행의 시작으로"><span class="wordmark-mark" aria-hidden="true"><img class="travel-sticker" src="./travel-sticker-v1.png" alt="" width="44" height="44"></span><span>길<small>마음이 가는 쪽으로</small></span></a>
     <div id="account-nav" class="account-nav" aria-label="계정"></div>
@@ -85,7 +88,8 @@
       <p class="fine-print"><strong>내 여행에 맞춰 완성해요.</strong> 관광지와 체류시간은 추천 초안이에요. 필요한 일정을 추가하고, 이동 예상시간을 확인해 직접 다듬어 보세요. 방문 전 운영시간·휴무·예약 정보를 확인해 주세요.</p>
     </section>
   </main>
-  <footer class="site-footer"><span class="footer-brand"><img class="travel-sticker" src="./travel-sticker-v1.png" alt="" width="44" height="44"> 길</span><span>조금 돌아가도, 좋은 여행.</span><nav class="footer-links" aria-label="사이트 안내"><a href="./sources.html">출처 안내 ↗</a><a href="./README.md">이용 안내 ↗</a></nav></footer>
+  <div id="backdrop-controls" class="backdrop-controls" hidden><a id="backdrop-credit" target="_blank" rel="noopener noreferrer"></a><button id="backdrop-toggle" type="button" aria-pressed="false">사진 멈추기</button><button id="backdrop-next" type="button">다음 사진</button><a href="./sources.html#photos">사진 이용 안내</a></div>
+  <footer class="site-footer"><span class="footer-brand"><img class="travel-sticker" src="./travel-sticker-v1.png" alt="" width="44" height="44"> 길</span><span>조금 돌아가도, 좋은 여행.</span><nav class="footer-links" aria-label="사이트 안내"><a href="./sources.html">출처 안내 ↗</a><a href="./help.html">이용 안내 ↗</a></nav></footer>
   <noscript><p class="noscript">여행 일정을 만들려면 브라우저에서 JavaScript를 사용해 주세요.</p></noscript>
 </body>
 </html>

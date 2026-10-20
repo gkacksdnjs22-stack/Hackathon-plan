@@ -1,3 +1,4 @@
+import { createBackdropClient } from './backdrop-server.mjs';
 import { createTourClient, TourApiError } from './tour-client.mjs';
 import { createDepartureClient, DepartureSearchError } from './departure-server.mjs';
 import { createTransportClient, TransportApiError } from './tago-server.mjs';
@@ -7,13 +8,13 @@ import { createTransitRoutingClient, TransitRoutingError } from './transit-routi
 import { PUBLIC_FILES } from './public-assets.mjs';
 import { createAccountHandler } from './auth-store.mjs';
 
-const API_PATHS = new Set(['/api/tour/areas', '/api/tour/places', '/api/departures/search', '/api/transport/stops', '/api/transport/trips', '/api/restaurants', '/api/car-route', '/api/transit-routes']);
+const API_PATHS = new Set(['/api/tour/backdrop', '/api/tour/areas', '/api/tour/places', '/api/departures/search', '/api/transport/stops', '/api/transport/trips', '/api/restaurants', '/api/car-route', '/api/transit-routes']);
 const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin' };
 function json(request, status, data, extra = {}) {
   return new Response(request.method === 'HEAD' ? null : JSON.stringify(data), { status, headers: { ...headers, 'Content-Type': 'application/json; charset=utf-8', ...extra } });
 }
 function createDefaultClients({ serviceKey, carRoutingApiKey }) {
-  return { tour: createTourClient({ serviceKey }), departure: createDepartureClient(), transport: createTransportClient({ serviceKey }), restaurants: createTourRestaurantClient({ serviceKey }), carRouting: createCarRoutingClient({ apiKey: carRoutingApiKey }), transitRouting: createTransitRoutingClient({ apiKey: carRoutingApiKey }) };
+  return { backdrop: createBackdropClient({ serviceKey }), tour: createTourClient({ serviceKey }), departure: createDepartureClient(), transport: createTransportClient({ serviceKey }), restaurants: createTourRestaurantClient({ serviceKey }), carRouting: createCarRoutingClient({ apiKey: carRoutingApiKey }), transitRouting: createTransitRoutingClient({ apiKey: carRoutingApiKey }) };
 }
 function secretFrom(env) {
   return [env.DATA_GO_KR_SERVICE_KEY, env.TOURAPI_SERVICE_KEY, env.TAGO_SERVICE_KEY].find(value => typeof value === 'string' && value.trim())?.trim();
@@ -45,7 +46,8 @@ export function createPagesWorker({ createClients = createDefaultClients } = {})
         if (API_PATHS.has(pathname)) {
           const api = services(env), query = url.searchParams;
           let result;
-          if (pathname === '/api/tour/areas') result = await api.tour.getAreas();
+          if (pathname === '/api/tour/backdrop') result = await api.backdrop.getPhotos();
+          else if (pathname === '/api/tour/areas') result = await api.tour.getAreas();
           else if (pathname === '/api/tour/places') result = await api.tour.getPlaces(query.get('areaCode') ?? query.get('city') ?? '1');
           else if (pathname === '/api/departures/search') result = await api.departure.search(query.get('q'));
           else if (pathname === '/api/transport/stops') result = await api.transport.searchStops({ mode: query.get('mode'), q: query.get('q'), service: query.get('service') || undefined });

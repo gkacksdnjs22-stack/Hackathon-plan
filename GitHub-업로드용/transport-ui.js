@@ -38,6 +38,11 @@
     const help = document.createElement('p'); help.className = 'transport-footnote';
     help.textContent = draft ? '두 구간의 실제 교통편을 고른 뒤 ‘환승 일정 적용’을 눌러 주세요. 그때 출발 시각과 뒤 일정이 함께 조정돼요.'
       : '운행시간표 기준 예상이에요. 교통편을 선택하면 출발 시각과 뒤 일정이 함께 조정돼요.';
+    if (departure?.service === 'ferry') {
+      const ferryNotice = document.createElement('p'); ferryNotice.className = 'transport-ferry-notice';
+      ferryNotice.textContent = '여객선 시각·소요시간은 제공기관 원본 기준이에요. 실제 운항·입출항 시간은 선사에 확인하고, 지나치게 짧거나 맞지 않는 값은 그대로 적용하지 마세요.';
+      body.append(ferryNotice);
+    }
     body.append(note, controls, message, results, more, help); details.append(summary, body); host.replaceChildren(details);
     let destroyed = false, pending = null, token = 0, loaded = false, items = [], shown = 0, timeout = null;
     const threshold = /^([01]\d|2[0-3]):[0-5]\d$/.test(startTime) ? Number(startTime.slice(0, 2)) * 60 + Number(startTime.slice(3)) : 0;

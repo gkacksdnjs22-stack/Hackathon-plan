@@ -81,46 +81,63 @@ async function readJson(response) {
 
 export function createDepartureClient({ fetchImpl = globalThis.fetch, now = Date.now,
   delayImpl = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
-  timeoutMs = 8000, cacheMs = 60 * 60 * 1000, maxCacheEntries = 200, maxPending = 20 } = {}) {
+  timeoutMs = 8000, totalTimeoutMs = 14000, cacheMs = 60 * 60 * 1000, maxCacheEntries = 200, maxPending = 20 } = {}) {
   const cache = new Map(), pending = new Map();
   const cacheLimit = Math.max(1, Math.min(200, Number.isSafeInteger(maxCacheEntries) ? maxCacheEntries : 200));
   const pendingLimit = Math.max(1, Math.min(200, Number.isSafeInteger(maxPending) ? maxPending : 20));
   let queue = Promise.resolve(), lastStartedAt = null;
 
-  async function request(query) {
+  async function request(query, signal) {
     const url = new URL(SEARCH_ENDPOINT);
     for (const [key, value] of Object.entries({ q: query, limit: '5', bbox: '124,33,132,39.5', countrycode: 'KR' })) {
       url.searchParams.set(key, value);
     }
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let rejectTimeout;
+    const aborted = new Promise((_, reject) => { rejectTimeout = reject; });
+    const abort = () => { controller.abort(); rejectTimeout(new DepartureSearchError('SEARCH_TIMEOUT')); };
+    signal.addEventListener('abort', abort, { once: true });
+    const timer = setTimeout(abort, timeoutMs);
     try {
-      const response = await fetchImpl(url, { signal: controller.signal, redirect: 'manual', headers: {
-        Accept: 'application/json', 'Accept-Language': 'ko', 'User-Agent': 'GilTravelPlanner/1.0'
-      } });
-      if (response.status === 429) throw new DepartureSearchError('SEARCH_RATE_LIMIT');
-      if (!response.ok) throw new DepartureSearchError('SEARCH_UNAVAILABLE');
-      const data = await readJson(response);
-      if (!data || typeof data !== 'object' || !Array.isArray(data.features)) throw new DepartureSearchError('INVALID_RESPONSE');
-      return { provider: PROVIDER, items: normalizeItems(data.features), fetchedAt: new Date(now()).toISOString() };
+      return await Promise.race([aborted, (async () => {
+        const response = await fetchImpl(url, { signal: controller.signal, redirect: 'manual', headers: {
+          Accept: 'application/json', 'Accept-Language': 'ko', 'User-Agent': 'GilTravelPlanner/1.0'
+        } });
+        if (response.status === 429) throw new DepartureSearchError('SEARCH_RATE_LIMIT');
+        if (!response.ok) throw new DepartureSearchError('SEARCH_UNAVAILABLE');
+        const data = await readJson(response);
+        if (!data || typeof data !== 'object' || !Array.isArray(data.features)) throw new DepartureSearchError('INVALID_RESPONSE');
+        return { provider: PROVIDER, items: normalizeItems(data.features), fetchedAt: new Date(now()).toISOString() };
+      })()]);
     } catch (error) {
       if (error instanceof DepartureSearchError) throw error;
       throw new DepartureSearchError(controller.signal.aborted ? 'SEARCH_TIMEOUT' : 'SEARCH_UNAVAILABLE');
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); signal.removeEventListener('abort', abort); }
   }
 
   function schedule(query) {
-    const job = queue.then(async () => {
+    const controller = new AbortController();
+    let timer;
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new DepartureSearchError('SEARCH_TIMEOUT'));
+      }, Number.isFinite(totalTimeoutMs) && totalTimeoutMs > 0 ? Math.min(totalTimeoutMs, 14000) : 14000);
+    });
+    const launch = queue.then(async () => {
+      if (controller.signal.aborted) throw new DepartureSearchError('SEARCH_TIMEOUT');
       if (lastStartedAt !== null) {
         const remaining = Math.max(0, 1000 - (now() - lastStartedAt));
         if (remaining) await delayImpl(remaining);
       }
+      if (controller.signal.aborted) throw new DepartureSearchError('SEARCH_TIMEOUT');
       lastStartedAt = now();
-      return request(query);
+      // Only serialize starts. A slow response must not block unrelated searches.
+      return { request: request(query, controller.signal) };
     });
-    // A failed request must not prevent later queued searches from running.
-    queue = job.catch(() => undefined);
-    return job;
+    queue = launch.then(() => undefined, () => undefined);
+    const work = launch.then(job => job.request);
+    return Promise.race([deadline, work]).finally(() => clearTimeout(timer));
   }
 
   return {

@@ -12,6 +12,7 @@ const key = 'SYNTHETIC-WORKER-KEY+/=';
 const sensitive = 'SYNTHETIC-PRIVATE-RESPONSE-DO-NOT-EXPOSE';
 const request = (path, options) => new Request(`https://travel.example${path}`, options);
 const routes = [
+  ['/api/tour/backdrop', 'backdrop.getPhotos', []],
   ['/api/tour/areas', 'tour.getAreas', []],
   ['/api/tour/places?areaCode=6&city=seoul', 'tour.getPlaces', ['6']],
   [`/api/departures/search?q=${encodeURIComponent('서울역')}`, 'departure.search', ['서울역']],
@@ -26,7 +27,7 @@ function fixture({ failures = new Map(), assetStatus = 200 } = {}) {
   const worker = createPagesWorker({ createClients: ({ serviceKey }) => {
     keys.push(serviceKey);
     const clients = {};
-    for (const name of ['tour.getAreas', 'tour.getPlaces', 'departure.search', 'transport.searchStops', 'transport.getTrips', 'restaurants.search', 'carRouting.getRoute']) {
+    for (const name of ['backdrop.getPhotos', 'tour.getAreas', 'tour.getPlaces', 'departure.search', 'transport.searchStops', 'transport.getTrips', 'restaurants.search', 'carRouting.getRoute']) {
       const [group, method] = name.split('.');
       clients[group] ||= {};
       clients[group][method] = async (...args) => {
@@ -138,7 +139,7 @@ test('공개목록만ASSETS로 제공하고 정규화한파일경로·미디어�
     assert.equal(response.status, 200); assert.equal(await response.text(), 'STATIC ASSET');
     assert.equal(response.headers.get('Content-Type'), type); safetyHeaders(response);
     assert.equal(response.headers.get('X-Asset-Test'), 'preserved');
-    const assetPath = filename === 'index.html' ? '/' : filename === 'sources.html' ? '/sources' : `/${filename}`;
+    const assetPath = filename === 'index.html' ? '/' : filename.endsWith('.html') ? `/${filename.slice(0, -5)}` : `/${filename}`;
     assert.equal(new URL(assets.at(-1).url).pathname, assetPath);
   }
   for (const path of ['/?v=1', '/%69ndex.html?v=1']) {

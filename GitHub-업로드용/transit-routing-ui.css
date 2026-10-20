@@ -47,3 +47,6 @@
   .transit-route-compact>summary { padding-right: 0; padding-left: 0; }
 }
 @media print { .transit-route-container,.transit-route-lookup { display: none !important; } }
+
+.transit-route-fallback { display: inline-block; margin-top: 10px; color: #46577e; font-size: 13px; text-underline-offset: 3px; }
+.transit-route-fallback[hidden] { display: none; }

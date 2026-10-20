@@ -211,3 +211,73 @@ test('TAGO 인증키가 있는 요청의 외부 리다이렉트를 따라가지 
     assert.equal(calls, 1);
   }
 });
+
+test('one unavailable bus service does not hide the other service and retry recovers without caching failure', async () => {
+  let fail = true, intercityCalls = 0;
+  const client = createTransportClient({ serviceKey: key, fetchImpl: async url => {
+    if (url.pathname.includes('SuburbsBusInfo')) { intercityCalls++; if (fail) return new Response('', { status: 403 }); return json(stations.intercity); }
+    return json(stations.express);
+  } });
+  const partial = await client.searchStops({ mode: 'bus', q: '서울' });
+  assert.equal(partial.partial, true);
+  assert.deepEqual(partial.unavailableServices, [{ service: 'intercity', code: 'AUTH_ERROR' }]);
+  assert.ok(partial.items.some(item => item.service === 'express'));
+  assert.equal(partial.items.some(item => item.service === 'intercity'), false);
+  fail = false;
+  const complete = await client.searchStops({ mode: 'bus', q: '서울' });
+  assert.equal(complete.partial, false);
+  assert.ok(complete.items.some(item => item.service === 'intercity'));
+  assert.equal(intercityCalls, 2);
+});
+
+test('train region catalogs load concurrently with at most four requests and stable region ordering', async () => {
+  let active = 0, maximum = 0;
+  const client = createTransportClient({ serviceKey: key, fetchImpl: async url => {
+    if (url.pathname.endsWith('GetCtyCodeList')) return json(Array.from({ length: 8 }, (_, i) => ({ citycode: String(11+i), cityname: `지역${i}` })));
+    active++; maximum = Math.max(maximum, active);
+    await new Promise(resolve => setTimeout(resolve, 2)); active--;
+    return json([{ nodeid: `NAT${url.searchParams.get('cityCode')}`, nodename: `서울${url.searchParams.get('cityCode')}` }]);
+  } });
+  const result = await client.searchStops({ mode: 'train', q: '서울' });
+  assert.equal(result.items.length, 8);
+  assert.equal(maximum, 4);
+});
+
+test('TAGO deadline includes stalled response bodies and releases pending work even if fetch ignores abort', async () => {
+  for (const stalledBody of [false, true]) {
+    let calls = 0;
+    const client = createTransportClient({ serviceKey: key, timeoutMs: 5, fetchImpl: async () => {
+      calls++;
+      if (calls > 1) return json(stations.flight);
+      return stalledBody ? new Response(new ReadableStream({ start() {} })) : new Promise(() => {});
+    } });
+    await assert.rejects(client.searchStops({ mode: 'flight', q: '김포' }), error => error.code === 'TIMEOUT');
+    const retry = await client.searchStops({ mode: 'flight', q: '김포' });
+    assert.equal(retry.items.length, 1);
+  }
+});
+
+test('a failed train region returns honest partial results and is retried rather than cached as complete', async () => {
+  let failed = true;
+  const client = createTransportClient({ serviceKey: key, fetchImpl: async url => {
+    if (url.pathname.endsWith('GetCtyCodeList')) return json([{ citycode: '11', cityname: '서울' }, { citycode: '21', cityname: '부산' }]);
+    if (url.searchParams.get('cityCode') === '21') { if (failed) return new Response('', { status: 500 }); return json([stations.train[1]]); }
+    return json([stations.train[0]]);
+  } });
+  const first = await client.searchStops({ mode: 'train', q: '서울' });
+  assert.equal(first.items.length, 1); assert.equal(first.partial, true);
+  assert.equal(first.unavailableServices[0].code, 'CATALOG_INCOMPLETE');
+  failed = false;
+  const next = await client.searchStops({ mode: 'train', q: '부산' });
+  assert.equal(next.items.length, 1); assert.equal(next.partial, false);
+});
+
+test('cold train catalog has a bounded total deadline and preserves completed regions', async () => {
+  const client = createTransportClient({ serviceKey: key, catalogTimeoutMs: 5, timeoutMs: 20, fetchImpl: async url => {
+    if (url.pathname.endsWith('GetCtyCodeList')) return json([{ citycode: '11', cityname: '서울' }, { citycode: '21', cityname: '부산' }]);
+    if (url.searchParams.get('cityCode') === '21') return new Promise(() => {});
+    return json([stations.train[0]]);
+  } });
+  const result = await client.searchStops({ mode: 'train', q: '서울' });
+  assert.equal(result.items.length, 1); assert.equal(result.partial, true);
+});

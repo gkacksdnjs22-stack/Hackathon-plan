@@ -159,11 +159,11 @@
       nav.replaceChildren();
       if (sessionPending) { const pending = button('계정 확인 중…', () => {}); pending.disabled = true; nav.append(pending); return; }
       if (user) { nav.append(node('span', 'account-user', user.username), button('로그아웃', logout)); return; }
-      nav.append(button(sessionFailed ? '계정 다시 확인' : '로그인 · 회원가입', () => sessionFailed ? initialize() : authDialog('login')));
+      nav.append(button(sessionFailed ? '계정 다시 확인' : configured === false ? '계정 저장 준비 중' : '로그인 · 회원가입', () => sessionFailed ? initialize() : authDialog('login')));
     }
     function renderSave() {
       saveActions.replaceChildren();
-      const save = button(currentPlan ? '변경사항 저장' : '계획표 저장', () => saveDialog(false), 'is-primary');
+      const save = button(currentPlan ? '변경사항 저장' : configured === false ? '계정 저장 준비 중' : '계획표 저장', () => saveDialog(false), 'is-primary');
       save.disabled = sessionPending || savePending; saveActions.append(save);
       if (currentPlan) { const copy = button('새 계획으로 저장', () => saveDialog(true)); copy.disabled = savePending; saveActions.append(copy); }
       const status = node('p', 'account-save-status', currentPlan ? dirty ? '계정에 저장하지 않은 수정이 있어요.' : '계정에 저장했어요.' : '이 기기 자동저장은 그대로 유지돼요.');
@@ -343,9 +343,9 @@
           const snapshot = copyDocument(data.plan.document);
           const restored = await loadDocument(snapshot, { isCurrent });
           if (!sameAccount(account) || task !== operation || !view.current()) return;
-          if (restored !== true) { view.error('계획표를 불러오지 못했어요. 현재 노트는 그대로 유지했어요.'); return; }
+          if (restored !== true && restored?.ok !== true) { view.error('계획표를 불러오지 못했어요. 현재 노트는 그대로 유지했어요.'); return; }
           attachment++; currentPlan = { ...data.plan }; delete currentPlan.document; dirty = false;
-          closeDialog(true); renderSave(); notify('계정에 저장한 계획표를 불러왔어요.', 'success');
+          closeDialog(true); renderSave(); notify(restored?.warning || '계정에 저장한 계획표를 불러왔어요.', restored?.warning ? 'error' : 'success');
         } catch (error) {
           if (!sameAccount(account) || !view.current()) return;
           if (error.status === 401) { closeDialog(true); await resetAccount(null); notify(errorText(error), 'error'); return; }

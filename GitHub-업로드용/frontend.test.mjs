@@ -28,7 +28,7 @@ function assertSequential(day) {
     assert.equal(event.start, clock, 'events follow consecutively without overlap or fixed meal waits');
     assert.equal(event.end, event.start + event.duration);
     const canBePending = ['departure', 'arrival', 'arrival-transfer', 'finish'].includes(event.id)
-      || (event.id.startsWith('extra-') && event.type === 'transfer');
+      || event.type === 'transfer';
     assert.ok(canBePending ? event.duration >= 0 : event.duration > 0);
     clock = event.end;
   }
@@ -726,9 +726,9 @@ test('replacing any tourist resets affected road-leg durations, keeps notes and 
     assert.equal(result.ok, true, result.reason);
     const next = result.itinerary, patches = next.eventEdits[0];
     assert.equal(next.days[0].events[0].duration, slot === 0 ? 0 : 23);
-    assert.equal(next.days[0].needsTravelTime, slot === 0);
-    assert.equal(next.days[0].events.find(event => event.id === 'transfer-0').duration, slot < 2 ? 10 : 6);
-    assert.equal(next.days[0].events.find(event => event.id === 'transfer-1').duration, slot > 0 ? 10 : 8);
+    assert.equal(next.days[0].needsTravelTime, true);
+    assert.equal(next.days[0].events.find(event => event.id === 'transfer-0').duration, slot < 2 ? 0 : 6);
+    assert.equal(next.days[0].events.find(event => event.id === 'transfer-1').duration, slot > 0 ? 0 : 8);
     assert.equal(patches.departure.title, edits.departure.title);
     assert.equal(patches.departure.description, edits.departure.description);
     for (const leg of ['transfer-0', 'transfer-1']) {
@@ -781,8 +781,8 @@ test('switching between vehicle and nonvehicle modes clears stale transfer times
   assert.deepEqual(plain(next.dayDepartures[0]), { ...snapshot.dayDepartures[0], mode: 'walk' });
   assert.deepEqual(plain(next.dayStarts), snapshot.dayStarts);
   assert.equal(next.days[0].events[0].duration, 0);
-  assert.equal(next.days[0].events.find(event => event.id === 'transfer-0').duration, 10);
-  assert.equal(next.days[0].events.find(event => event.id === 'transfer-1').duration, 10);
+  assert.equal(next.days[0].events.find(event => event.id === 'transfer-0').duration, 0);
+  assert.equal(next.days[0].events.find(event => event.id === 'transfer-1').duration, 0);
   assert.deepEqual(plain(next.eventEdits[0]['transfer-0']), { title: '이동 제목', description: '이동 메모' });
   assert.equal(next.eventEdits[0]['transfer-1'], undefined);
   assert.deepEqual(plain(next.eventEdits[0].rest), snapshot.eventEdits[0].rest);
@@ -791,7 +791,7 @@ test('switching between vehicle and nonvehicle modes clears stale transfer times
   const editedWalking = app.TravelPlanner.updateEvent({ city, itinerary: next, dayIndex: 0, eventId: 'transfer-0', duration: 40 }).itinerary;
   const backToCar = app.TravelPlanner.setDayDeparture({ city, itinerary: editedWalking, dayIndex: 0, departure: departureFixture({ mode: 'car' }) });
   assert.equal(backToCar.ok, true, backToCar.reason);
-  assert.equal(backToCar.itinerary.days[0].events.find(event => event.id === 'transfer-0').duration, 10);
+  assert.equal(backToCar.itinerary.days[0].events.find(event => event.id === 'transfer-0').duration, 0);
   assert.equal(backToCar.itinerary.eventEdits[0]['transfer-0'].description, '이동 메모');
   assert.equal(editedWalking.days[0].events.find(event => event.id === 'transfer-0').duration, 40);
 });
@@ -922,7 +922,7 @@ test('changing an internal mode clears only its duration except equivalent vehic
   const walking = app.TravelPlanner.setTransferMode({ city, itinerary: original, dayIndex: 0, eventId: 'transfer-0', mode: 'walk' });
   assert.equal(walking.ok, true, walking.reason);
   assert.deepEqual(plain(walking.itinerary.eventEdits[0]['transfer-0']), { travelMode: 'walk', title: '구간 제목', description: '이동 메모' });
-  assert.equal(walking.itinerary.days[0].events.find(event => event.id === 'transfer-0').duration, 10);
+  assert.equal(walking.itinerary.days[0].events.find(event => event.id === 'transfer-0').duration, 0);
   assert.deepEqual(plain(walking.itinerary.eventEdits[0]['transfer-1']), snapshot.eventEdits[0]['transfer-1']);
   assert.deepEqual(plain(walking.itinerary.days[1]), snapshot.days[1]);
   const manualWalking = app.TravelPlanner.updateEvent({ city, itinerary: walking.itinerary, dayIndex: 0, eventId: 'transfer-0', duration: 40 }).itinerary;
@@ -931,7 +931,7 @@ test('changing an internal mode clears only its duration except equivalent vehic
   for (const mode of ['local-bus', 'subway', 'car']) {
     const changed = app.TravelPlanner.setTransferMode({ city, itinerary: manualWalking, dayIndex: 0, eventId: 'transfer-0', mode });
     assert.equal(changed.ok, true, changed.reason);
-    assert.equal(changed.itinerary.days[0].events.find(event => event.id === 'transfer-0').duration, 10);
+    assert.equal(changed.itinerary.days[0].events.find(event => event.id === 'transfer-0').duration, 0);
     assert.equal(changed.itinerary.eventEdits[0]['transfer-0'].description, '이동 메모');
   }
   assert.deepEqual(plain(original), snapshot);
@@ -950,7 +950,7 @@ test('explicit internal modes and durations stay independent of day-origin chang
     assert.deepEqual(plain(result.itinerary.eventEdits[0]['transfer-0']), snapshot.eventEdits[0]['transfer-0']);
     assert.equal(result.itinerary.days[0].events.find(event => event.id === 'transfer-0').duration, 40);
     assert.equal(result.itinerary.days[0].events.find(event => event.id === 'transfer-0').travelMode, 'walk');
-    assert.equal(result.itinerary.days[0].events.find(event => event.id === 'transfer-1').duration, 10);
+    assert.equal(result.itinerary.days[0].events.find(event => event.id === 'transfer-1').duration, 0);
     assert.equal(result.itinerary.days[0].events.find(event => event.id === 'transfer-1').travelMode, null);
     assert.deepEqual(plain(result.itinerary.dayStarts), snapshot.dayStarts);
   }
@@ -978,8 +978,8 @@ test('internal mode choices survive JSON reload and place swaps keep modes and n
     assert.equal(changed.itinerary.eventEdits[0]['transfer-1'].travelMode, 'car');
     assert.equal(changed.itinerary.eventEdits[0]['transfer-0'].description, '환승 확인');
     assert.equal(changed.itinerary.eventEdits[0]['transfer-1'].title, '차량 이동');
-    assert.equal(changed.itinerary.days[0].events.find(event => event.id === 'transfer-0').duration, slot < 2 ? 10 : 40);
-    assert.equal(changed.itinerary.days[0].events.find(event => event.id === 'transfer-1').duration, slot > 0 ? 10 : 6);
+    assert.equal(changed.itinerary.days[0].events.find(event => event.id === 'transfer-0').duration, slot < 2 ? 0 : 40);
+    assert.equal(changed.itinerary.days[0].events.find(event => event.id === 'transfer-1').duration, slot > 0 ? 0 : 6);
   }
   assert.equal(restored.eventEdits[0]['transfer-0'].duration, 40);
   assert.equal(restored.eventEdits[0]['transfer-1'].duration, 6);
@@ -1038,8 +1038,8 @@ test('tourist replacements reset only local affected legs while preserving offic
     assert.deepEqual(plain(next.eventEdits[0].departure), snapshot.eventEdits[0].departure);
     assert.equal(next.days[0].events[0].duration, 150);
     assert.equal(next.days[0].events.find(event => event.id === 'arrival-transfer').duration, slot === 0 ? 0 : 25);
-    assert.equal(next.days[0].events.find(event => event.id === 'transfer-0').duration, slot < 2 ? 10 : 6);
-    assert.equal(next.days[0].events.find(event => event.id === 'transfer-1').duration, slot > 0 ? 10 : 8);
+    assert.equal(next.days[0].events.find(event => event.id === 'transfer-0').duration, slot < 2 ? 0 : 6);
+    assert.equal(next.days[0].events.find(event => event.id === 'transfer-1').duration, slot > 0 ? 0 : 8);
     assert.equal(next.eventEdits[0]['transfer-0'].description, '첫 이동 메모');
     assert.equal(next.eventEdits[0]['transfer-1'].title, '다음 이동');
     assert.deepEqual(plain(next.eventEdits[0].finish), snapshot.eventEdits[0].finish);
@@ -1181,11 +1181,11 @@ test('early departure labels meals by their calculated clock time without insert
   assert.equal(result.ok, true, result.reason);
   const first = result.days[0].events.find(event => event.id === 'lunch');
   const second = result.days[0].events.find(event => event.id === 'dinner');
-  assert.equal(first.startLabel, '07:55');
+  assert.equal(first.startLabel, '07:45');
   assert.equal(first.meal, '아침 식사');
   assert.equal(first.title, '아침 식사');
   assert.match(first.description, /아침 식사/);
-  assert.equal(second.startLabel, '11:50');
+  assert.equal(second.startLabel, '11:30');
   assert.equal(second.meal, '점심 식사');
   assert.equal(second.title, '점심 식사');
   assertSequential(result.days[0]);
@@ -1199,14 +1199,14 @@ test('departure and duration changes recalculate meal captions using actual loca
   const longer = app.TravelPlanner.updateEvent({ city, itinerary: original, dayIndex: 0, eventId: 'free-0', duration: 150 });
   assert.equal(longer.ok, true, longer.reason);
   const changedMeal = longer.itinerary.days[0].events.find(event => event.id === 'lunch');
-  assert.equal(changedMeal.startLabel, '10:25');
+  assert.equal(changedMeal.startLabel, '10:15');
   assert.equal(changedMeal.title, '점심 식사');
   assert.equal(changedMeal.start, original.days[0].events.find(event => event.id === 'lunch').start + 60);
   const later = app.TravelPlanner.setDayStart({ city, itinerary: original, dayIndex: 0, startTime: '14:30' });
   assert.equal(later.ok, true);
   assert.equal(later.itinerary.days[0].events.find(event => event.id === 'lunch').title, '저녁 식사');
   assert.equal(later.itinerary.days[0].events.find(event => event.id === 'dinner').title, '늦은 식사');
-  assert.ok(later.itinerary.days[0].end > 24 * 60, 'meal naming adds no finishing cutoff');
+  assert.ok(later.itinerary.days[0].end >= 24 * 60, 'meal naming adds no finishing cutoff');
   const overnight = app.TravelPlanner.setDayStart({ city, itinerary: original, dayIndex: 0, startTime: '19:00' });
   assert.equal(overnight.ok, true);
   assert.equal(overnight.itinerary.days[0].events.find(event => event.id === 'lunch').title, '늦은 식사');
@@ -1355,7 +1355,7 @@ test('the first timeline row states when and where to depart, with zero travel t
   const unselected = app.TravelPlanner.createItinerary({ city, startDate: '2026-10-20', dayCount: 1 });
   assert.equal(unselected.days[0].events[0].departure, null);
   assert.equal(unselected.days[0].events[0].title, '출발지를 선택해 주세요');
-  assert.equal(unselected.days[0].needsTravelTime, false);
+  assert.equal(unselected.days[0].needsTravelTime, true);
   assert.equal(unselected.days[0].timesProvisional, true);
   assert.equal(unselected.days[0].events.filter(event => event.type === 'place').length, 3);
   assertSequential(day);
@@ -1378,8 +1378,8 @@ test('user-entered origin travel time shifts every subsequent event and can retu
     assert.equal(day.events[index].duration, original.days[0].events[index].duration);
   }
   assert.equal(day.end, original.days[0].end + 60);
-  assert.equal(day.needsTravelTime, false);
-  assert.equal(day.timesProvisional, false);
+  assert.equal(day.needsTravelTime, true);
+  assert.equal(day.timesProvisional, true);
   assert.deepEqual(plain(result.itinerary.days[1]), plain(original.days[1]));
   assert.equal(result.itinerary.eventEdits[0]['free-1'].title, '예약한 공연');
   const pending = app.TravelPlanner.updateEvent({ city, itinerary: result.itinerary, dayIndex: 0, eventId: 'departure', duration: 0 });
@@ -1543,8 +1543,8 @@ test('public transport arrivals insert a fixed marker and a separate first-attra
     assert.equal(day.events[2].title, '첫 관광지로 이동');
     assert.match(day.events[2].description, /도착역 → /);
     assert.equal(day.events[3].startLabel, '다음 날 01:30');
-    assert.equal(day.needsTravelTime, false);
-    assert.equal(day.timesProvisional, false);
+    assert.equal(day.needsTravelTime, true);
+    assert.equal(day.timesProvisional, true);
     assert.equal(day.events.filter(event => event.type === 'place').length, 3);
     assert.deepEqual(plain(result.dayArrivals[0]), arrival);
     assert.notEqual(result.dayArrivals[0], arrival);
@@ -1572,12 +1572,12 @@ test('legacy public transport timing stays intact without an arrival but remains
   assert.equal(mainOnly.itinerary.days[0].needsTravelTime, true);
   const complete = app.TravelPlanner.updateEvent({ city, itinerary: mainOnly.itinerary, dayIndex: 0, eventId: 'arrival-transfer', duration: 15 });
   assert.equal(complete.ok, true);
-  assert.equal(complete.itinerary.days[0].needsTravelTime, false);
+  assert.equal(complete.itinerary.days[0].needsTravelTime, true);
   const car = app.TravelPlanner.createItinerary({ city, startDate: legacy.startDate, dayCount: 1,
     departure: departureFixture({ mode: 'car' }), eventEdits: { 0: { departure: { duration: 60 } } } });
   assert.equal(car.ok, true);
   assert.equal(car.days[0].events.length, 12);
-  assert.equal(car.days[0].needsTravelTime, false);
+  assert.equal(car.days[0].needsTravelTime, true);
 });
 
 test('invalid arrival maps, mode combinations and marker edits fail without mutating valid data', async () => {
@@ -1726,8 +1726,8 @@ test('local bus, subway, vehicle and walking modes including legacy aliases proh
     assert.equal(result.days[0].events[1].id, 'place-0');
     assert.equal(result.days[0].events[1].startLabel, '09:30');
     assert.equal(result.days[0].events.some(event => event.id === 'arrival'), false);
-    assert.equal(result.days[0].needsTravelTime, false);
-    assert.equal(result.days[0].timesProvisional, false);
+    assert.equal(result.days[0].needsTravelTime, true);
+    assert.equal(result.days[0].timesProvisional, true);
     assert.equal(app.TravelPlanner.setDayArrival({ city, itinerary: result, dayIndex: 0, arrival: arrivalFixture({ mode }) }).ok, false);
     assert.equal(app.TravelPlanner.createItinerary({ city, startDate: result.startDate, dayCount: 1,
       dayDepartures: { 0: departureFixture({ mode }) }, dayArrivals: { 0: arrivalFixture({ mode }) } }).ok, false);
@@ -1747,7 +1747,7 @@ test('a train arrival on day one and local bus from a hotel on day two persist i
   assert.deepEqual(plain(original.days[0].events.slice(0, 4).map(event => event.id)), ['departure', 'arrival', 'arrival-transfer', 'place-0']);
   assert.deepEqual(plain(original.days[1].events.slice(0, 2).map(event => event.id)), ['departure', 'place-0']);
   assert.equal(original.days[1].events[1].startLabel, '10:30');
-  assert.ok(original.days.every(day => !day.timesProvisional));
+  assert.ok(original.days.every(day => day.timesProvisional));
   const saved = plain(original), selections = Object.fromEntries(visitIds(saved).map((ids, index) => [index, ids]));
   const restored = app.TravelPlanner.createItinerary({ city, startDate: saved.startDate, dayCount: saved.dayCount,
     dayAreaIds: saved.dayAreaIds, selections, dayStarts: saved.dayStarts, dayDepartures: saved.dayDepartures,
@@ -1782,7 +1782,7 @@ test('switching intercity transport to a rental car clears the arrival and trave
   const timed = app.TravelPlanner.updateEvent({ city, itinerary: rental.itinerary, dayIndex: 0, eventId: 'departure', duration: 45 });
   assert.equal(timed.ok, true);
   assert.equal(timed.itinerary.days[0].events[1].startLabel, '09:15');
-  assert.equal(timed.itinerary.days[0].timesProvisional, false);
+  assert.equal(timed.itinerary.days[0].timesProvisional, true);
   const subway = app.TravelPlanner.setDayDeparture({ city, itinerary: timed.itinerary, dayIndex: 0, departure: departureFixture({ mode: 'subway' }) });
   assert.equal(subway.ok, true);
   assert.equal(subway.itinerary.days[0].events[0].duration, 0);
@@ -1823,7 +1823,7 @@ test('selecting an official transport atomically applies departure clock, durati
   assert.equal(result.itinerary.eventEdits[0].departure.description, '승차 메모');
   assert.equal(result.itinerary.days[0].events[1].startLabel, '11:00');
   assert.equal(result.itinerary.days[0].events[3].startLabel, '11:25');
-  assert.equal(result.itinerary.days[0].timesProvisional, false);
+  assert.equal(result.itinerary.days[0].timesProvisional, true);
   assert.deepEqual(plain(result.itinerary.dayTransports[0]), input);
   assert.equal(result.itinerary.days[0].transport, result.itinerary.dayTransports[0]);
   assert.notEqual(result.itinerary.dayTransports[0], input);
@@ -2129,7 +2129,7 @@ test('custom free, meal, rest, tourist and transfer events keep stable IDs and u
 test('an unestimated extra transfer marks times provisional and mode changes invalidate only its duration', async () => {
   const app = runtime(), city = await app.TourData.ensureCity('seoul'), planner = app.TravelPlanner;
   const original = planner.createItinerary({ city, startDate: '2026-10-20', dayCount: 1,
-    departure: departureFixture({ mode: 'car' }), eventEdits: { 0: { departure: { duration: 35 }, 'transfer-0': { duration: 28 } } } });
+    departure: departureFixture({ mode: 'car' }), eventEdits: { 0: { departure: { duration: 35 }, 'transfer-0': { duration: 28 }, 'transfer-1': { duration: 10 } } } });
   assert.equal(original.days[0].timesProvisional, false);
   const added = planner.addEvent({ city, itinerary: original, dayIndex: 0, type: 'transfer', description: '버스 정류장 확인' });
   assert.equal(added.ok, true, added.reason); assert.equal(added.itinerary.days[0].timesProvisional, true);
@@ -2486,4 +2486,33 @@ test('same-cluster replacement keeps its base ID while other-cluster replacement
   assert.equal(other.itinerary.days[0].events[1].id, other.eventId);
   assert.equal(other.itinerary.days[0].events[1].place.id, city.areas[3].places[0].id);
   assert.equal(other.itinerary.days[0].events.some(event => event.id === 'place-2'), false);
+});
+
+
+test('unknown inter-place durations are pending until every required leg is entered, and a mode change invalidates only its leg', async () => {
+  const app = runtime(), city = await app.TourData.ensureCity('seoul'), planner = app.TravelPlanner;
+  let itinerary = planner.createItinerary({ city, startDate: '2026-10-20', dayCount: 1,
+    departure: departureFixture({ mode: 'car' }), eventEdits: { 0: { departure: { duration: 35 } } } });
+  for (const id of ['transfer-0', 'transfer-1']) assert.equal(itinerary.days[0].events.find(event => event.id === id).duration, 0);
+  assert.equal(itinerary.days[0].timesProvisional, true);
+  for (const id of ['transfer-0', 'transfer-1']) itinerary = planner.updateEvent({ city, itinerary, dayIndex: 0, eventId: id, duration: 25 }).itinerary;
+  assert.equal(itinerary.days[0].timesProvisional, false);
+  const changed = planner.setTransferMode({ city, itinerary, dayIndex: 0, eventId: 'transfer-0', mode: 'walk' });
+  assert.equal(changed.ok, true);
+  assert.equal(changed.itinerary.days[0].timesProvisional, true);
+  assert.equal(changed.itinerary.days[0].events.find(event => event.id === 'transfer-0').duration, 0);
+  assert.equal(changed.itinerary.days[0].events.find(event => event.id === 'transfer-1').duration, 25);
+  const reset = planner.updateEvent({ city, itinerary, dayIndex: 0, eventId: 'transfer-0', duration: 0 });
+  assert.equal(reset.ok, true, reset.reason);
+  assert.equal(reset.itinerary.days[0].timesProvisional, true, 'explicit zero also means unknown, not confirmed instantaneous travel');
+});
+
+test('mid-afternoon meals are not labelled dinner and custom restaurant titles survive', async () => {
+  const app = runtime(), city = await app.TourData.ensureCity('seoul'), planner = app.TravelPlanner;
+  const itinerary = planner.createItinerary({ city, startDate: '2026-10-20', dayCount: 1 });
+  const meal = itinerary.days[0].events.find(event => event.id === 'dinner');
+  assert.ok(meal.start >= 15 * 60 && meal.start < 17 * 60);
+  assert.equal(meal.title, '오후 식사');
+  const custom = planner.updateEvent({ city, itinerary, dayIndex: 0, eventId: 'dinner', title: '예약한 식당' });
+  assert.equal(custom.itinerary.days[0].events.find(event => event.id === 'dinner').title, '예약한 식당');
 });

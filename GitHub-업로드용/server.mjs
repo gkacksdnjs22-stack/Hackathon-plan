@@ -1,3 +1,4 @@
+import { createBackdropClient } from './backdrop-server.mjs';
 import { createServer } from 'node:http';
 import { readFile, realpath } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -69,7 +70,7 @@ function send(response, method, status, body, contentType = 'application/json; c
   response.end(method === 'HEAD' ? undefined : data);
 }
 
-export function createAppServer({ root = ROOT, client = createTourClient(), departureClient = createDepartureClient(), transportClient = createTransportClient(), restaurantClient = createTourRestaurantClient(), carRoutingClient = createCarRoutingClient(), transitRoutingClient = createTransitRoutingClient(), accountHandler = createAccountHandler({}) } = {}) {
+export function createAppServer({ root = ROOT, backdropClient = createBackdropClient(), client = createTourClient(), departureClient = createDepartureClient(), transportClient = createTransportClient(), restaurantClient = createTourRestaurantClient(), carRoutingClient = createCarRoutingClient(), transitRoutingClient = createTransitRoutingClient(), accountHandler = createAccountHandler({}) } = {}) {
   return createServer(async (request, response) => {
     const method = request.method;
     try {
@@ -108,6 +109,7 @@ export function createAppServer({ root = ROOT, client = createTourClient(), depa
         response.setHeader('Allow', 'GET, HEAD');
         return send(response, method, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: '허용되지 않은 요청 방식입니다.' } });
       }
+      if (pathname === '/api/tour/backdrop') return send(response, method, 200, await backdropClient.getPhotos());
       if (pathname === '/api/tour/places') {
         const url = new URL(request.url, 'http://127.0.0.1');
         return send(response, method, 200, await client.getPlaces(url.searchParams.get('areaCode') ?? url.searchParams.get('city') ?? '1'));
@@ -172,7 +174,7 @@ export async function startServer() {
   const kakaoApiKey = resolveCarRoutingApiKey(env);
   const secret = process.env.AUTH_SECRET || env.AUTH_SECRET || await ensureLocalAccountSecret(ROOT);
   const db = createLocalDatabase({filename:path.join(ROOT,'.local','gil.sqlite')});
-  const server = createAppServer({ client: createTourClient({ serviceKey }), transportClient: createTransportClient({serviceKey}),restaurantClient:createTourRestaurantClient({serviceKey}), carRoutingClient:createCarRoutingClient({apiKey:kakaoApiKey}), transitRoutingClient:createTransitRoutingClient({apiKey:kakaoApiKey}), accountHandler:createAccountHandler({db,secret}) });
+  const server = createAppServer({ backdropClient: createBackdropClient({serviceKey}), client: createTourClient({ serviceKey }), transportClient: createTransportClient({serviceKey}),restaurantClient:createTourRestaurantClient({serviceKey}), carRoutingClient:createCarRoutingClient({apiKey:kakaoApiKey}), transitRoutingClient:createTransitRoutingClient({apiKey:kakaoApiKey}), accountHandler:createAccountHandler({db,secret}) });
   server.on('close',()=>db.close());
   server.on('error', () => {
     console.error('서버를 시작할 수 없습니다. 포트 사용 여부를 확인해 주세요.');
