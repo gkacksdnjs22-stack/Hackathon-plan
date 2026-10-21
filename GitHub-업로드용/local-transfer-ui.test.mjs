@@ -87,6 +87,19 @@ function runtime(options = {}, { suggestion = near, realCar = false, plannerPres
   return { host, widget, select, choose, carMounts, transitMounts, suggestionCalls, fetches, timers, find: name => find(host, name) };
 }
 
+test('only the current transit widget can preview time, and changing mode or destroying clears it', async () => {
+  const previews = [], app = runtime({ mode: 'local-bus', onPreviewTransitDuration: value => previews.push(value) });
+  const bus = app.transitMounts.at(-1);
+  bus.settings.onPreviewDuration(53); assert.equal(previews.at(-1), 53);
+  await app.choose('subway'); assert.equal(previews.at(-1), null);
+  const subway = app.transitMounts.at(-1);
+  subway.settings.onPreviewDuration(40); assert.equal(previews.at(-1), 40);
+  bus.settings.onPreviewDuration(null); bus.settings.onPreviewDuration(90);
+  assert.equal(previews.at(-1), 40, 'an old widget cannot clear or replace the current result');
+  app.widget.destroy(); assert.equal(previews.at(-1), null);
+  subway.settings.onPreviewDuration(90); assert.equal(previews.at(-1), null);
+});
+
 test('a local transfer presents four modes independently and leaves a recommendation unselected', () => {
   const changed = [], app = runtime({ mode: null, onModeChange: mode => { changed.push(mode); return { ok: true }; } });
   assert.equal(app.select.getAttribute('aria-label'), '이동수단');

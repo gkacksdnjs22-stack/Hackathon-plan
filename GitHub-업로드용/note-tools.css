@@ -5,8 +5,12 @@
 .address-copy-status:empty { display:none; }
 .trip-countdown { display:inline-block; margin-left:9px; padding:2px 8px; border:1px solid #cadbf4; border-radius:6px; background:#eaf2ff; color:#31577f; font-size:11px; font-weight:700; line-height:1.6; white-space:nowrap; }
 .day-bookmarks { display:flex; gap:7px; overflow-x:auto; padding:8px 3px 0; margin-bottom:-1px; scrollbar-width:thin; }
+.day-bookmarks-bottom { margin-top:18px; margin-bottom:16px; padding-bottom:3px; }
+.day-bookmarks-bottom:empty { display:none; }
 .day-bookmark { flex:0 0 auto; min-height:48px; padding:10px 19px 16px; border:1px solid #b9cdeb; border-bottom:0; border-radius:10px 10px 0 0; background:#e2edff; color:#2d4c77; font:inherit; font-size:12px; font-weight:800; letter-spacing:.025em; cursor:pointer; clip-path:polygon(0 0,100% 0,100% 100%,50% 88%,0 100%); }
 .day-bookmark:hover,.day-bookmark:focus-visible { background:#cdddff; }
+.day-bookmark[aria-current="page"] { border-color:#315a91; background:#315a91; color:#fff; }
+.day-bookmark[aria-current="page"]:hover,.day-bookmark[aria-current="page"]:focus-visible { background:#274b7d; }
 .day-card { scroll-margin-top:20px; }
 .day-heading-copy { flex:1; min-width:0; }
 .day-header-actions { display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:10px; min-width:0; }
@@ -19,6 +23,9 @@ body[data-screen="note"] .day-card.is-collapsed .day-card-header { border-bottom
 .account-sort { display:flex; align-items:center; gap:8px; margin-top:13px; color:#586c89; font-size:11px; }
 .account-sort select { min-height:44px; min-width:0; max-width:100%; padding:8px 11px; border:1px solid #cbd9ed; border-radius:9px; background:#fff; color:#365879; font:inherit; }
 .day-bookmarks :focus-visible,.day-card :focus-visible,.address-copy :focus-visible { outline:3px solid #8798c5; outline-offset:2px; }
+@media screen and (min-width:901px) {
+  .day-bookmark { font-size:14px; }
+}
 @media (max-width:760px) {
   .day-card-header { flex-wrap:wrap; }
   .day-header-actions { width:100%; justify-content:space-between; }
@@ -28,6 +35,7 @@ body[data-screen="note"] .day-card.is-collapsed .day-card-header { border-bottom
 }
 @media print {
   .day-bookmarks,.day-collapse,.address-copy,.memo-counter { display:none!important; }
+  .day-card[hidden] { display:block!important; }
   .day-card-body[hidden] { display:block!important; }
   body[data-screen="note"] .day-card.is-collapsed .day-card-header { border-bottom:1px solid #ccc; border-radius:12px 12px 0 0; }
   .day-summary { font-size:8pt; }

@@ -13,11 +13,15 @@
   const draftStorageKey=()=>activeAccountUser?`${STORAGE_KEY}:${activeAccountUser.id}`:STORAGE_KEY;
   let startupPending=true;
   let activeScreen=null;
+  let activeDayIndex=0;
   let requestVersion=0;
   let destinations=[];
   let destinationRequestVersion=0;
   let cityPreparationVersion=0;
   let departureWidgets=[];
+  // These values belong only to currently displayed route results, never to the saved note.
+  let timelineRevision=0;
+  const liveTransitDurations=new Map();
   let departureDraftModes={};
   let messageTimer=null,messageKind=null,messageVersion=0;
   let activeReorder=null;
@@ -27,9 +31,34 @@
     if(restoreFocus)opened.trigger.focus({preventScroll:true});
     opened.close();
   }
-  function destroyDepartureWidgets(){closeReorderControls();departureWidgets.forEach(widget=>widget.destroy());departureWidgets=[];}
+  function destroyDepartureWidgets(){timelineRevision++;liveTransitDurations.clear();closeReorderControls();departureWidgets.forEach(widget=>widget.destroy());departureWidgets=[];}
   const submitButton=$('trip-form').querySelector('button[type="submit"]');
-  function requestedScreen(){return /^#\/note\/?$/.test(window.location.hash)?'note':'start';}
+  function requestedScreen(){return /^#\/note(?:\/day\/\d+)?\/?$/.test(window.location.hash)?'note':'start';}
+  function focusDayPage(index){
+    const card=document.getElementById(`travel-day-${index}`);
+    if(!card)return;
+    if(collapsedDays.has(index))card.querySelector('.day-collapse').click();
+    card.focus({preventScroll:true});
+    card.scrollIntoView({block:'start',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
+  }
+  function syncDayPage(){
+    const match=window.location.hash.match(/^#\/note\/day\/(\d+)\/?$/);
+    const requested=match?Number(match[1])-1:0;
+    const next=Math.max(0,Math.min(currentItinerary.days.length-1,requested));
+    const changed=next!==activeDayIndex;
+    if(changed){
+      clearTransitTimePreviews(activeDayIndex);
+      closeReorderControls();
+      document.getElementById(`travel-day-${activeDayIndex}`)?.querySelectorAll('.transit-route-lookup').forEach(details=>{details.open=false;});
+    }
+    activeDayIndex=next;
+    if(match&&requested!==next)window.history.replaceState(null,'',`#/note/day/${next+1}`);
+    [...$('day-list').children].forEach((card,index)=>{card.hidden=index!==next;});
+    for(const bookmarks of [$('day-bookmarks'),$('day-bookmarks-bottom')]){
+      if(bookmarks)[...bookmarks.children].forEach((button,index)=>button.setAttribute('aria-current',index===next?'page':'false'));
+    }
+    return changed;
+  }
   function syncScreen({focus=true}={}){
     let screen=requestedScreen();
     let needsStartPrompt=false;
@@ -44,12 +73,14 @@
     const changed=screen!==activeScreen;
     if(changed&&activeScreen!==null&&(messageKind==='info'||messageKind==='success'))hideMessage();
     if(changed&&activeScreen==='note'){
+      clearTransitTimePreviews();
       closeReorderControls();
       $('itinerary-section').querySelectorAll('details[open]').forEach(details=>{details.open=false;});
     }
     $('start-screen').hidden=screen!=='start';
     $('itinerary-section').hidden=screen!=='note';
     $('screen-loading').hidden=screen!=='loading';
+    const dayChanged=screen==='note'?syncDayPage():false;
     syncEditHistoryControls();
     $('resume-note').hidden=!currentItinerary;
     $('empty-state').hidden=Boolean(currentItinerary);
@@ -61,7 +92,7 @@
     if(changed&&focus){
       $(screen==='note'?'itinerary-title':screen==='loading'?'loading-title':'title').focus({preventScroll:true});
       window.scrollTo({top:0,left:0,behavior:'instant'});
-    }
+    }else if(dayChanged&&focus)focusDayPage(activeDayIndex);
   }
   function navigate(screen,{replace=false}={}){
     const hash=screen==='note'?'#/note':'#/start';
@@ -226,6 +257,7 @@
     $('empty-state').hidden=false;
     $('day-list').replaceChildren();
     $('day-bookmarks')?.replaceChildren();
+    $('day-bookmarks-bottom')?.replaceChildren();
     $('note-timing-notice').hidden=true;
     $('note-timing-notice').textContent='';
     syncScreen();
@@ -504,8 +536,8 @@
     destroyDepartureWidgets();
     list.replaceChildren();
     currentItinerary.days.forEach((day,index)=>list.append(renderDay(day,index,city)));
-    const bookmarks=$('day-bookmarks');
-    if(bookmarks){
+    for(const bookmarks of [$('day-bookmarks'),$('day-bookmarks-bottom')]){
+      if(!bookmarks)continue;
       bookmarks.replaceChildren();
       currentItinerary.days.forEach((day,index)=>{
         const button=document.createElement('button');button.type='button';button.className='day-bookmark';
@@ -513,10 +545,9 @@
         button.setAttribute('aria-label',`${day.index}일차 ${day.date} 일정으로 이동`);
         button.setAttribute('aria-controls',`travel-day-${index}`);
         button.addEventListener('click',()=>{
-          const card=document.getElementById(`travel-day-${index}`);
-          if(collapsedDays.has(index))card.querySelector('.day-collapse').click();
-          card.focus({preventScroll:true});
-          card.scrollIntoView({block:'start',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
+          window.location.hash=`#/note/day/${index+1}`;
+          syncScreen({focus:false});
+          focusDayPage(index);
         });
         bookmarks.append(button);
       });
@@ -530,6 +561,69 @@
     const badge=$('trip-summary').querySelector('.trip-countdown');
     const city=window.TRAVEL_DATA.cities[currentItinerary.cityId];
     if(badge&&city)badge.textContent=window.TravelNoteTools.countdown(currentItinerary.startDate,currentItinerary.dayCount,city.timezone);
+  }
+  function dayFootnote(day,end=day.end,preview=false){
+    return `${formatTime(day.start)} 출발 · ${formatTime(end)} 마무리${preview?' · 경로 조회 미리보기 · 저장되지 않아요.':day.timesProvisional?'':' · 입력한 소요시간 기준이에요.'}`;
+  }
+  function eventTimeMarkup(start,end,duration){
+    return duration===0?`<span>${timeMarkup(start)}</span>`:`<span>${timeMarkup(start)}</span><span class="time-divider">–</span><span>${timeMarkup(end)}</span>`;
+  }
+  function travelDurationLabel(event,day,minutes,preview=false){
+    if(event.type==='departure')return `${day.arrival?'교통편 예상':'첫 관광지까지'} ${formatDuration(minutes)} · ${preview?'현재 조회':day.transport?'선택한 시간표':'계획용 예상'}`;
+    const modeName=({walk:'도보','local-bus':'시내·마을버스',subway:'지하철',car:'차량','rental-car':'차량',taxi:'차량'})[event.travelMode];
+    return `${modeName?`${modeName} · `:''}예상 이동 ${minutes===0?'미정':formatDuration(minutes)}${preview?' · 현재 조회':''}`;
+  }
+  function projectTransitTimes(dayIndex){
+    const day=currentItinerary?.days[dayIndex];
+    const article=$('day-list').querySelector(`[data-day-index="${dayIndex}"]`);
+    if(!day||!article)return;
+    const rows=new Map([...article.querySelectorAll('.timeline-row')].map(row=>[row.dataset.eventId,row]));
+    let clock=day.start,preview=false;
+    for(const event of day.events){
+      const row=rows.get(event.id),minutes=liveTransitDurations.get(`${dayIndex}:${event.id}`);
+      const duration=minutes??event.duration;
+      preview=preview||minutes!==undefined;
+      const labels=row?.querySelector('.timeline-time-labels');
+      if(labels)labels.innerHTML=eventTimeMarkup(formatTime(clock),formatTime(clock+duration),duration);
+      if(event.type==='departure'||event.type==='transfer'){
+        const pill=row?.querySelector('.event-duration');
+        if(pill){pill.textContent=travelDurationLabel(event,day,duration,minutes!==undefined);pill.hidden=event.type==='departure'&&duration===0;}
+      }
+      // Match the planner's default meal labels without changing user-entered titles or memos.
+      if(event.type==='meal'&&!event.id.startsWith('extra-')){
+        const local=clock%1440;
+        const meal=local<600?'아침 식사':local<900?'점심 식사':local<1020?'오후 식사':local<1260?'저녁 식사':'늦은 식사';
+        const edits=currentItinerary.eventEdits?.[dayIndex]?.[event.id]||{};
+        const title=row?.querySelector('.event-title'),description=row?.querySelector('.event-description');
+        if(title&&!Object.hasOwn(edits,'title'))title.textContent=meal;
+        if(description&&!Object.hasOwn(edits,'description'))description.textContent=`${day.area}에서 ${meal} · 식당을 특정하지 않음`;
+      }
+      clock+=duration;
+    }
+    const foot=article.querySelector('.day-footnote');
+    if(foot)foot.textContent=dayFootnote(day,clock,preview);
+  }
+  function transitTimePreview(dayIndex,eventId){
+    const revision=timelineRevision,note=currentItinerary;
+    return minutes=>{
+      if(revision!==timelineRevision||note!==currentItinerary||activeScreen!=='note'||dayIndex!==activeDayIndex)return;
+      if(minutes!==null&&(!Number.isInteger(minutes)||minutes<1||minutes>1440))return;
+      const event=note.days[dayIndex]?.events.find(item=>item.id===eventId);
+      if(!event||!['departure','transfer'].includes(event.type))return;
+      const key=`${dayIndex}:${eventId}`;
+      if(minutes===null){if(!liveTransitDurations.delete(key))return;}
+      else liveTransitDurations.set(key,minutes);
+      projectTransitTimes(dayIndex);
+    };
+  }
+  function clearTransitTimePreviews(dayIndex=null){
+    const days=new Set();
+    for(const key of liveTransitDurations.keys()){
+      const index=Number(key.split(':')[0]);
+      if(dayIndex!==null&&index!==dayIndex)continue;
+      days.add(index);liveTransitDurations.delete(key);
+    }
+    days.forEach(projectTransitTimes);
   }
   function renderDay(day,index,city){
     const article=document.createElement('article');
@@ -572,6 +666,10 @@
     toggle.setAttribute('aria-controls',body.id);toggle.setAttribute('aria-label',`${day.index}일차 일정 접기·펼치기`);
     function syncCollapse(){
       body.hidden=collapsedDays.has(index);toggle.textContent=body.hidden?'일정 펼치기':'일정 접기';
+      if(body.hidden){
+        clearTransitTimePreviews(index);
+        body.querySelectorAll('.transit-route-lookup').forEach(details=>{details.open=false;});
+      }
       article.classList.toggle('is-collapsed',body.hidden);
       toggle.setAttribute('aria-expanded',String(!body.hidden));
     }
@@ -619,7 +717,7 @@
     }
     const foot=document.createElement('div');
     foot.className='day-footnote';
-    foot.textContent=`${formatTime(day.start)} 출발 · ${formatTime(day.end)} 마무리${day.timesProvisional?'':' · 입력한 소요시간 기준이에요.'}`;
+    foot.textContent=dayFootnote(day);
     body.append(foot);article.append(body);
     return article;
   }
@@ -789,7 +887,7 @@
     const transitMode=day.departure?.mode||departureDraftModes[dayIndex];
     if(window.TravelTransitRouting&&['local-bus','subway'].includes(transitMode)){
       const transitHost=document.createElement('div');transitHost.className='transit-route-container';
-      departureWidgets.push(window.TravelTransitRouting.mount(transitHost,{origin:day.departure,destination:day.events.find(event=>event.type==='place')?.place,mode:transitMode,onEdit:()=>editTravelTime(dayIndex,'departure')}));
+      departureWidgets.push(window.TravelTransitRouting.mount(transitHost,{origin:day.departure,destination:day.events.find(event=>event.type==='place')?.place,mode:transitMode,onEdit:()=>editTravelTime(dayIndex,'departure'),onPreviewDuration:transitTimePreview(dayIndex,'departure')}));
       timing.append(transitHost);
     }
     return timing;
@@ -858,7 +956,8 @@
     row.dataset.eventId=event.id;
     const time=document.createElement('div');
     time.className='timeline-time';
-    time.innerHTML=event.duration===0?`<span>${timeMarkup(event.startLabel)}</span>`:`<span>${timeMarkup(event.startLabel)}</span><span class="time-divider">–</span><span>${timeMarkup(event.endLabel)}</span>`;
+    const labels=document.createElement('span');labels.className='timeline-time-labels';
+    labels.innerHTML=eventTimeMarkup(event.startLabel,event.endLabel,event.duration);time.append(labels);
     row.append(time);
     const content=document.createElement('div');
     content.className='timeline-content';
@@ -869,7 +968,8 @@
       if(connection)content.append(connection);
       if(event.departure&&event.description){const memo=document.createElement('p');memo.className='event-description';memo.textContent=event.description;content.append(memo);}
       const meta=document.createElement('div');meta.className='event-meta';
-      if(event.duration){const duration=document.createElement('span');duration.className='meta-pill';duration.textContent=`${currentItinerary.days[dayIndex].arrival?'교통편 예상':'첫 관광지까지'} ${formatDuration(event.duration)} · ${currentItinerary.days[dayIndex].transport?'선택한 시간표':'계획용 예상'}`;meta.append(duration);}
+      const duration=document.createElement('span');duration.className='meta-pill event-duration';duration.hidden=event.duration===0;
+      duration.textContent=travelDurationLabel(event,currentItinerary.days[dayIndex],event.duration);meta.append(duration);
       if(meta.childNodes.length)content.append(meta);
     }else if(event.type==='arrival'){
       const title=document.createElement('h3');title.className='event-title';title.textContent=eventName(event);
@@ -923,8 +1023,12 @@
     }else{
       const name=eventName(event);
       const description=event.description??event.label??'';
-      const travelModeName=({walk:'도보','local-bus':'시내·마을버스',subway:'지하철',car:'차량','rental-car':'차량',taxi:'차량'})[event.travelMode];
-      content.innerHTML=`<h3 class="event-title">${esc(name)}</h3><p class="event-description">${esc(description)}${event.type==='transfer'?' · 계획용 예상시간':''}</p><div class="event-meta"><span class="meta-pill">${travelModeName?`${travelModeName} · `:''}${event.type==='transfer'?'예상 이동':'일정 여유'} ${event.type==='transfer'&&event.duration===0?'미정':formatDuration(event.duration)}</span></div>`;
+      const title=document.createElement('h3');title.className='event-title';title.textContent=name;
+      const desc=document.createElement('p');desc.className='event-description';desc.textContent=`${description}${event.type==='transfer'?' · 계획용 예상시간':''}`;
+      const meta=document.createElement('div');meta.className='event-meta';
+      const pill=document.createElement('span');pill.className='meta-pill event-duration';
+      pill.textContent=event.type==='transfer'?travelDurationLabel(event,currentItinerary.days[dayIndex],event.duration):`일정 여유 ${formatDuration(event.duration)}`;
+      meta.append(pill);content.append(title,desc,meta);
     }
     if(event.type==='arrival'){row.append(content);return row;}
     const edit=document.createElement('button');
@@ -955,16 +1059,17 @@
       });
       footer.append(remove);
     }
-    if(event.type==='transfer'&&event.id!=='arrival-transfer'&&window.TravelLocalTransfer){
+    if(event.type==='transfer'&&window.TravelLocalTransfer){
       const events=currentItinerary.days[dayIndex].events;
       const index=events.findIndex(item=>item.id===event.id);
-      const origin=events.slice(0,index).reverse().find(item=>item.type==='place')?.place;
+      const origin=event.id==='arrival-transfer'?currentItinerary.days[dayIndex].arrival:events.slice(0,index).reverse().find(item=>item.type==='place')?.place;
       const destination=events.slice(index+1).find(item=>item.type==='place')?.place;
       if(origin&&destination){
         const localHost=document.createElement('div');localHost.className='local-transfer-container';
         departureWidgets.push(window.TravelLocalTransfer.mount(localHost,{origin,destination,mode:event.travelMode,durationMinutes:event.duration,
           onApplyRoute:route=>applyCarRoute(route,dayIndex,event.id,city),
           onEditTime:()=>editTravelTime(dayIndex,event.id),
+          onPreviewTransitDuration:transitTimePreview(dayIndex,event.id),
           onModeChange:mode=>{
             const result=window.TravelPlanner.setTransferMode({city,itinerary:currentItinerary,dayIndex,eventId:event.id,mode});
             if(!result.ok)return result;
@@ -1151,6 +1256,10 @@
   $('undo-button')?.addEventListener('click',()=>applyEditHistory('undo'));
   $('redo-button')?.addEventListener('click',()=>applyEditHistory('redo'));
   $('print-button').addEventListener('click',()=>window.print());
+  window.addEventListener('beforeprint',()=>{
+    clearTransitTimePreviews();
+    $('day-list').querySelectorAll('.transit-route-lookup').forEach(details=>{details.open=false;});
+  });
   $('clear-button').addEventListener('click',()=>{
     if(!window.confirm('이 브라우저의 여행 노트와 자동저장본을 지울까요? 계정에 따로 저장하지 않은 내용은 되돌릴 수 없어요. 계정에 저장한 계획은 지워지지 않아요.'))return;
     requestVersion++;

@@ -15,6 +15,7 @@
   const PROTECTED_IDS=['departure','arrival','arrival-transfer','finish'];
   const EDITABLE_IDS=EVENT_IDS.filter(id=>!PROTECTED_IDS.includes(id));
   const TRANSFER_IDS=['transfer-0','transfer-1'];
+  const LOCAL_TRANSFER_IDS=['arrival-transfer',...TRANSFER_IDS];
   const TRANSFER_MODES=['walk','local-bus','subway','car'];
   const EXTRA_TYPES=['free','meal','rest','place','transfer'];
   const EXTRA_FIELDS=['id','beforeId','type','title','description','duration','placeId','travelMode'];
@@ -291,7 +292,7 @@
         }
         if(Object.hasOwn(edit,'travelMode')){
           const mode=canonicalTravelMode(edit.travelMode);
-          if(!TRANSFER_IDS.includes(id)||!TRANSFER_MODES.includes(mode))return {ok:false,reason:'관광지 사이 이동수단을 목록에서 선택해 주세요.'};
+          if(!LOCAL_TRANSFER_IDS.includes(id)||!TRANSFER_MODES.includes(mode))return {ok:false,reason:'관광지까지 이동수단을 목록에서 선택해 주세요.'};
           patch.travelMode=mode;
         }
         if(Object.keys(patch).length)normalized[id]=patch;
@@ -664,7 +665,7 @@
       const next=rebuild(city,current,{extraEvents});
       return next.ok?{ok:true,itinerary:next}:{ok:false,reason:next.reason};
     }
-    if(!TRANSFER_IDS.includes(eventId)||!TRANSFER_MODES.includes(selectedMode))return {ok:false,reason:'관광지 사이 이동수단을 목록에서 선택해 주세요.'};
+    if(!LOCAL_TRANSFER_IDS.includes(eventId)||!TRANSFER_MODES.includes(selectedMode)||!current.days[dayIndex].events.some(event=>event.id===eventId&&event.type==='transfer'))return {ok:false,reason:'관광지까지 이동수단을 목록에서 선택해 주세요.'};
     const previous=current.days[dayIndex].events.find(event=>event.id===eventId)?.travelMode;
     const patch={...current.eventEdits[dayIndex]?.[eventId],travelMode:selectedMode};
     if(previous!==selectedMode&&!(vehicleMode(previous)&&vehicleMode(selectedMode)))delete patch.duration;

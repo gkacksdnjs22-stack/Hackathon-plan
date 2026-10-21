@@ -17,7 +17,7 @@
     };
   }
 
-  function mount(host, { origin = null, destination = null, mode = null, onModeChange = null, onApplyRoute = null, onEditTime = null } = {}) {
+  function mount(host, { origin = null, destination = null, mode = null, onModeChange = null, onApplyRoute = null, onEditTime = null, onPreviewTransitDuration = null } = {}) {
     const from = copyPoint(origin, '출발지'), to = copyPoint(destination, '도착지');
     const canChange = typeof onModeChange === 'function';
     const restoredMode = mode === 'rental-car' || mode === 'taxi' ? 'car' : mode;
@@ -52,13 +52,15 @@
     const routeHost = document.createElement('div'); routeHost.className = 'local-transfer-route';
     wrapper.append(context, row, message, hint, routeHost); host.replaceChildren(wrapper);
 
-    let destroyed = false, changing = false, version = 0, routeWidget = null;
+    let destroyed = false, changing = false, version = 0, routeVersion = 0, routeWidget = null;
 
     function showMessage(value, error = false) {
       message.textContent = value; message.classList.toggle('is-error', error);
     }
     function clearRoute() {
+      routeVersion++;
       routeWidget?.destroy(); routeWidget = null; routeHost.replaceChildren();
+      if (typeof onPreviewTransitDuration === 'function') onPreviewTransitDuration(null);
     }
     function renderMode() {
       clearRoute(); hint.textContent = '';
@@ -76,9 +78,13 @@
         } else hint.textContent = '예상시간은 일정 수정에서 입력해 주세요.';
       } else if (selectedMode === 'local-bus' || selectedMode === 'subway') {
         if (typeof window.TravelTransitRouting?.mount === 'function') {
-          const routeMode = selectedMode;
+          const routeMode = selectedMode, previewVersion = routeVersion;
           routeWidget = window.TravelTransitRouting.mount(routeHost, {
             origin: from, destination: to, mode: selectedMode, compact: true,
+            onPreviewDuration: typeof onPreviewTransitDuration === 'function' ? minutes => {
+              if (destroyed || changing || routeMode !== selectedMode || previewVersion !== routeVersion) return;
+              onPreviewTransitDuration(minutes);
+            } : null,
             onEdit: typeof onEditTime === 'function' ? () => {
               if (destroyed || changing || routeMode !== selectedMode) return { ok: false, reason: '이동수단을 다시 확인해 주세요.' };
               return onEditTime();

@@ -2237,6 +2237,25 @@ test('adding ordinary notes and meals preserves route estimates and extra edits 
   assertSequential(next.itinerary.days[0]);
 });
 
+test('arrival stations support a saved local mode without changing the intercity leg, and mode changes clear only local time', async () => {
+  const app = runtime(), city = await app.TourData.ensureCity('seoul'), planner = app.TravelPlanner;
+  const original = officialItinerary(app, city, 'train', { eventEdits: { 0: {
+    departure: { duration: 90 }, 'arrival-transfer': { duration: 25, description: '역 출구 확인' }
+  } } });
+  const snapshot = plain(original);
+  const bus = planner.setTransferMode({city,itinerary:original,dayIndex:0,eventId:'arrival-transfer',mode:'local-bus'});
+  assert.equal(bus.ok,true,bus.reason);
+  const leg = bus.itinerary.days[0].events.find(event=>event.id==='arrival-transfer');
+  assert.equal(leg.travelMode,'local-bus'); assert.equal(leg.duration,0); assert.equal(leg.description,'역 출구 확인');
+  assert.equal(bus.itinerary.days[0].events[0].duration,90);
+  const restored = planner.createItinerary({city,...plain(bus.itinerary)});
+  assert.equal(restored.ok,true,restored.reason);
+  assert.equal(restored.days[0].events.find(event=>event.id==='arrival-transfer').travelMode,'local-bus');
+  assert.deepEqual(plain(original),snapshot);
+  const withoutArrival = planner.createItinerary({city,startDate:original.startDate,dayCount:1});
+  assert.equal(planner.setTransferMode({city,itinerary:withoutArrival,dayIndex:0,eventId:'arrival-transfer',mode:'local-bus'}).ok,false);
+});
+
 test('adding and replacing extra tourists clears stale local estimates but preserves official connections, notes and other dates', async () => {
   const app = runtime(), city = await app.TourData.ensureCity('seoul'), planner = app.TravelPlanner;
   const draft = officialItinerary(app, city, 'train', { eventEdits: { 0: {

@@ -517,3 +517,34 @@
 }
 @media print { .travel-backdrop, .backdrop-controls { display: none !important; } }
 @media print { .note-timing-notice { margin:0 0 12px; padding:7px 10px; border:1px solid #d2dff2; color:#34527b; font-size:8pt; line-height:1.6; } }
+
+/* Desktop reading sizes; keep the existing phone and tablet typography. */
+@media screen and (min-width: 901px) {
+  body { font-size:16px; }
+  .intro-copy { font-size:16px; }
+  :is(.field label,.button,.account-button,.day-title span,.day-area-select,.area-apply-button,.event-edit-button,.swap-button,.map-link,.swap-picker button,.schedule-actions button,.editor-actions button) { font-size:14px; }
+  body[data-screen="note"] .heading-actions :is(.button,.note-history-button) { font-size:14px; }
+  body[data-screen="note"] .timeline-content .event-footer>.event-edit-button,
+  body[data-screen="note"] .event-remove-button { font-size:14px; }
+  :is(.field input,.field select,.select-trigger,.button-primary,.select-option,.day-start-form .time-trigger,.day-start-form .time-option) { font-size:16px; }
+  :is(.wordmark small,.eyebrow,.step-label,.step-number,.field-hint,.form-footer p,.app-message,.capacity-message,.empty-state>span,.empty-features span,.site-footer,.account-user,.account-notice-copy,.account-notice .account-notice-link,.account-library-copy,.account-library-message,.account-plan-meta,.account-dialog-copy,.account-dialog-field,.account-dialog-message,.backdrop-story p,.resume-note p) { font-size:13px; }
+  :is(.account-plan-title,.backdrop-story strong,.account-dialog-field input) { font-size:15px; }
+  body[data-screen="start"] .data-status { font-size:13px; }
+  body[data-screen="note"] :is(.note-timing-notice,.account-save-status,#trip-summary,.fine-print,.day-footnote,.event-subtitle,.meta-pill) { font-size:13px; }
+  body[data-screen="note"] .day-card .event-title { font-size:18px; }
+  body[data-screen="note"] :is(.meal-row,.transfer-row,.free-row,.rest-row,.buffer-row) .event-title { font-size:16px; }
+  body[data-screen="note"] .event-description { font-size:14px; }
+  .timeline-row .timeline-time { font-size:14px; }
+  .timeline-row .timeline-time small { font-size:12px; }
+  :is(.day-origin-heading,.day-origin-name,.day-origin-action,.departure-intro,.departure-grid label,.day-start-form label,.departure-row .day-timing-note,.local-transfer-context,.local-transfer-recommendation,.local-transfer-field,.local-transfer-hint,.local-transfer-message,.local-transfer-basis,.restaurant-heading,.restaurant-preview,.restaurant-summary-action,.restaurant-introduction,.restaurant-message,.restaurant-meta,.restaurant-address,.restaurant-note,.restaurant-map,.restaurant-select,.transport-heading,.transport-preview,.transport-summary-action,.transport-note,.transport-message,.transport-footnote,.transport-trip>span,.transport-trip>small,.connection-heading,.connection-note,.connection-leg-label,.connection-date-hint,.car-route-heading,.car-route-preview,.car-route-summary-action,.car-route-introduction,.car-route-message,.car-route-distance,.transit-route-heading,.transit-route-preview,.transit-route-summary-action,.transit-route-introduction,.transit-route-message,.transit-route-note,.transit-route-choices,.transit-route-distance,.transit-route-type,.transit-route-transfers,.transit-route-steps>summary,.transit-route-step-list,.transit-route-step-list strong,.transit-route-step-list span) { font-size:13px; }
+  :is(.day-origin-mode,.origin-service-info .origin-service-badge,.origin-service-info .origin-service-source,.origin-attribution) { font-size:12px; }
+  :is(.departure-settings .select-trigger,.departure-settings .origin-query,.origin-search,.origin-clear,.origin-message,.origin-result strong,.origin-selection-copy strong,.local-transfer-select,.restaurant-refresh,.restaurant-more,.restaurant-manual-actions button,.transport-controls button,.transport-more,.connection-apply,.car-route-refresh,.car-route-apply,.transit-route-refresh,.transit-route-edit,.transit-route-select) { font-size:14px; }
+  :is(.origin-result span,.origin-selection-copy>span,.restaurant-manual-label,.editor-field,.duration-field legend,.duration-part>span,.editor-help,.schedule-field,.schedule-duration legend,.schedule-duration-part,.schedule-help,.schedule-place-hint,.schedule-duration-hint,.schedule-message,.schedule-add>summary,.time-column-label,.time-popover-heading>span) { font-size:13px; }
+  :is(.editor-field input,.editor-field textarea,.schedule-field input,.schedule-field textarea,.schedule-field select,.schedule-duration input,.duration-part input[type="number"],.restaurant-manual-label input,.restaurant-manual-label textarea) { font-size:15px; }
+  :is(.restaurant-name,.transport-trip>strong) { font-size:15px; }
+  .day-start-form .time-popover-footer button { font-size:14px; }
+  .transit-route-duration,.car-route-duration { font-size:20px; }
+  .transit-route-compact .transit-route-heading,.car-route-compact .car-route-heading,.car-route-compact .car-route-introduction { font-size:13px; }
+  .transit-route-compact .transit-route-duration,.car-route-compact .car-route-duration { font-size:18px; }
+  .transit-route-summary-action { min-width:82px; }
+}
