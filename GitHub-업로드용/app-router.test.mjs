@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 const code = readFileSync(new URL('app.js', import.meta.url), 'utf8');
 const plannerCode = readFileSync(new URL('planner.js', import.meta.url), 'utf8');
+const accountCode = readFileSync(new URL('account-ui.js', import.meta.url), 'utf8');
 const storageKey = 'travel-weave-itinerary-v1';
 const settle = async () => { for (let index = 0; index < 20; index++) await Promise.resolve(); };
 function deferred() {
@@ -168,7 +169,7 @@ function timedNoteFixture(dayCount = 1) {
   return { ...fixture, note };
 }
 
-function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadError, storageError, cityData = null, planner = null, withAccount = false, accountUser = null, accountReady, currentDateTime='2026-10-20T12:00:00' } = {}) {
+function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadError, storageError, cityData = null, planner = null, withAccount = false, accountUser = null, accountReady, accountHandler, currentDateTime='2026-10-20T12:00:00' } = {}) {
   const elements = new Map(), documentListeners = new Map(), documentCaptureListeners = new Map();
   const document = {
     title: '', activeElement: null,
@@ -195,7 +196,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   const ids = ['country-select', 'city-select', 'start-date', 'day-count', 'trip-form', 'destinations-retry',
     'city-note', 'duration-note', 'data-status', 'app-message', 'date-trigger', 'itinerary-section',
     'empty-state', 'day-list', 'trip-summary', 'note-timing-notice', 'capacity-message', 'print-button', 'clear-button', 'undo-button', 'redo-button',
-    'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'saved-plans', 'account-save'];
+    'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'account-notice', 'saved-plans', 'account-save'];
   for (const id of ids) {
     const tag = ['city-select', 'day-count'].includes(id) ? 'select' : id === 'trip-form' ? 'form' : ['print-button','clear-button','undo-button','redo-button'].includes(id) ? 'button' : 'div';
     const element = document.createElement(tag); element.id = id; elements.set(id, element);
@@ -230,6 +231,8 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
       forward() { if (historyIndex < history.length - 1) { currentHash = history[++historyIndex]; emitHash(); } }
     },
     addEventListener(type, listener) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(listener); },
+    removeEventListener(type, listener) { listeners.get(type)?.delete(listener); },
+    dispatch(type, event) { for (const listener of listeners.get(type) || []) listener(event); },
     scrollTo: options => scrolls.push(options), print() {},
     confirm(text) { behavior.confirmations.push(text); return behavior.confirmClear; },
     TRAVEL_DATA: { countries: { KR: '대한민국' }, cities: { [city.id]: city } },
@@ -254,7 +257,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   window.TravelSchedule = mountStub('schedule');
   window.TravelRestaurants = { ...mountStub('restaurant'), mountManual: mountStub('manual-restaurant').mount, districtFromAddress: () => '남구' };
   const account={options:null,changes:0,detaches:0};
-  if(withAccount)window.TravelAccount={mount(options){
+  if(withAccount&&!accountHandler)window.TravelAccount={mount(options){
     account.options=options;
     return {ready:Promise.resolve(accountReady).then(()=>options.onUserChange(accountUser,{initial:true})),changed(){account.changes++;},detach(){account.detaches++;}};
   }};
@@ -289,8 +292,18 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
       now = until;
     }
   };
-  vm.runInContext(code, vm.createContext({ window, document, localStorage, Date:AppDate, JSON, console,
-    setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout }), { filename: 'app.js' });
+  const context = vm.createContext({ window, document, localStorage, Date:AppDate, JSON, console, TextEncoder, AbortController,
+    fetch: accountHandler, setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout });
+  if(withAccount&&accountHandler){
+    vm.runInContext(accountCode, context, { filename: 'account-ui.js' });
+    const mountAccount = window.TravelAccount.mount;
+    window.TravelAccount.mount = options => {
+      account.options = options;
+      account.controller = mountAccount(options);
+      return account.controller;
+    };
+  }
+  vm.runInContext(code, context, { filename: 'app.js' });
   return { $, window, document, stored, writes, removals, creations, behavior, scrolls, clock, mounts, account,
     async go(value) { location.hash = value; await settle(); },
     async create() { $('trip-form').dispatch('submit'); await settle(); },
@@ -366,6 +379,72 @@ test('initial account verification finishes before any private browser draft res
   auth.resolve();await settle();screen(app,'start');
   assert.equal(app.account.options.getDocument(),null);
   assert.equal(app.stored.get(storageKey),savedNote(guestNote));
+});
+
+for (const entry of ['notice', 'dialog']) {
+  test(`a failed guest setup retry from the ${entry} preserves the real app note and edit history through recovery`, async () => {
+    let failSession = false, configured = false;
+    const app = runtime({ ...actualPlannerFixture(), withAccount: true, accountHandler: async path => {
+      assert.equal(path, '/api/auth/session');
+      if (failSession) throw Error('temporary connection failure');
+      return { ok: true, status: 200, json: async () => ({ configured, user: null }) };
+    } });
+    await app.account.controller.ready; await settle(); await app.create();
+    const original = noteParameters(app);
+    assert.equal(manualMeal(app).options.onSave({ name: '게스트 식당', description: '다시 확인 중에도 남아야 할 메모' }).ok, true);
+    const edited = noteParameters(app), saved = app.stored.get(storageKey), day = app.$('day-list').children[0];
+    const click = async (root, text) => {
+      const button = root.querySelectorAll('button').find(button => button.textContent === text);
+      assert.ok(button, `button exists: ${text}`); button.click(); await settle();
+    };
+    if (entry === 'notice') await app.go('#/start');
+    else await click(app.$('account-nav'), '계정 저장 준비 중');
+    const route = app.window.location.hash;
+    failSession = true;
+    const retryRoot = () => entry === 'notice' ? app.$('account-notice') : app.document.querySelector('.account-dialog');
+    await click(retryRoot(), '다시 확인');
+    assert.equal(app.window.location.hash, route);
+    assert.ok(app.account.options.getDocument(), 'a failed setup check must not clear the guest note');
+    assert.deepEqual(noteParameters(app), edited);
+    assert.equal(app.stored.get(storageKey), saved);
+    assert.equal(app.$('day-list').children[0], day);
+    assert.equal(app.$('undo-button').disabled, false);
+    app.$('undo-button').click(); assert.deepEqual(noteParameters(app), original);
+    app.$('redo-button').click(); assert.deepEqual(noteParameters(app), edited);
+    failSession = false; configured = true;
+    await click(retryRoot(), '다시 확인');
+    assert.deepEqual(noteParameters(app), edited);
+    assert.equal(app.$('undo-button').disabled, false);
+    assert.match(app.$('account-nav').textContent, /로그인 · 회원가입/);
+    app.account.controller.destroy();
+  });
+}
+
+test('a failed cross-tab account check still hides the former owners real note and history', async () => {
+  let failSession = false, user = { id: 'owner-a', username: 'alice' };
+  const app = runtime({ ...actualPlannerFixture(), withAccount: true, accountHandler: async path => {
+    if (path === '/api/plans') return { ok: true, status: 200, json: async () => ({ plans: [] }) };
+    assert.equal(path, '/api/auth/session');
+    if (failSession) throw Error('temporary connection failure');
+    return { ok: true, status: 200, json: async () => ({ configured: true, user }) };
+  } });
+  await app.account.controller.ready; await settle(); await app.create();
+  manualMeal(app).options.onSave({ name: '계정 A의 식당', description: '계정 A의 비공개 메모' });
+  const saved = app.stored.get(`${storageKey}:owner-a`);
+  assert.ok(saved); assert.equal(app.$('undo-button').disabled, false);
+  failSession = true; user = { id: 'owner-b', username: 'bob' };
+  app.window.dispatch('storage', { key: 'gil-account-session-change', newValue: 'changed' }); await settle();
+  screen(app, 'start');
+  assert.equal(app.account.options.getDocument(), null);
+  assert.equal(app.$('undo-button').disabled, true);
+  assert.equal(app.$('redo-button').disabled, true);
+  assert.equal(app.stored.get(`${storageKey}:owner-a`), saved);
+  failSession = false;
+  app.$('account-nav').querySelector('button').click(); await settle();
+  assert.match(app.$('account-nav').textContent, /bob/);
+  assert.equal(app.account.options.getDocument(), null);
+  assert.equal(app.stored.get(`${storageKey}:owner-a`), saved);
+  app.account.controller.destroy();
 });
 
 test('creating a note refuses a past start date without replacing the current note and permits today',async()=>{
