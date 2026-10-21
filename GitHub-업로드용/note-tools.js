@@ -48,5 +48,25 @@
       pending: travel.filter(event => event.duration === 0).length
     };
   }
-  window.TravelNoteTools = { memoCounter, addressCopy, countdown, daySummary };
+  function pendingTransfers(itinerary) {
+    return itinerary.days.flatMap((day, dayIndex) => day.events.flatMap((event, position) => {
+      if (event.type !== 'departure' && event.type !== 'transfer') return [];
+      const reasons = [], origin = day.departure || event.departure;
+      const needsArrival = event.type === 'departure' && ['train', 'bus', 'flight', 'ferry'].includes(origin?.mode);
+      let target = 'time';
+      if (event.type === 'departure') {
+        if (!origin) { reasons.push('출발지 미정'); target = 'departure'; }
+        else if (needsArrival && !day.arrival) { reasons.push('도착지 미정'); target = 'arrival'; }
+      }
+      if (event.duration === 0) reasons.push('이동시간 미정');
+      if (!reasons.length) return [];
+      const before = day.events.slice(0, position).reverse().find(item => item.type === 'place' || item.type === 'arrival');
+      const after = day.events.slice(position + 1).find(item => item.type === 'place');
+      const from = event.type === 'departure' ? origin?.name || '출발지' : before?.place?.name || before?.arrival?.name;
+      const to = needsArrival ? day.arrival?.name || '도착지' : after?.place?.name;
+      const title = from && to ? `${from} → ${to}` : event.title || '이동';
+      return [{ dayIndex, eventId: event.id, title, reason: reasons.join(' · '), target }];
+    }));
+  }
+  window.TravelNoteTools = { memoCounter, addressCopy, countdown, daySummary, pendingTransfers };
 })();
