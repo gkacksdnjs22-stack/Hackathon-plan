@@ -10,9 +10,11 @@
     itinerary:currentItinerary,dayIndex:activeDayIndex,
     timeZone:window.TRAVEL_DATA.cities[currentItinerary?.cityId]?.timezone||'Asia/Seoul'
   })});
+  const personalTools=window.TravelPersonalization.mount($('personal-tools'),{onChange:savePersonalization,onAdd:addFavoritePlace});
+  let personalEventWidgets=[];
   const EDIT_HISTORY_LIMIT=20;
   const editHistory={undo:[],redo:[]};
-  const editingKeys=['cityId','startDate','dayCount','dayAreaIds','selections','dayStarts','eventEdits','extraEvents','excludedEvents','eventOrders','departure','dayDepartures','dayArrivals','dayTransports'];
+  const editingKeys=['cityId','startDate','dayCount','dayAreaIds','selections','dayStarts','eventEdits','extraEvents','excludedEvents','eventOrders','departure','dayDepartures','dayArrivals','dayTransports','personalization'];
   let account=null;
   let activeAccountUser=null;
   const draftStorageKey=()=>activeAccountUser?`${STORAGE_KEY}:${activeAccountUser.id}`:STORAGE_KEY;
@@ -35,7 +37,7 @@
     if(restoreFocus)opened.trigger.focus({preventScroll:true});
     opened.close();
   }
-  function destroyDepartureWidgets(){timelineRevision++;liveTransitDurations.clear();closeReorderControls();departureWidgets.forEach(widget=>widget.destroy());departureWidgets=[];}
+  function destroyDepartureWidgets(){timelineRevision++;liveTransitDurations.clear();closeReorderControls();departureWidgets.forEach(widget=>widget.destroy());departureWidgets=[];personalEventWidgets=[];}
   const submitButton=$('trip-form').querySelector('button[type="submit"]');
   function requestedScreen(){return /^#\/note(?:\/day\/\d+)?\/?$/.test(window.location.hash)?'note':'start';}
   function focusDayPage(index){
@@ -240,6 +242,7 @@
     destroyDepartureWidgets();
     departureDraftModes={};
     currentItinerary=null;
+    personalTools.reset();
     collapsedDays.clear();
     activeDayIndex=0;
     exportTools.refresh();
@@ -287,6 +290,7 @@
     result.dataSource=city.dataSource||'bundled';
     departureDraftModes={};
     currentItinerary=result;
+    personalTools.reset();
     collapsedDays.clear();
     activeDayIndex=0;
     resetEditHistory();
@@ -467,13 +471,14 @@
         return fail('여행지 구성이 갱신되어 이전 일정의 권역을 그대로 연결할 수 없습니다. 여행 조건을 골라 새 일정을 만들어 주세요.');
       dayAreaIds.splice(0,dayAreaIds.length,...migrated);
     }
-    const restored=window.TravelPlanner.createItinerary({city,startDate:saved.startDate,dayCount:saved.dayCount,dayAreaIds,selections,dayStarts:saved.dayStarts,eventEdits:saved.eventEdits,departure:saved.departure,dayDepartures:saved.dayDepartures,dayArrivals:saved.dayArrivals,dayTransports:saved.dayTransports,extraEvents:saved.extraEvents,excludedEvents:saved.excludedEvents,eventOrders:saved.eventOrders});
+    const restored=window.TravelPlanner.createItinerary({city,startDate:saved.startDate,dayCount:saved.dayCount,dayAreaIds,selections,dayStarts:saved.dayStarts,eventEdits:saved.eventEdits,departure:saved.departure,dayDepartures:saved.dayDepartures,dayArrivals:saved.dayArrivals,dayTransports:saved.dayTransports,extraEvents:saved.extraEvents,excludedEvents:saved.excludedEvents,eventOrders:saved.eventOrders,personalization:saved.personalization});
     if(!restored.ok)return fail(restored.reason);
     if(restored.days.length!==Number(saved.dayCount))return fail('저장한 여행 날짜 수와 복원 결과가 다릅니다.');
     restored.dataSource=city.dataSource||saved.dataSource||'bundled';
     if(version!==requestVersion||!isCurrent())return false;
     departureDraftModes={};
     currentItinerary=restored;
+    personalTools.reset();
     collapsedDays.clear();
     activeDayIndex=0;
     resetEditHistory();
@@ -569,6 +574,7 @@
     }
     activeDayIndex=index;
     exportTools.refresh();
+    renderPersonalization();
     $('day-list').querySelectorAll('.day-card').forEach(card=>{card.hidden=Number(card.dataset.dayIndex)!==index;});
     for(const id of ['day-bookmarks','day-bookmarks-bottom']){
       $(id)?.querySelectorAll('.day-bookmark').forEach(button=>{
@@ -612,6 +618,42 @@
       entry.append(button);list.append(entry);
     });
     panel.append(summary,hint,list);
+  }
+  function renderPersonalization(){
+    if(!currentItinerary)return;
+    const city=window.TRAVEL_DATA.cities[currentItinerary.cityId];
+    const places=window.TravelPlanner.allPlaces?window.TravelPlanner.allPlaces(city):(city.areas||[]).flatMap(area=>area.places);
+    const usedPlaceIds=new Set([...Object.values(currentItinerary.selections||{}).flat(),...Object.values(currentItinerary.extraEvents||{}).flat().filter(event=>event.type==='place').map(event=>event.placeId)]);
+    const excludedPlaceIds=new Set(currentItinerary.days.flatMap(day=>(day.hiddenEvents||[]).filter(event=>event.type==='place').map(event=>event.place.id)));
+    personalTools.render({itinerary:currentItinerary,places,usedPlaceIds,excludedPlaceIds,dayIndex:activeDayIndex});
+    personalEventWidgets.forEach(widget=>widget.sync(window.TravelPersonalization.data(currentItinerary)));
+  }
+  function savePersonalization(personalization){
+    if(!currentItinerary)return {ok:false,reason:'여행 노트를 먼저 만들어 주세요.'};
+    const city=window.TRAVEL_DATA.cities[currentItinerary.cityId];
+    const result=window.TravelPlanner.updatePersonalization({city,itinerary:currentItinerary,personalization});
+    if(!result.ok)return result;
+    if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'변경 내용을 저장하지 못했어요. 기존 노트는 유지했어요.'};
+    currentItinerary=result.itinerary;
+    renderPersonalization();
+    return {ok:true};
+  }
+  function setPersonalTag(dayIndex,eventId,tag){
+    const value=window.TravelPersonalization.data(currentItinerary);
+    const eventTags={...value.eventTags,[dayIndex]:{...value.eventTags[dayIndex]}};
+    if(tag)eventTags[dayIndex][eventId]=tag;else delete eventTags[dayIndex][eventId];
+    if(!Object.keys(eventTags[dayIndex]).length)delete eventTags[dayIndex];
+    const result=savePersonalization({...value,eventTags});
+    if(!result.ok)showMessage(result.reason,'error');
+    return result;
+  }
+  function addFavoritePlace(placeId){
+    const city=window.TRAVEL_DATA.cities[currentItinerary?.cityId];
+    const result=window.TravelPlanner.addEvent({city,itinerary:currentItinerary,dayIndex:activeDayIndex,type:'place',placeId});
+    if(!result.ok)return result;
+    if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'관광지를 저장하지 못했어요. 기존 노트는 유지했어요.'};
+    currentItinerary=result.itinerary;renderItinerary();focusEvent(activeDayIndex,result.eventId);
+    return {ok:true};
   }
   function refreshCountdown(){
     if(!currentItinerary)return;
@@ -1094,6 +1136,8 @@
       pill.textContent=event.type==='transfer'?travelDurationLabel(event,currentItinerary.days[dayIndex],event.duration):`일정 여유 ${formatDuration(event.duration)}`;
       meta.append(pill);content.append(title,desc,meta);
     }
+    const personalWidget=window.TravelPersonalization.mountEvent(content,row,event,dayIndex,{onTag:setPersonalTag,onFavorite:id=>personalTools.toggleFavorite(id)});
+    personalWidget.sync(window.TravelPersonalization.data(currentItinerary));personalEventWidgets.push(personalWidget);
     if(event.type==='arrival'){row.append(content);return row;}
     const edit=document.createElement('button');
     edit.type='button';edit.className='event-edit-button';
@@ -1321,9 +1365,11 @@
   $('redo-button')?.addEventListener('click',()=>applyEditHistory('redo'));
   $('print-button').addEventListener('click',()=>window.print());
   window.addEventListener('beforeprint',()=>{
+    personalTools.preparePrint();
     clearTransitTimePreviews();
     $('day-list').querySelectorAll('.transit-route-lookup').forEach(details=>{details.open=false;});
   });
+  window.addEventListener('afterprint',()=>personalTools.finishPrint());
   $('clear-button').addEventListener('click',()=>{
     if(!window.confirm('이 브라우저의 여행 노트와 자동저장본을 지울까요? 계정에 따로 저장하지 않은 내용은 되돌릴 수 없어요. 계정에 저장한 계획은 지워지지 않아요.'))return;
     requestVersion++;

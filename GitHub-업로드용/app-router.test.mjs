@@ -8,6 +8,7 @@ const plannerCode = readFileSync(new URL('planner.js', import.meta.url), 'utf8')
 const accountCode = readFileSync(new URL('account-ui.js', import.meta.url), 'utf8');
 const noteToolsCode = readFileSync(new URL('note-tools.js', import.meta.url), 'utf8');
 const exportCode = readFileSync(new URL('itinerary-export.js', import.meta.url), 'utf8');
+const personalCode = readFileSync(new URL('personalization-ui.js', import.meta.url), 'utf8');
 const storageKey = 'travel-weave-itinerary-v1';
 const settle = async () => { for (let index = 0; index < 20; index++) await Promise.resolve(); };
 function deferred() {
@@ -200,7 +201,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   const ids = ['country-select', 'city-select', 'start-date', 'day-count', 'trip-form', 'destinations-retry',
     'city-note', 'duration-note', 'data-status', 'app-message', 'date-trigger', 'itinerary-section',
     'empty-state', 'day-list', 'day-bookmarks', 'day-bookmarks-bottom', 'trip-summary', 'note-timing-notice', 'pending-transfers', 'capacity-message', 'print-button', 'clear-button', 'undo-button', 'redo-button',
-    'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'account-notice', 'saved-plans', 'account-save', 'note-export'];
+    'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'account-notice', 'saved-plans', 'account-save', 'note-export', 'personal-tools'];
   for (const id of ids) {
     const tag = ['city-select', 'day-count'].includes(id) ? 'select' : id === 'trip-form' ? 'form' : ['print-button','clear-button','undo-button','redo-button'].includes(id) ? 'button' : 'div';
     const element = document.createElement(tag); element.id = id; elements.set(id, element);
@@ -209,7 +210,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   $('country-select').value = 'KR'; $('app-message').hidden = true; $('note-timing-notice').hidden = true;
   $('start-screen').append($('title'), $('trip-form'), $('resume-note'), $('empty-state'));
   $('resume-note').append($('resume-summary'));
-  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('undo-button'), $('redo-button'), $('note-timing-notice'), $('pending-transfers'), $('note-export'), $('day-bookmarks'), $('day-list'), $('day-bookmarks-bottom'));
+  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('undo-button'), $('redo-button'), $('note-timing-notice'), $('pending-transfers'), $('note-export'), $('personal-tools'), $('day-bookmarks'), $('day-list'), $('day-bookmarks-bottom'));
   $('screen-loading').append($('loading-title'));
   document.body.append($('app-message'), $('screen-loading'), $('start-screen'), $('itinerary-section'));
   const submit = document.createElement('button'); submit.type = 'submit'; submit.append(document.createElement('span'));
@@ -321,6 +322,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   }
   vm.runInContext(noteToolsCode, context, { filename: 'note-tools.js' });
   vm.runInContext(exportCode, context, { filename: 'itinerary-export.js' });
+  vm.runInContext(personalCode, context, { filename: 'personalization-ui.js' });
   vm.runInContext(code, context, { filename: 'app.js' });
   return { $, window, document, stored, writes, removals, creations, behavior, scrolls, clock, mounts, account, downloads, revoked,
     async go(value) { location.hash = value; await settle(); },
@@ -407,6 +409,88 @@ test('a pending copy success cannot announce the wrong day, and export errors le
   assert.match(host.querySelector('.note-export-status').textContent, /파일을 만들지 못했어요/);
   assert.equal(app.document.querySelector('#travel-day-1').hidden, false);
   assert.equal(host.querySelector('button').disabled, false);
+});
+
+function personalInput(app){return app.$('personal-tools').querySelector('.personal-checklist-form input');}
+function addPersonalItem(app,text){personalInput(app).value=text;app.$('personal-tools').querySelector('.personal-checklist-form').dispatch('submit');}
+function personalData(app){return app.account.options.getDocument().itinerary.personalization;}
+
+test('checklist add, check, delete and history persist locally and through account documents without replacing an unfinished memo', async()=>{
+  const fixture=actualPlannerFixture(),app=runtime({...fixture,withAccount:true});await settle();await app.create();
+  const row=app.$('day-list').querySelector('[data-event-id="lunch"]');row.querySelector('.event-edit-button').click();
+  const memo=row.querySelector('textarea');memo.value='아직 저장하지 않은 메모';
+  addPersonalItem(app,'  충전기  ');
+  assert.deepEqual(JSON.parse(JSON.stringify(personalData(app).checklist)),[{id:'item-1',text:'충전기',done:false}]);
+  assert.equal(row.querySelector('textarea'),memo);assert.equal(memo.value,'아직 저장하지 않은 메모');
+  const checkbox=app.$('personal-tools').querySelector('.personal-checklist-items input');checkbox.checked=true;checkbox.dispatch('change');
+  assert.equal(personalData(app).checklist[0].done,true);
+  app.$('undo-button').click();assert.equal(personalData(app).checklist[0].done,false);
+  app.$('redo-button').click();assert.equal(personalData(app).checklist[0].done,true);
+  const document=JSON.parse(JSON.stringify(app.account.options.getDocument()));
+  const restored=runtime({...fixture,withAccount:true,raw:app.stored.get(storageKey),hash:'#/note'});await settle();
+  assert.equal(personalData(restored).checklist[0].done,true);
+  assert.equal(await restored.account.options.loadDocument(document),true);assert.equal(personalData(restored).checklist[0].text,'충전기');
+  restored.$('personal-tools').querySelector('.personal-checklist-items button').click();assert.equal(personalData(restored).checklist.length,0);
+  restored.$('undo-button').click();assert.equal(personalData(restored).checklist.length,1);
+  const checklist=restored.$('personal-tools').querySelector('.personal-checklist');checklist.open=false;
+  restored.window.dispatch('beforeprint');assert.equal(checklist.open,true);restored.window.dispatch('afterprint');assert.equal(checklist.open,false);
+});
+
+test('favorites search the catalog, add to the selected day once and retain membership through reorder and reload', async()=>{
+  const fixture=timedNoteFixture(2),app=runtime({...fixture,withAccount:true,raw:savedNote(fixture.note),hash:'#/note'});await settle();
+  const host=app.$('personal-tools'),search=host.querySelector('.personal-place-search-label input');
+  search.value='추천 관광지 d';search.dispatch('input');
+  host.querySelector('.personal-place-results button').click();assert.equal(personalData(app).favoritePlaceIds[0],'d');
+  app.$('day-bookmarks').querySelectorAll('button')[1].click();await settle();
+  assert.match(host.querySelector('.personal-favorites .personal-hint').textContent,/Day 02/);
+  host.querySelector('.personal-favorite-list button').click();
+  let saved=JSON.parse(app.stored.get(storageKey)).itinerary;
+  assert.equal(saved.extraEvents[1][0].placeId,'d');assert.equal(saved.extraEvents[0],undefined);
+  assert.equal(host.querySelector('.personal-favorite-list button').disabled,true);
+  const added=app.$('day-list').querySelector('[data-day-index="1"] [data-event-id="extra-1"]');
+  assert.equal(added.querySelector('.event-favorite-button').getAttribute('aria-pressed'),'true');
+  added.querySelector('.event-move-button').click();
+  assert.equal(personalData(app).favoritePlaceIds[0],'d');
+  const restored=runtime({...fixture,withAccount:true,raw:app.stored.get(storageKey),hash:'#/note/day/2'});await settle();
+  assert.equal(personalData(restored).favoritePlaceIds[0],'d');
+  restored.$('day-list').querySelector('[data-day-index="1"] [data-event-id="extra-1"] .event-favorite-button').click();
+  assert.equal(personalData(restored).favoritePlaceIds.length,0);
+});
+
+test('tags survive editing, hide/restore and history while deleted or replaced places cannot inherit old reservation tags', async()=>{
+  const fixture=actualPlannerFixture(),app=runtime({...fixture,withAccount:true});await settle();await app.create();
+  const tag=app.$('day-list').querySelector('[data-event-id="place-0"] .event-tag-select');tag.value='booked';tag.dispatch('change');
+  assert.equal(personalData(app).eventTags[0]['place-0'],'booked');
+  assert.equal(app.$('day-list').querySelector('[data-event-id="place-0"] .event-tag-badge').textContent,'예약 완료');
+  editEntry(app,'lunch',{description:'다른 일정 편집'});assert.equal(personalData(app).eventTags[0]['place-0'],'booked');
+  app.$('day-list').querySelector('[data-event-id="place-0"] .event-remove-button').click();
+  app.$('day-list').querySelector('.schedule-restore-list button').click();
+  assert.equal(personalData(app).eventTags[0]['place-0'],'booked');
+  const note=JSON.parse(app.stored.get(storageKey)).itinerary,placeId=note.selections[0][0];
+  const replaced=fixture.planner.replacePlace({city:fixture.cityData,itinerary:note,dayIndex:0,placeId,replacementId:'d'});
+  assert.equal(replaced.ok,true);assert.equal(replaced.itinerary.personalization.eventTags[0]?.['place-0'],undefined);
+  assert.equal(personalData(app).eventTags[0]['place-0'],'booked','planner must not mutate the original');
+  const added=currentSchedule(app).options.onAdd({type:'free',title:'개인 일정',duration:20});assert.equal(added.ok,true);
+  const extraTag=app.$('day-list').querySelector('[data-event-id="extra-1"] .event-tag-select');extraTag.value='must';extraTag.dispatch('change');
+  app.$('day-list').querySelector('[data-event-id="extra-1"] .event-remove-button').click();
+  assert.equal(personalData(app).eventTags[0]?.['extra-1'],undefined);
+  app.$('undo-button').click();assert.equal(personalData(app).eventTags[0]['extra-1'],'must');
+});
+
+test('personalization rejects invalid and oversized inputs, preserves failed saves, and clears drafts on owner or note changes', async()=>{
+  const fixture=actualPlannerFixture(),app=runtime({...fixture,withAccount:true,storageError:{set:true}});await settle();await app.create();
+  addPersonalItem(app,'저장 실패 준비물');assert.equal(personalData(app),undefined);
+  assert.equal(personalInput(app).value,'저장 실패 준비물');assert.match(app.$('personal-tools').textContent,/저장하지 못했어요/);
+  const tag=app.$('day-list').querySelector('[data-event-id="lunch"] .event-tag-select');tag.value='must';tag.dispatch('change');assert.equal(tag.value,'');
+  const okay=runtime({...fixture,withAccount:true});await settle();await okay.create();addPersonalItem(okay,'내 준비물');
+  const note=JSON.parse(okay.stored.get(storageKey)).itinerary;
+  for(const bad of [null,{checklist:null},{checklist:[{id:'item-1',text:'x'.repeat(121),done:false}]},{favoritePlaceIds:['a','a']},{eventTags:{9:{lunch:'must'}}}]){
+    assert.equal(fixture.planner.updatePersonalization({city:fixture.cityData,itinerary:note,personalization:bad}).ok,false);
+  }
+  personalInput(okay).value='미완성 입력';
+  await okay.account.options.onUserChange(undefined);
+  assert.equal(okay.$('personal-tools').hidden,true);assert.equal(personalInput(okay).value,'');assert.doesNotMatch(okay.$('personal-tools').textContent,/내 준비물|미완성 입력/);
+  await okay.create();assert.equal(personalData(okay),undefined);
 });
 
 test('account storage exports only canonical editing parameters and restores them through the real planner',async()=>{

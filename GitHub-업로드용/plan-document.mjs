@@ -5,7 +5,7 @@ const EDITABLE = BASE.filter(id => !['departure','arrival-transfer','finish'].in
 const MODES = ['walk','local-bus','subway','car'];
 const SERVICES = { train:['train','15098552'], express:['bus','15098522'], intercity:['bus','15098541'], flight:['flight','15098526'], ferry:['ferry','15098523'] };
 const TRIP_FIELDS = ['id','service','departureId','arrivalId','departureName','arrivalName','date','departureMinutes','arrivalMinutes','durationMinutes','tripNo','grade','source','sourceUrl','fetchedAt'];
-const INPUTS = ['cityId','startDate','dayCount','dayAreaIds','selections','dayStarts','eventEdits','extraEvents','excludedEvents','eventOrders','departure','dayDepartures','dayArrivals','dayTransports'];
+const INPUTS = ['cityId','startDate','dayCount','dayAreaIds','selections','dayStarts','eventEdits','extraEvents','excludedEvents','eventOrders','departure','dayDepartures','dayArrivals','dayTransports','personalization'];
 const COMPUTED = ['ok','cityName','countryName','dataSource','days','maxDays'];
 const EXTRA = /^extra-[1-9]\d{0,8}$/;
 const PLACE = /^tourapi-\d{1,60}$/;
@@ -104,6 +104,27 @@ export function normalizePlanTitle(value) {
   return value.trim();
 }
 
+function normalizePersonalization(value,count,extras,arrivals) {
+  keys(value,['checklist','favoritePlaceIds','eventTags']);
+  const items=value.checklist===undefined?[]:value.checklist, favorites=value.favoritePlaceIds===undefined?[]:value.favoritePlaceIds;
+  if(!Array.isArray(items)||items.length>100||!Array.isArray(favorites)||favorites.length>100
+    ||new Set(favorites).size!==favorites.length||favorites.some(id=>typeof id!=='string'||!PLACE.test(id)))fail();
+  const used=new Set();
+  const checklist=items.map(item=>{
+    keys(item,['id','text','done'],['id','text','done']);
+    if(typeof item.id!=='string'||!/^item-[1-9]\d{0,8}$/.test(item.id)||used.has(item.id)||typeof item.done!=='boolean'
+      ||typeof item.text!=='string'||/[\u0000-\u001f\u007f]/.test(item.text))fail();
+    used.add(item.id);return {id:item.id,text:string(item.text,120,1),done:item.done};
+  });
+  const eventTags=dayMap(optionalMap(value.eventTags),count,(entries,index)=>{
+    const allowed=[...BASE,...(arrivals[index]?['arrival']:[]),...(extras[index]??[]).map(item=>item.id)];
+    keys(entries,allowed);
+    if(Object.keys(entries).length>34||Object.values(entries).some(tag=>!['must','booked','flex'].includes(tag)))fail();
+    return {...entries};
+  });
+  return {checklist,favoritePlaceIds:[...favorites],eventTags};
+}
+
 // Only user-editable planning inputs are stored. Generated days/place snapshots
 // and transient route responses never become part of the persisted document.
 export function normalizePlanDocument(input) {
@@ -191,6 +212,7 @@ export function normalizePlanDocument(input) {
   }
   const result = { version:8,itinerary:{ cityId:source.cityId,startDate,dayCount:count,dayAreaIds:[...source.dayAreaIds],selections,
     dayStarts,eventEdits,extraEvents,excludedEvents,eventOrders,departure:dayDepartures[0],dayDepartures,dayArrivals,dayTransports } };
+  if(source.personalization!==undefined)result.itinerary.personalization=normalizePersonalization(source.personalization,count,extraEvents,dayArrivals);
   if (ENCODER.encode(JSON.stringify(result)).byteLength > MAX_PLAN_DOCUMENT_BYTES) fail('PAYLOAD_TOO_LARGE');
   return result;
 }
