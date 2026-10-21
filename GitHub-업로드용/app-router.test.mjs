@@ -7,6 +7,7 @@ const code = readFileSync(new URL('app.js', import.meta.url), 'utf8');
 const plannerCode = readFileSync(new URL('planner.js', import.meta.url), 'utf8');
 const accountCode = readFileSync(new URL('account-ui.js', import.meta.url), 'utf8');
 const noteToolsCode = readFileSync(new URL('note-tools.js', import.meta.url), 'utf8');
+const exportCode = readFileSync(new URL('itinerary-export.js', import.meta.url), 'utf8');
 const storageKey = 'travel-weave-itinerary-v1';
 const settle = async () => { for (let index = 0; index < 20; index++) await Promise.resolve(); };
 function deferred() {
@@ -85,6 +86,7 @@ class Element {
     if (bubbles) this.document.dispatch(type, this, event, 'bubble');
   }
   click() { if (!this.disabled) this.dispatch('click'); }
+  select() { this.selected = true; }
   scrollIntoView(options) { this.lastScrollIntoView = options; }
   focus() {
     if (this.disabled || this.document.activeElement === this) return;
@@ -198,7 +200,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   const ids = ['country-select', 'city-select', 'start-date', 'day-count', 'trip-form', 'destinations-retry',
     'city-note', 'duration-note', 'data-status', 'app-message', 'date-trigger', 'itinerary-section',
     'empty-state', 'day-list', 'day-bookmarks', 'day-bookmarks-bottom', 'trip-summary', 'note-timing-notice', 'capacity-message', 'print-button', 'clear-button', 'undo-button', 'redo-button',
-    'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'account-notice', 'saved-plans', 'account-save'];
+    'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'account-notice', 'saved-plans', 'account-save', 'note-export'];
   for (const id of ids) {
     const tag = ['city-select', 'day-count'].includes(id) ? 'select' : id === 'trip-form' ? 'form' : ['print-button','clear-button','undo-button','redo-button'].includes(id) ? 'button' : 'div';
     const element = document.createElement(tag); element.id = id; elements.set(id, element);
@@ -207,12 +209,12 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   $('country-select').value = 'KR'; $('app-message').hidden = true; $('note-timing-notice').hidden = true;
   $('start-screen').append($('title'), $('trip-form'), $('resume-note'), $('empty-state'));
   $('resume-note').append($('resume-summary'));
-  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('undo-button'), $('redo-button'), $('note-timing-notice'), $('day-bookmarks'), $('day-list'), $('day-bookmarks-bottom'));
+  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('undo-button'), $('redo-button'), $('note-timing-notice'), $('note-export'), $('day-bookmarks'), $('day-list'), $('day-bookmarks-bottom'));
   $('screen-loading').append($('loading-title'));
   document.body.append($('app-message'), $('screen-loading'), $('start-screen'), $('itinerary-section'));
   const submit = document.createElement('button'); submit.type = 'submit'; submit.append(document.createElement('span'));
   $('trip-form').append(submit);
-  const listeners = new Map(), history = [hash], scrolls = [], creations = [], mounts = [];
+  const listeners = new Map(), history = [hash], scrolls = [], creations = [], mounts = [], downloads = [], revoked = [];
   let historyIndex = 0, currentHash = hash;
   const emitHash = () => { for (const listener of listeners.get('hashchange') || []) listener({ type: 'hashchange' }); };
   const location = {};
@@ -227,6 +229,8 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
     dataSource: 'tourapi', areas: [{ id: 'area-a', name: '중구 · 공원', places: [] }] };
   const behavior = { createError: null, confirmClear: true, confirmations: [] };
   const window = {
+    crypto,
+    URL: { createObjectURL(blob) { const url = `blob:test-${downloads.length}`; downloads.push({ url, blob }); return url; }, revokeObjectURL(url) { revoked.push(url); } },
     location, history: {
       replaceState(_state, _title, value) { currentHash = value; history[historyIndex] = value; },
       back() { if (historyIndex > 0) { currentHash = history[--historyIndex]; emitHash(); } },
@@ -304,7 +308,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
       now = until;
     }
   };
-  const context = vm.createContext({ window, document, localStorage, Date:AppDate, JSON, console, TextEncoder, AbortController,
+  const context = vm.createContext({ window, document, localStorage, Date:AppDate, JSON, console, TextEncoder, AbortController, Blob,
     fetch: accountHandler, setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout });
   if(withAccount&&accountHandler){
     vm.runInContext(accountCode, context, { filename: 'account-ui.js' });
@@ -316,8 +320,9 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
     };
   }
   vm.runInContext(noteToolsCode, context, { filename: 'note-tools.js' });
+  vm.runInContext(exportCode, context, { filename: 'itinerary-export.js' });
   vm.runInContext(code, context, { filename: 'app.js' });
-  return { $, window, document, stored, writes, removals, creations, behavior, scrolls, clock, mounts, account,
+  return { $, window, document, stored, writes, removals, creations, behavior, scrolls, clock, mounts, account, downloads, revoked,
     async go(value) { location.hash = value; await settle(); },
     async create() { $('trip-form').dispatch('submit'); await settle(); },
     async clear() { $('clear-button').dispatch('click'); await settle(); }
@@ -339,6 +344,70 @@ function selectedDay(app, index) {
       days.map((_, at) => at === index ? 'page' : 'false'), `${id} marks the same current day`);
   }
 }
+
+test('export toolbar follows the selected page and exports all committed days even when collapsed, without saving or disturbing history', async () => {
+  const fixture = timedNoteFixture(3), app = runtime({ ...fixture, raw: savedNote(fixture.note), withAccount: true, hash: '#/note' });
+  await settle();
+  const host = app.$('note-export'), scope = host.querySelector('select'), [copy, download] = host.querySelectorAll('button');
+  const files = [];
+  app.document.addEventListener('click', event => { if (event.target.download) files.push(event.target.download); });
+  const copied = []; app.window.navigator = { clipboard: { async writeText(value) { copied.push(value); } } };
+  const writes = app.writes.length, changes = app.account.changes;
+  app.$('day-bookmarks').querySelectorAll('button')[1].click();
+  assert.match(scope.children[0].textContent, /Day 02/);
+  copy.click(); copy.click(); await settle();
+  assert.equal(copied.length, 1);
+  assert.match(copied[0], /2026-10-21 · Day 02/);
+  assert.doesNotMatch(copied[0], /Day 01|Day 03/);
+  download.click();
+  assert.match(files[0], /Day02\.ics$/);
+  assert.equal(((await app.downloads[0].blob.text()).match(/BEGIN:VEVENT/g) || []).length, fixture.note.days[1].events.length);
+  app.document.querySelector('#travel-day-1 .day-collapse').click();
+  scope.value = 'all'; scope.dispatch('change');
+  copy.click(); await settle();
+  assert.match(copied[1], /Day 01[\s\S]*Day 02[\s\S]*Day 03/);
+  download.click();
+  assert.equal(app.downloads[1].blob.type, 'text/calendar;charset=utf-8');
+  assert.match(files[1], /전체\.ics$/);
+  const file = await app.downloads[1].blob.text();
+  assert.equal((file.match(/BEGIN:VEVENT/g) || []).length, fixture.note.days.flatMap(day => day.events).length);
+  assert.equal(app.document.querySelectorAll('a').filter(link => link.download).length, 0);
+  app.clock.advance(30000);
+  assert.deepEqual(app.revoked, app.downloads.map(item => item.url));
+  assert.equal(app.document.querySelector('#travel-day-1 .day-card-body').hidden, true);
+  assert.equal(app.writes.length, writes); assert.equal(app.account.changes, changes);
+  assert.equal(app.$('undo-button').disabled, true);
+});
+
+test('blocked clipboard exposes selectable text and stale copy failures cannot reveal a previous note after account reset', async () => {
+  const fixture = timedNoteFixture(2), app = runtime({ ...fixture, raw: savedNote(fixture.note), withAccount: true, hash: '#/note' });
+  await settle();
+  const host = app.$('note-export'), copy = host.querySelector('button'), fallback = host.querySelector('textarea');
+  copy.click(); await settle();
+  assert.equal(fallback.parentNode.hidden, false); assert.equal(fallback.selected, true);
+  assert.match(fallback.value, /Day 01/);
+  const request = deferred(); app.window.navigator = { clipboard: { writeText: () => request.promise } };
+  copy.click();
+  assert.equal(fallback.value, ''); assert.equal(fallback.parentNode.hidden, true);
+  await app.account.options.onUserChange(undefined); request.reject(Error('Permission denied')); await settle();
+  assert.equal(fallback.value, ''); assert.equal(fallback.parentNode.hidden, true);
+  assert.equal(host.querySelector('.note-export-status').textContent, '');
+});
+
+test('a pending copy success cannot announce the wrong day, and export errors leave the note usable', async () => {
+  const fixture = timedNoteFixture(2), app = runtime({ ...fixture, raw: savedNote(fixture.note), hash: '#/note' });
+  await settle();
+  const request = deferred(), host = app.$('note-export');
+  app.window.navigator = { clipboard: { writeText: () => request.promise } };
+  host.querySelector('button').click();
+  app.$('day-bookmarks').querySelectorAll('button')[1].click(); request.resolve(); await settle();
+  assert.equal(host.querySelector('.note-export-status').textContent, '');
+  app.window.URL.createObjectURL = () => { throw Error('Downloads unavailable'); };
+  host.querySelectorAll('button')[1].click();
+  assert.match(host.querySelector('.note-export-status').textContent, /파일을 만들지 못했어요/);
+  assert.equal(app.document.querySelector('#travel-day-1').hidden, false);
+  assert.equal(host.querySelector('button').disabled, false);
+});
 
 test('account storage exports only canonical editing parameters and restores them through the real planner',async()=>{
   const fixture=actualPlannerFixture(),app=runtime({...fixture,withAccount:true});

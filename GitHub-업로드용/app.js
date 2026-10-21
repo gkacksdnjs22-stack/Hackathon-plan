@@ -6,6 +6,10 @@
   let currentItinerary=null;
   const collapsedDays=new Set();
   let activeDayIndex=0;
+  const exportTools=window.TravelItineraryExport.mount($('note-export'),{getSelection:()=>({
+    itinerary:currentItinerary,dayIndex:activeDayIndex,
+    timeZone:window.TRAVEL_DATA.cities[currentItinerary?.cityId]?.timezone||'Asia/Seoul'
+  })});
   const EDIT_HISTORY_LIMIT=20;
   const editHistory={undo:[],redo:[]};
   const editingKeys=['cityId','startDate','dayCount','dayAreaIds','selections','dayStarts','eventEdits','extraEvents','excludedEvents','eventOrders','departure','dayDepartures','dayArrivals','dayTransports'];
@@ -237,6 +241,7 @@
     currentItinerary=null;
     collapsedDays.clear();
     activeDayIndex=0;
+    exportTools.refresh();
     resetEditHistory();
     account?.detach();
     $('itinerary-section').hidden=true;
@@ -558,6 +563,7 @@
       previous?.querySelectorAll('details[open]').forEach(details=>{details.open=false;});
     }
     activeDayIndex=index;
+    exportTools.refresh();
     $('day-list').querySelectorAll('.day-card').forEach(card=>{card.hidden=Number(card.dataset.dayIndex)!==index;});
     for(const id of ['day-bookmarks','day-bookmarks-bottom']){
       $(id)?.querySelectorAll('.day-bookmark').forEach(button=>{

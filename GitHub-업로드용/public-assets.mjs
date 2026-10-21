@@ -17,6 +17,7 @@ export const PUBLIC_FILES = new Map([
   ['planner.js', 'text/javascript; charset=utf-8'],
   ['app.js', 'text/javascript; charset=utf-8'],
   ['note-tools.js', 'text/javascript; charset=utf-8'],
+  ['itinerary-export.js', 'text/javascript; charset=utf-8'],
   ['note-tools.css', 'text/css; charset=utf-8'],
   ['account-ui.js', 'text/javascript; charset=utf-8'],
   ['account-ui.css', 'text/css; charset=utf-8'],
