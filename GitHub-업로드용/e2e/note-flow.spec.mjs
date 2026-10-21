@@ -47,7 +47,15 @@ const test = base.extend({
   }, { auto: true }]
 });
 
-async function createNote(page, days = 2, preferences = []) {
+async function showDetailedDay(page) {
+  const day = page.locator('.day-card:visible');
+  const toggle = day.locator('.day-view-toggle');
+  if (await toggle.textContent() === '자세히 편집') await toggle.click();
+  await expect(day).not.toHaveClass(/is-compact/);
+}
+
+async function createNote(page, days = 2, preferences = [], { detailed = true } = {}) {
+  const hadNote = await page.locator('.day-view-toggle').count() > 0;
   await page.goto('/#/start');
   await expect(page.locator('#city-select')).toBeEnabled();
   await expect(page.locator('#day-count')).toBeEnabled();
@@ -58,10 +66,21 @@ async function createNote(page, days = 2, preferences = []) {
   await page.getByRole('button', { name: '추천으로 시작하기' }).click();
   await expect(page.locator('#itinerary-section')).toBeVisible();
   await expect(page.locator('#travel-day-0 .event-title').filter({ hasText: '합성' })).toHaveCount(3);
+  const day = page.locator('#travel-day-0');
+  // A fresh note page starts compact. Later recommendations in the same page
+  // may retain a view the user explicitly opened for editing.
+  if (!hadNote || !detailed) {
+    await expect(day).toHaveClass(/is-compact/);
+    await expect(day.locator('.day-view-toggle')).toHaveText('자세히 편집');
+    await expect(day.locator('[data-event-id="place-0"] .compact-event-toggle')).toBeVisible();
+    await expect(day.locator('[data-event-id="place-0"] .timeline-content')).toBeHidden();
+  }
+  if (detailed) await showDetailedDay(page);
 }
 
 async function editFirstPlace(page, memo, minutes = 90) {
   await closeToolDialog(page);
+  await showDetailedDay(page);
   const card = page.locator('.day-card:visible');
   await card.getByRole('button', { name: /체류시간과 메모 수정/ }).first().click();
   const editor = card.locator('.event-editor');
@@ -134,6 +153,7 @@ test('create → edit → reload → reopen preserves local note and independent
   await assertToolHeadings(page);
   await page.reload();
   await expect(page.locator('#travel-day-1')).toBeVisible();
+  await expect(page.locator('#travel-day-1')).toHaveClass(/is-compact/);
   await assertToolHeadings(page);
   await page.locator('#day-bookmarks').getByRole('button', { name: /^1일차/ }).click();
   await expect(page.locator('#travel-day-0')).toContainText('첫째 날에만 남긴 브라우저 검증 메모');
@@ -143,6 +163,7 @@ test('create → edit → reload → reopen preserves local note and independent
   const errors = [];
   reopened.on('pageerror', error => errors.push(error.message));
   await reopened.goto('/#/note/day/1');
+  await expect(reopened.locator('#travel-day-0')).toHaveClass(/is-compact/);
   await expect(reopened.locator('#travel-day-0')).toContainText('첫째 날에만 남긴 브라우저 검증 메모');
   await assertToolHeadings(reopened);
   expect(errors).toEqual([]);
@@ -277,6 +298,7 @@ test('dragged saved-note order stays highlighted until account save and matches 
   await createNote(page, 1);
   await socialLogin(page);
   await saveAccountNote(page, '드래그 통합 검증 여행');
+  await showDetailedDay(page);
   const day = page.locator('#travel-day-0'), rows = day.locator('.timeline-row');
   const before = await rows.evaluateAll(items => items.map(item => item.dataset.eventId));
   const expected = before.filter(id => id !== 'free-0'); expected.splice(expected.indexOf('transfer-0'), 0, 'free-0');
@@ -321,6 +343,7 @@ test('share preview excludes private fields; published snapshot is frozen, rotat
   const markupMemo = '<img src=x onerror="document.body.dataset.injected=1"> 합성 비공개 메모';
   await createNote(page, 1);
   await socialLogin(page);
+  await showDetailedDay(page);
   const origin = page.locator('#travel-day-0 .day-origin').first();
   await origin.locator('summary').click();
   await origin.locator('.departure-mode-select').selectOption('car');
@@ -550,6 +573,7 @@ test('directional vehicle comparison waits for confirmation, preserves non-place
   page.on('request', request => { if (new URL(request.url()).pathname === '/api/car-route') vehicleRequests.push(request); });
   await createNote(page, 2);
   await socialLogin(page);
+  await showDetailedDay(page);
   const day = page.locator('#travel-day-0');
   const titles = day.locator('.place-row .event-title');
   await expect(titles).toHaveCount(3);
@@ -636,6 +660,9 @@ async function guestNote(page) {
   return page.evaluate(() => JSON.parse(localStorage.getItem('travel-weave-itinerary-v1')).itinerary);
 }
 async function openRowEditor(page, row) {
+  if (!await row.locator('.event-edit-button').isVisible()) {
+    await row.locator('.compact-event-toggle').click();
+  }
   await row.locator('.event-edit-button').click();
   return row.locator('.event-editor');
 }
@@ -770,29 +797,43 @@ test('candidate photos can fail without blocking name search or explicit replace
 });
 
 
-test('compact view shows only time and place rows, expands on demand and preserves itinerary and unfinished inputs',async({page})=>{
-  await createNote(page);
+test('compact view is the default, expands on demand and preserves itinerary and unfinished inputs across view changes and reload',async({page})=>{
+  await createNote(page,2,[],{detailed:false});
   const day=page.locator('#travel-day-0'),first=day.locator('[data-event-id="place-0"]');
   const before=await guestNote(page);
-  await day.locator('.day-view-toggle').click();
   const rows=day.locator('.timeline-row'),summaries=rows.locator('.compact-event-toggle');
+  await expect(day).toHaveClass(/is-compact/);await expect(day.locator('.day-view-toggle')).toHaveText('자세히 편집');
   await expect(summaries).toHaveCount(before.days[0].events.length);
   await expect(first.locator('.compact-event-toggle')).toHaveText('09:00 (합성 문화공원)');
+  await expect(first.locator('.compact-event-toggle')).toHaveAttribute('aria-expanded','false');
   await expect(first.locator('.timeline-time')).toBeHidden();await expect(first.locator('.timeline-content')).toBeHidden();
   await expect(day.locator('.schedule-insert-button').first()).toBeHidden();
   expect(await first.boundingBox()).not.toBeNull();
   const compactHeight=(await day.boundingBox()).height;
   await first.locator('.compact-event-toggle').click();await expect(first.locator('.timeline-content')).toBeVisible();
+  await expect(first.locator('.compact-event-toggle')).toHaveAttribute('aria-expanded','true');
+  await expect(day.locator('[data-event-id="place-1"] .timeline-content')).toBeHidden();
   const editor=await openRowEditor(page,first);await editor.getByLabel('설명·메모').fill('간단한 목록에서도 유지할 작성 중 메모');
   await day.locator('.day-view-toggle').click();await expect(editor.getByLabel('설명·메모')).toHaveValue('간단한 목록에서도 유지할 작성 중 메모');
+  await expect(day).not.toHaveClass(/is-compact/);await expect(day.locator('.day-view-toggle')).toHaveText('간단히 보기');
+  await expect(day.locator('[data-event-id="place-1"] .timeline-content')).toBeVisible();
   const detailedHeight=(await day.boundingBox()).height;expect(compactHeight).toBeLessThan(detailedHeight/2);
   await day.locator('.day-view-toggle').click();await expect(editor.getByLabel('설명·메모')).toHaveValue('간단한 목록에서도 유지할 작성 중 메모');
+  await expect(day).toHaveClass(/is-compact/);
   expect(await guestNote(page)).toEqual(before);
   await page.setViewportSize({width:390,height:844});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
   await editor.getByRole('button',{name:'취소',exact:true}).click();await first.locator('.compact-event-toggle').click();
   await expect(first.locator('.timeline-content')).toBeHidden();await expect(first.locator('.compact-event-toggle')).toBeVisible();
+  expect((await first.locator('.compact-event-toggle').boundingBox()).height).toBeGreaterThanOrEqual(44);
   await page.screenshot({path:'artifacts/usability-compact-mobile.png',fullPage:true});
+  const savedEditor=await openRowEditor(page,first);await savedEditor.getByLabel('설명·메모').fill('새로고침 후에도 보존할 메모');await savedEditor.getByLabel('소요시간 (분)').fill('75');await savedEditor.getByRole('button',{name:'수정 저장',exact:true}).click();
+  const saved=await guestNote(page);expect(saved.eventEdits[0]['place-0'].description).toBe('새로고침 후에도 보존할 메모');expect(saved.eventEdits[0]['place-0'].duration).toBe(75);
+  await showDetailedDay(page);await page.reload();
+  await expect(day).toHaveClass(/is-compact/);await expect(day.locator('.day-view-toggle')).toHaveText('자세히 편집');await expect(first.locator('.timeline-content')).toBeHidden();await expect(first.locator('.compact-event-toggle')).toBeVisible();
+  expect(await guestNote(page)).toEqual(saved);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await first.locator('.compact-event-toggle').click();await expect(first.locator('.event-user-memo')).toContainText('새로고침 후에도 보존할 메모');
+  await expect(first.locator('.timeline-content')).toBeVisible();
 });
 
 test('manual restaurant memo edits retain the selected coordinates and travel estimate while rename and clear invalidate them',async({page})=>{
@@ -818,6 +859,7 @@ test('manual restaurant memo edits retain the selected coordinates and travel es
   let note=await guestNote(page);expect(note.eventEdits[0].lunch.title).toBe(selected.title);expect(note.eventEdits[0].lunch.location).toEqual(selected.location);expect(note.days[0].events.find(event=>event.id==='transfer-0').duration).toBe(25);
   await page.reload();await expect(page.locator('#itinerary-section')).toBeVisible();
   note=await guestNote(page);expect(note.eventEdits[0].lunch.location).toEqual(selected.location);expect(note.days[0].events.find(event=>event.id==='transfer-0').duration).toBe(25);
+  await showDetailedDay(page);
   await lunch.locator('.restaurant-manual > summary').click();await lunch.locator('.restaurant-manual-name').fill('직접 바꾼 식당');await lunch.locator('.restaurant-manual-save').click();
   await expect(lunch.locator('.event-title')).toContainText('직접 바꾼 식당');
   note=await guestNote(page);expect(note.eventEdits[0].lunch.location).toBeNull();expect(note.days[0].events.find(event=>event.id==='transfer-0').duration).toBe(0);

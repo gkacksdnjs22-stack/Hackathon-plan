@@ -882,6 +882,7 @@ test('the map stays dormant until opened, groups coincident visits, and popup li
   const before=app.stored.get(storageKey),writes=app.writes.length,changes=app.account.changes;
   maps.markers[0].popup.querySelectorAll('button')[2].click();await settle();
   assert.equal(day.querySelector('.day-card-body').hidden,false);assert.equal(app.document.activeElement,row.querySelector('.event-edit-button'));
+  assert.equal(day.classList.contains('is-compact'),true);assert.equal(row.classList.contains('compact-expanded'),true);
   assert.equal(row.lastScrollIntoView.block,'center');assert.equal(memo.value,'지도 이동 중에도 유지할 메모');
   assert.equal(app.stored.get(storageKey),before);assert.equal(app.writes.length,writes);assert.equal(app.account.changes,changes);
   panel.querySelector('.day-map-places button').click();assert.equal(maps.markers[0].opens,1);
@@ -1605,10 +1606,15 @@ test('switching restaurants discards the former meal editor draft before reopeni
 
 test('the same restaurant keeps unfinished location and memo fields across compact view, another saved edit and reload', async () => {
   const fixture=actualPlannerFixture(),app=runtime({...fixture,withAccount:true});await settle();await app.create();
+  assert.equal(app.$('day-list').children[0].classList.contains('is-compact'),true);
+  assert.equal(app.$('day-list').children[0].querySelector('.day-view-toggle').textContent,'자세히 편집');
   const restaurant={id:'tour-food-101',name:'유지할 식당',address:'광주광역시 남구 첫길 1',latitude:35.12,longitude:126.92};
   assert.equal(restaurantMeal(app).options.onSelect(restaurant).ok,true);
   const row=editRow(app,'lunch');inputMemo(row,'이 식당에서 이어 쓸 메모');editorField(row,'위치 이름').value='이 식당의 입구';editorField(row,'확인한 위도').value='35.123';
-  app.$('day-list').children[0].querySelector('.day-view-toggle').click();app.$('day-list').children[0].querySelector('.day-view-toggle').click();
+  const day=app.$('day-list').children[0],view=day.querySelector('.day-view-toggle');
+  assert.equal(row.classList.contains('compact-expanded'),true);
+  view.click();assert.equal(day.classList.contains('is-compact'),false);assert.equal(view.textContent,'간단히 보기');
+  view.click();assert.equal(day.classList.contains('is-compact'),true);assert.equal(row.classList.contains('compact-expanded'),true);
   assert.equal(row.querySelector('textarea').value,'이 식당에서 이어 쓸 메모');assert.equal(editorField(row,'위치 이름').value,'이 식당의 입구');
   row.querySelector('.event-editor').dispatch('keydown',{key:'Escape'});
   editEntry(app,'place-0',{duration:75});
