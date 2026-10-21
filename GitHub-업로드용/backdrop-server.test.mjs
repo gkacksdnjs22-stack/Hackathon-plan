@@ -13,13 +13,27 @@ function fixture(url, patch = {}) {
 test('fixed destinations, Type1, HTTPS images, attribution and six-hour cache', async () => {
   let calls = 0, time = 0;
   const client = createBackdropClient({ serviceKey: 'secret/key', now: () => time, fetchImpl: async (url, options) => {
-    calls++; assert.equal(options.redirect, 'error'); assert.equal(new URL(url).searchParams.get('serviceKey'), 'secret/key'); return fixture(url);
+    calls++; assert.equal(options.redirect, 'manual'); assert.equal(new URL(url).searchParams.get('serviceKey'), 'secret/key'); return fixture(url);
   } });
   const [a,b] = await Promise.all([client.getPhotos(), client.getPhotos()]);
   assert.equal(calls, 3); assert.deepEqual(a,b); assert.equal(a.items.length,3);
   assert.match(a.items[0].imageUrl, /^https:/); assert.equal(a.items[0].cpyrhtDivCd,'Type1'); assert.ok(a.items[0].sourceUrl);
   a.items.length=0; assert.equal((await client.getPhotos()).items.length,3);
   time = 6 * 60 * 60 * 1000; await client.getPhotos(); assert.equal(calls,6);
+});
+
+test('upstream redirects are rejected without following their target or accepting image data', async () => {
+  for (const status of [301, 302, 303, 307, 308]) {
+    const requests = [];
+    const client = createBackdropClient({ serviceKey: 'secret/key', fetchImpl: async (url, options) => {
+      requests.push(new Request(url, options));
+      assert.equal(options.redirect, 'manual');
+      return new Response(await fixture(url).text(), { status, headers: { Location: 'https://other.example/photos' } });
+    } });
+    assert.deepEqual((await client.getPhotos()).items, []);
+    assert.equal(requests.length, 3);
+    assert.ok(requests.every(request => new URL(request.url).hostname === 'apis.data.go.kr'));
+  }
 });
 test('validated full-size original is preferred over a thumbnail', async () => {
   const original = 'http://tong.visitkorea.or.kr/cms/resource/04/3304404_image2_1.jpg';

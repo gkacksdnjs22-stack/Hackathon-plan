@@ -9,6 +9,13 @@ const PROVIDERS = Object.freeze({
   naver: { label: '네이버', id: 'NAVER_CLIENT_ID', secret: 'NAVER_CLIENT_SECRET', authorize: 'https://nid.naver.com/oauth2.0/authorize', token: 'https://nid.naver.com/oauth2.0/token', profile: 'https://openapi.naver.com/v1/nid/me' }
 });
 const text = (value, max = 2048) => typeof value === 'string' && value.length > 0 && value.length <= max && !/[\u0000-\u0020\u007f]/.test(value);
+// Dashboard copy/paste can add whitespace around one-line configuration.
+// Normalize only these settings; embedded whitespace remains invalid.
+function configValue(value, max) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return text(normalized, max) && !/\s/u.test(normalized) ? normalized : null;
+}
 const opaque = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
 const b64 = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 function decode(value) {
@@ -49,10 +56,10 @@ function redirect(location, cookies = []) {
 }
 
 export function createSocialAuthHandler({ db, env = {}, configured = false, cryptoImpl = globalThis.crypto, now = Date.now, fetchImpl = globalThis.fetch, hash, hmac, uuid, startSession, limit } = {}) {
-  const base = baseOrigin(env.SOCIAL_AUTH_BASE_URL);
+  const base = baseOrigin(configValue(env.SOCIAL_AUTH_BASE_URL, 256));
   const settings = Object.entries(PROVIDERS).flatMap(([id, provider]) => {
-    const clientId = env[provider.id], clientSecret = env[provider.secret];
-    return text(clientId, 512) && text(clientSecret, 1024) ? [{ ...provider, id, clientId, clientSecret }] : [];
+    const clientId = configValue(env[provider.id], 512), clientSecret = configValue(env[provider.secret], 1024);
+    return clientId && clientSecret ? [{ ...provider, id, clientId, clientSecret }] : [];
   });
   const enabled = Boolean(configured && base && settings.length);
   const random = () => b64(cryptoImpl.getRandomValues(new Uint8Array(32)));
@@ -64,7 +71,7 @@ export function createSocialAuthHandler({ db, env = {}, configured = false, cryp
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10000);
     try {
-      const response = await fetchImpl(url, { ...options, redirect: 'error', cache: 'no-store', signal: controller.signal });
+      const response = await fetchImpl(url, { ...options, redirect: 'manual', cache: 'no-store', signal: controller.signal });
       if (!response.ok || !response.body) throw new Error('Provider unavailable');
       const reader = response.body.getReader(), chunks = []; let length = 0;
       while (true) {

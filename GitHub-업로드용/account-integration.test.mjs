@@ -87,7 +87,7 @@ test('missing deployment DB settings leave tourism intact and report account set
 
 const socialSettings=origin=>({SOCIAL_AUTH_BASE_URL:origin,KAKAO_LOGIN_CLIENT_ID:'synthetic-client-id',KAKAO_LOGIN_CLIENT_SECRET:'synthetic-client-secret'});
 async function socialFetch(url,options){
-  assert.equal(options.redirect,'error');
+  assert.equal(options.redirect,'manual');
   if(url==='https://kauth.kakao.com/oauth/token'){
     const body=new URLSearchParams(options.body);
     assert.equal(options.method,'POST');assert.equal(body.get('client_secret'),'synthetic-client-secret');

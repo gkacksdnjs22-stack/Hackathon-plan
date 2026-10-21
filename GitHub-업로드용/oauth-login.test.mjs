@@ -71,8 +71,72 @@ test('provider discovery exposes only complete configured providers, never crede
   assert.deepEqual((await partial.call('/api/auth/providers')).data.providers.map(provider => provider.id), ['kakao']);
 });
 
+test('padded social configuration is normalized for discovery, authorization and token exchange', async t => {
+  const padded = Object.fromEntries(Object.entries(ENV).map(([name, value]) => [name, ` \t${value}\r\n `]));
+  const f = fixture(t, { oauthEnv: padded });
+  const result = await f.call('/api/auth/providers');
+  assert.deepEqual(result.data.providers.map(provider => provider.id), ['google', 'kakao', 'naver']);
+  assert.equal(result.data.configured, true);
+  for (const provider of ['google', 'kakao', 'naver']) {
+    const started = await f.start(provider);
+    assert.equal(started.status, 303);
+    const keyPrefix = provider === 'kakao' ? 'KAKAO_LOGIN' : provider.toUpperCase();
+    assert.equal(started.auth.searchParams.get('client_id'), ENV[`${keyPrefix}_CLIENT_ID`]);
+    assert.equal(started.auth.searchParams.get('redirect_uri'), `${BASE}/api/auth/oauth/${provider}/callback`);
+    const completed = await f.complete(started);
+    assert.ok(completed.location.includes('social=success'));
+    assert.ok(await f.who(completed));
+    const tokenCall = f.calls.findLast(call => call.init?.method === 'POST');
+    const form = new URLSearchParams(tokenCall.init.body);
+    assert.equal(form.get('client_id'), ENV[`${keyPrefix}_CLIENT_ID`]);
+    assert.equal(form.get('client_secret'), ENV[`${keyPrefix}_CLIENT_SECRET`]);
+    assert.equal(form.get('redirect_uri'), `${BASE}/api/auth/oauth/${provider}/callback`);
+  }
+});
+
+test('embedded whitespace and whitespace-only social settings remain invalid', async t => {
+  for (const whitespace of [' ', '\t', '\n', '\u00a0']) {
+    for (const [name, value] of [['SOCIAL_AUTH_BASE_URL', `https://gil.${whitespace}example`],
+      ['GOOGLE_CLIENT_ID', `google-${whitespace}client`], ['GOOGLE_CLIENT_SECRET', `google-${whitespace}secret`]]) {
+      const f = fixture(t, { oauthEnv: { SOCIAL_AUTH_BASE_URL: BASE, GOOGLE_CLIENT_ID: ENV.GOOGLE_CLIENT_ID,
+        GOOGLE_CLIENT_SECRET: ENV.GOOGLE_CLIENT_SECRET, [name]: ` ${value} ` } });
+      assert.deepEqual((await f.call('/api/auth/providers')).data, { configured: false, providers: [] });
+      assert.equal((await f.start('google')).status, 503);
+    }
+  }
+  for (const value of [' \t\r\n ', null, 123]) {
+    const f = fixture(t, { oauthEnv: { SOCIAL_AUTH_BASE_URL: BASE, GOOGLE_CLIENT_ID: ENV.GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET: value } });
+    assert.deepEqual((await f.call('/api/auth/providers')).data, { configured: false, providers: [] });
+  }
+});
+
+test('upstream requests use Workers-supported manual redirects and reject token, profile and signing-key redirects', async t => {
+  const endpoints = [
+    ['google', 'https://oauth2.googleapis.com/token'],
+    ['google', 'https://www.googleapis.com/oauth2/v3/certs'],
+    ['kakao', 'https://kauth.kakao.com/oauth/token'],
+    ['kakao', 'https://kapi.kakao.com/v2/user/me'],
+    ['naver', 'https://nid.naver.com/oauth2.0/token'],
+    ['naver', 'https://openapi.naver.com/v1/nid/me']
+  ];
+  for (const [provider, endpoint] of endpoints) {
+    const f = fixture(t);
+    f.overrides[endpoint] = async init => {
+      assert.equal(init.redirect, 'manual');
+      return new Response(null, { status: 302, headers: { Location: 'https://untrusted.example/sink' } });
+    };
+    const completed = await f.complete(await f.start(provider));
+    assert.ok(completed.location.includes('social=failed'));
+    assert.equal(await f.who(completed), null);
+    assert.ok(f.calls.some(call => call.url === endpoint));
+    assert.ok(f.calls.every(call => call.init.redirect === 'manual'));
+    assert.equal(f.calls.some(call => call.url === 'https://untrusted.example/sink'), false);
+    assert.equal((await f.db.prepare('SELECT COUNT(*) AS count FROM gil_sessions').first()).count, 0);
+  }
+});
+
 test('missing settings and non-origin, insecure or credentialed deployment URLs disable social login safely', async t => {
-  for (const value of ['', 'http://gil.example', 'https://gil.example/path', 'https://gil.example?bad=1', 'https://gil.example/#bad', 'https://user:password@gil.example', ' https://gil.example']) {
+  for (const value of ['', 'http://gil.example', 'https://gil.example/path', 'https://gil.example?bad=1', 'https://gil.example/#bad', 'https://user:password@gil.example']) {
     const f = fixture(t, { oauthEnv: { ...ENV, SOCIAL_AUTH_BASE_URL: value } });
     assert.deepEqual((await f.call('/api/auth/providers')).data, { configured: false, providers: [] });
     assert.equal((await f.start()).status, 503);
@@ -114,7 +178,7 @@ test('a valid signed Google ID token creates an OAuth-only owner and private Str
   const identity = await f.db.prepare('SELECT * FROM gil_oauth_identities').first(); assert.equal(identity.provider, 'google'); assert.notEqual(identity.subject_hash, '123456');
   const exchange = new URLSearchParams(f.calls[0].init.body); assert.equal(exchange.get('code_verifier'), stored.pkce_verifier);
   assert.equal(exchange.get('client_secret'), ENV.GOOGLE_CLIENT_SECRET);
-  for (const call of f.calls) { assert.equal(call.init.redirect, 'error'); assert.equal(call.init.cache, 'no-store'); assert.ok(call.init.signal); }
+  for (const call of f.calls) { assert.equal(call.init.redirect, 'manual'); assert.equal(call.init.cache, 'no-store'); assert.ok(call.init.signal); }
   assert.equal((await f.call('/api/auth/login', { method: 'POST', body: { username: owner.username, password: 'synthetic-password-2026' } })).status, 410);
 });
 
