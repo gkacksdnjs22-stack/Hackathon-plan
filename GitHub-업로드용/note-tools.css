@@ -53,6 +53,21 @@
 body[data-screen="note"] .day-card.is-collapsed .day-card-header { border-bottom:0; border-radius:inherit; }
 .account-sort { display:flex; align-items:center; gap:8px; margin-top:13px; color:#586c89; font-size:11px; }
 .account-sort select { min-height:44px; min-width:0; max-width:100%; padding:8px 11px; border:1px solid #cbd9ed; border-radius:9px; background:#fff; color:#365879; font:inherit; }
+@media screen {
+  body[data-screen="start"] .account-library :is(.account-search-label,.account-sort,.account-search-result) {
+    color:#fff;
+    font-size:14px;
+    font-weight:600;
+    text-shadow:var(--start-text-shadow);
+  }
+  body[data-screen="start"] .account-library .account-search-label { min-width:0; }
+  body[data-screen="start"] .account-library :is(.account-plan-search,.account-sort-select) {
+    color:#203758;
+    background:#fff;
+    text-shadow:none;
+  }
+  body[data-screen="start"] .account-library .account-plan-search::placeholder { color:#52647f; opacity:1; }
+}
 .day-bookmarks :focus-visible,.day-card :focus-visible,.address-copy :focus-visible { outline:3px solid #8798c5; outline-offset:2px; }
 @media screen and (min-width:901px) {
   .day-bookmark { font-size:14px; }

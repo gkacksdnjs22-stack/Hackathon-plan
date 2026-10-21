@@ -26,7 +26,10 @@ function imageUrl(value) {
   } catch { return ''; }
 }
 async function readJson(response) {
-  if (!response.ok || response.redirected) throw new TourApiError('UPSTREAM_ERROR');
+  if (!response.ok || response.redirected) {
+    await response.body?.cancel().catch(() => {});
+    throw new TourApiError('UPSTREAM_ERROR');
+  }
   if (Number(response.headers?.get('content-length')) > MAX_BYTES) throw new TourApiError('INVALID_RESPONSE');
   const reader = response.body?.getReader();
   if (!reader) throw new TourApiError('INVALID_RESPONSE');
@@ -51,7 +54,7 @@ export function createBackdropClient({ serviceKey, fetchImpl = globalThis.fetch,
     let timer;
     try {
       const data = await Promise.race([
-        Promise.resolve().then(() => fetchImpl(url.href, { signal: controller.signal, redirect: 'error' })).then(readJson),
+        Promise.resolve().then(() => fetchImpl(url.href, { signal: controller.signal, redirect: 'manual' })).then(readJson),
         new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new TourApiError('TIMEOUT')); }, timeoutMs); })
       ]);
       const response = data?.response;

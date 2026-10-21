@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createTransportClient, TransportApiError } from './tago-server.mjs';
 
 const key = 'SYNTHETIC-TAGO-KEY+/=';
@@ -280,4 +281,174 @@ test('cold train catalog has a bounded total deadline and preserves completed re
   } });
   const result = await client.searchStops({ mode: 'train', q: '서울' });
   assert.equal(result.items.length, 1); assert.equal(result.partial, true);
+});
+
+test('64 paginated train regions resume within 40 attempts, reach the last region and expire their cache', async () => {
+  const cities = Array.from({ length: 64 }, (_, i) => ({ citycode: String(i + 1), cityname: `지역${i + 1}` }));
+  const calls = []; let clock = 0;
+  const client = createTransportClient({ serviceKey: key, pageSize: 8, catalogCacheMs: 100, now: () => clock, fetchImpl: async url => {
+    calls.push(new URL(url));
+    const city = url.searchParams.get('cityCode'), page = Number(url.searchParams.get('pageNo'));
+    const source = city ? Array.from({ length: 9 }, (_, i) => ({ nodeid: `NAT${city}_${i}`, nodename: city === '64' ? `마지막역${i}` : `일반역${city}_${i}` })) : cities;
+    return json(source.slice((page - 1) * 8, page * 8), source.length);
+  } });
+  let result;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const before = calls.length;
+    result = await client.searchStops({ mode: 'train', q: '마지막' });
+    assert.ok(calls.length - before <= 40);
+    if (attempt === 0) { assert.equal(result.partial, true); assert.deepEqual(result.items, []); }
+    if (!result.partial) break;
+  }
+  assert.equal(result.partial, false);
+  assert.equal(result.items.length, 9);
+  assert.equal(calls.filter(url => url.pathname.endsWith('GetCtyCodeList')).length, 8);
+  const beforeWarm = calls.length;
+  await client.searchStops({ mode: 'train', q: '마지막' });
+  assert.equal(calls.length, beforeWarm);
+  clock = 100;
+  const beforeExpired = calls.length;
+  const expired = await client.searchStops({ mode: 'train', q: '마지막' });
+  assert.ok(calls.length - beforeExpired <= 40);
+  assert.equal(expired.partial, true);
+  assert.equal(calls.filter(url => url.pathname.endsWith('GetCtyCodeList')).length, 16);
+});
+
+test('an oversized train city list is rejected without station fetches and is retried', async () => {
+  let calls = 0;
+  const client = createTransportClient({ serviceKey: key, fetchImpl: async url => {
+    calls++; assert.ok(url.pathname.endsWith('GetCtyCodeList'));
+    return json(Array.from({ length: 65 }, (_, i) => ({ citycode: String(i + 1), cityname: `지역${i}` })));
+  } });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await assert.rejects(client.searchStops({ mode: 'train', q: '서울' }), error => error.code === 'INVALID_RESPONSE');
+    assert.equal(calls, attempt + 1);
+  }
+});
+
+test('city-list paging beyond ten pages checkpoints within the same 40-attempt budget and eventually reaches city 64', async () => {
+  const calls = [];
+  const client = createTransportClient({ serviceKey: key, pageSize: 1, fetchImpl: async url => {
+    calls.push(new URL(url));
+    if (url.pathname.endsWith('GetCtyCodeList')) {
+      const page = Number(url.searchParams.get('pageNo'));
+      return json([{ citycode: String(page), cityname: `지역${page}` }], 64);
+    }
+    const city = url.searchParams.get('cityCode');
+    return json([{ nodeid: `NAT${city}`, nodename: city === '64' ? '마지막역' : `일반역${city}` }]);
+  } });
+  let result;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const before = calls.length;
+    result = await client.searchStops({ mode: 'train', q: '마지막' });
+    assert.ok(calls.length - before <= 40);
+    if (attempt === 0) { assert.equal(result.partial, true); assert.deepEqual(result.items, []); }
+    if (!result.partial) break;
+  }
+  assert.equal(result.partial, false); assert.equal(result.items[0].providerId, 'NAT64');
+  assert.deepEqual(calls.filter(url => url.pathname.endsWith('GetCtyCodeList')).map(url => Number(url.searchParams.get('pageNo'))),
+    Array.from({ length: 64 }, (_, i) => i + 1));
+});
+
+test('a cold train trip shares one 40-attempt budget with catalog paging and reserves all ten trip pages', async () => {
+  const calls = [];
+  const cities = Array.from({ length: 64 }, (_, i) => ({ citycode: String(i + 1), cityname: `지역${i}` }));
+  const tripRows = Array.from({ length: 80 }, (_, i) => ({ ...rows.train, trainno: String(i + 1) }));
+  const client = createTransportClient({ serviceKey: key, pageSize: 8, fetchImpl: async url => {
+    calls.push(new URL(url));
+    const page = Number(url.searchParams.get('pageNo'));
+    if (url.pathname.endsWith('GetCtyCodeList')) return json(cities.slice((page - 1) * 8, page * 8), 64);
+    if (url.pathname.endsWith('GetStrtpntAlocFndTrainInfo')) return json(tripRows.slice((page - 1) * 8, page * 8), 80);
+    const city = url.searchParams.get('cityCode');
+    return json(city === '1' ? stations.train : [{ nodeid: `NAT${city}`, nodename: `지방역${city}` }]);
+  } });
+  const result = await client.getTrips({ service: 'train', from: 'NAT010000', to: 'NAT014445', date: day });
+  assert.equal(result.items.length, 80); assert.equal(result.truncated, false);
+  assert.equal(calls.length, 40);
+  assert.equal(calls.filter(url => url.pathname.endsWith('GetStrtpntAlocFndTrainInfo')).length, 10);
+});
+
+test('concurrent train, bus and ferry public calls own independent budgets on the same client', async () => {
+  const owner = new AsyncLocalStorage(), counts = new Map();
+  const client = createTransportClient({ serviceKey: key, fetchImpl: async url => {
+    const id = owner.getStore(); counts.set(id, (counts.get(id) || 0) + 1);
+    await new Promise(resolve => setImmediate(resolve));
+    if (url.pathname.endsWith('GetCtyCodeList')) return json(Array.from({ length: 64 }, (_, i) => ({ citycode: String(i + 1), cityname: `지역${i}` })));
+    if (url.pathname.includes('TrainInfo')) return json([{ nodeid: `NAT${url.searchParams.get('cityCode')}`, nodename: '서울기차역' }]);
+    const page = Number(url.searchParams.get('pageNo'));
+    const row = url.pathname.includes('DmstcShip') ? { nodeId: `PORT${page}`, nodeNm: '목포항' }
+      : { terminalId: `TERMINAL${page}`, terminalNm: '서울터미널' };
+    return json([row], 10);
+  } });
+  const results = await Promise.all([
+    owner.run('train', () => client.searchStops({ mode: 'train', q: '서울' })),
+    owner.run('bus', () => client.searchStops({ mode: 'bus', q: '서울' })),
+    owner.run('ferry', () => client.searchStops({ mode: 'ferry', q: '목포' }))
+  ]);
+  assert.equal(results[0].partial, true);
+  assert.equal(results[1].partial, false); assert.equal(results[2].partial, false);
+  assert.deepEqual(Object.fromEntries(counts), { train: 40, bus: 20, ferry: 10 });
+});
+
+test('failed early train regions cannot starve later regions, and recovery retries failures with a fresh budget', async () => {
+  const calls = []; let fail = true;
+  const client = createTransportClient({ serviceKey: key, fetchImpl: async url => {
+    calls.push(new URL(url));
+    if (url.pathname.endsWith('GetCtyCodeList')) return json(Array.from({ length: 64 }, (_, i) => ({ citycode: String(i + 1), cityname: `지역${i}` })));
+    const city = Number(url.searchParams.get('cityCode'));
+    if (fail && city <= 39) return new Response('', { status: 500 });
+    return json([{ nodeid: `NAT${city}`, nodename: city === 64 ? '마지막역' : `일반역${city}` }]);
+  } });
+  await assert.rejects(client.searchStops({ mode: 'train', q: '마지막' }), error => error.code === 'UPSTREAM_ERROR');
+  assert.equal(calls.length, 40);
+  let before = calls.length;
+  const partial = await client.searchStops({ mode: 'train', q: '마지막' });
+  assert.ok(calls.length - before <= 40);
+  assert.equal(partial.partial, true); assert.equal(partial.items[0].providerId, 'NAT64');
+  fail = false; before = calls.length;
+  const complete = await client.searchStops({ mode: 'train', q: '마지막' });
+  assert.ok(calls.length - before <= 40); assert.equal(complete.partial, false);
+  assert.equal(calls.filter(url => url.searchParams.get('cityCode') === '64').length, 1);
+  assert.ok(calls.filter(url => url.searchParams.get('cityCode') === '1').length >= 2);
+  assert.equal(calls.filter(url => url.pathname.endsWith('GetCtyCodeList')).length, 1);
+});
+
+test('catalog deadlines abort stalled region pages and late responses cannot fetch more pages or fill the cache', async () => {
+  const calls = []; let release, fail = true, lateSignal;
+  const client = createTransportClient({ serviceKey: key, pageSize: 1, catalogTimeoutMs: 5, timeoutMs: 1000, fetchImpl: async (url, { signal }) => {
+    calls.push(new URL(url));
+    if (url.pathname.endsWith('GetCtyCodeList')) return json([{ citycode: '11', cityname: '서울' }, { citycode: '21', cityname: '부산' }]);
+    if (url.searchParams.get('cityCode') === '11') return json([stations.train[0]]);
+    if (fail) { lateSignal = signal; return new Promise(resolve => { release = () => resolve(json([stations.train[1]], 2)); }); }
+    return json([stations.train[1]], 2);
+  } });
+  const first = await client.searchStops({ mode: 'train', q: '서울' });
+  assert.equal(first.partial, true); assert.equal(first.items.length, 1); assert.equal(lateSignal.aborted, true);
+  const beforeLate = calls.length;
+  release(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls.length, beforeLate);
+  fail = false;
+  const recovered = await client.searchStops({ mode: 'train', q: '부산' });
+  assert.equal(recovered.partial, false); assert.equal(recovered.items.length, 1);
+  assert.equal(calls.filter(url => url.searchParams.get('cityCode') === '11').length, 1);
+  assert.deepEqual(calls.filter(url => url.searchParams.get('cityCode') === '21').map(url => url.searchParams.get('pageNo')), ['1', '1', '2']);
+});
+
+test('the total train catalog deadline also covers city-list pages and does not cache late city responses', async () => {
+  const calls = []; let release, stall = true;
+  const client = createTransportClient({ serviceKey: key, catalogTimeoutMs: 5, timeoutMs: 1000, fetchImpl: async url => {
+    calls.push(new URL(url));
+    if (url.pathname.endsWith('GetCtyCodeList')) {
+      if (stall) return new Promise(resolve => { release = () => resolve(json([{ citycode: '11', cityname: '서울' }], 2)); });
+      return json([{ citycode: '11', cityname: '서울' }]);
+    }
+    return json(stations.train);
+  } });
+  await assert.rejects(client.searchStops({ mode: 'train', q: '서울' }), error => error.code === 'TIMEOUT');
+  release(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls.length, 1);
+  stall = false;
+  const recovered = await client.searchStops({ mode: 'train', q: '서울' });
+  assert.equal(recovered.partial, false); assert.equal(recovered.items.length, 1);
+  assert.equal(calls.filter(url => url.pathname.endsWith('GetCtyCodeList')).length, 2);
 });

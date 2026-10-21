@@ -40,6 +40,9 @@ export class TransportApiError extends Error {
     this.name = 'TransportApiError'; this.code = safe; this.status = ERRORS[safe][0];
   }
 }
+class FetchBudgetError extends TransportApiError {
+  constructor() { super('CATALOG_INCOMPLETE'); }
+}
 
 function keyValue(value) {
   let key = typeof value === 'string' ? value.trim() : '';
@@ -96,19 +99,39 @@ async function readBody(response) {
 export function createTransportClient({ serviceKey, fetchImpl = globalThis.fetch, now = Date.now,
   timeoutMs = 8000, catalogTimeoutMs = 18000, catalogCacheMs = DAY, tripCacheMs = 5 * 60 * 1000,
   pageSize = 1000, maximumItems = 1000, maxPages = 10 } = {}) {
-  const catalogs = new Map(), trips = new Map(), pending = new Map();
+  const catalogs = new Map(), trips = new Map(), pending = new Map(), trainLists = new Map();
+  let nextTrainRegion = 0, trainCitiesProgress;
   const rows = Math.min(1000, Math.max(1, Number.isSafeInteger(pageSize) ? pageSize : 1000));
   const limit = Math.min(1000, Math.max(1, Number.isSafeInteger(maximumItems) ? maximumItems : 1000));
   const pages = Math.min(10, Math.max(1, Number.isSafeInteger(maxPages) ? maxPages : 10));
 
-  async function fetchPage(service, operation, query, pageNo) {
+  // Each public invocation owns its credits, including failed fetch attempts.
+  // In-flight cache followers keep their own credits for any subsequent work.
+  const scope = () => ({ remaining: 40, closed: false, controllers: new Set() });
+  const context = (budget, reserve = 0) => ({ budget, reserve, closed: false, controllers: new Set() });
+  function close(work) { work.closed = true; for (const controller of work.controllers) controller.abort(); }
+  function active(work) {
+    if (work.closed || work.budget.closed) throw new TransportApiError('TIMEOUT');
+  }
+  function available(work) { return !work.closed && !work.budget.closed && work.budget.remaining > work.reserve; }
+
+  async function fetchPage(service, operation, query, pageNo, work) {
     const url = new URL(`https://apis.data.go.kr/1613000/${CONFIG[service].base}/${operation}`);
     for (const [name, value] of Object.entries({ serviceKey: keyValue(serviceKey), _type: 'json',
       numOfRows: String(rows), pageNo: String(pageNo), ...query })) url.searchParams.set(name, value);
-    const controller = new AbortController(); let timer;
+    active(work);
+    if (!available(work)) throw new FetchBudgetError();
+    const controller = new AbortController(); let timer, onAbort;
+    work.controllers.add(controller); work.budget.controllers.add(controller);
+    const aborted = new Promise((_, reject) => {
+      onAbort = () => reject(new TransportApiError('TIMEOUT'));
+      controller.signal.addEventListener('abort', onAbort, { once: true });
+    });
     const deadline = new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new TransportApiError('TIMEOUT')); }, timeoutMs); });
     try {
-      return await Promise.race([deadline, (async () => {
+      return await Promise.race([deadline, aborted, (async () => {
+      // No await may separate this debit from starting its external request.
+      work.budget.remaining--;
       const response = await fetchImpl(url, { signal: controller.signal, redirect: 'manual', headers: { Accept: 'application/json' } });
       if ([401, 403].includes(response.status)) throw new TransportApiError('AUTH_ERROR');
       if (response.status === 429) throw new TransportApiError('RATE_LIMIT');
@@ -135,18 +158,28 @@ export function createTransportClient({ serviceKey, fetchImpl = globalThis.fetch
       const items = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? [raw] : [];
       const totalCount = body.totalCount === undefined ? items.length : Number(body.totalCount);
       if (!Number.isSafeInteger(totalCount) || totalCount < 0 || (totalCount > 0 && items.length === 0)) throw new TransportApiError('INVALID_RESPONSE');
+      active(work);
       return { items, totalCount };
       })()]);
     } catch (error) {
       if (error instanceof TransportApiError) throw error;
       throw new TransportApiError(controller.signal.aborted ? 'TIMEOUT' : 'NETWORK_ERROR');
-    } finally { clearTimeout(timer); }
+    } finally {
+      clearTimeout(timer); controller.signal.removeEventListener('abort', onAbort);
+      work.controllers.delete(controller); work.budget.controllers.delete(controller);
+    }
   }
 
-  async function fetchList(service, operation, query = {}) {
+  async function fetchList(service, operation, query, work) {
     const items = []; let totalCount = 0, truncated = false;
     for (let pageNo = 1; pageNo <= pages; pageNo++) {
-      const result = await fetchPage(service, operation, query, pageNo);
+      let result;
+      try { result = await fetchPage(service, operation, query, pageNo, work); }
+      catch (error) {
+        if (error instanceof FetchBudgetError && items.length) return { items, totalCount, truncated: true, partial: true };
+        throw error;
+      }
+      active(work);
       totalCount = result.totalCount;
       items.push(...result.items.slice(0, limit - items.length));
       if (items.length >= totalCount) break;
@@ -163,7 +196,7 @@ export function createTransportClient({ serviceKey, fetchImpl = globalThis.fetch
     if (pending.size >= 30) throw new TransportApiError('RATE_LIMIT');
     const request = fetchData().then(payload => {
       while (map.size >= capacity) map.delete(map.keys().next().value);
-      if (!payload.partial) map.set(key, { expiresAt: now() + ttl, payload }); return payload;
+      if (!payload.partial) map.set(key, { expiresAt: payload.cacheUntil ?? now() + ttl, payload }); return payload;
     }).finally(() => pending.delete(key));
     pending.set(key, request); return request;
   }
@@ -177,53 +210,100 @@ export function createTransportClient({ serviceKey, fetchImpl = globalThis.fetch
       source: 'TAGO', sourceUrl: sourceUrl(service) };
   }
 
-  async function catalog(service) {
+  async function trainRegions(work) {
+    if (trainCitiesProgress?.expiresAt <= now()) trainCitiesProgress = undefined;
+    const progress = trainCitiesProgress || { items: [], totalCount: null, nextPage: 1, expiresAt: now() + catalogCacheMs };
+    let partial = false;
+    while (progress.totalCount === null || progress.items.length < progress.totalCount) {
+      let result;
+      try { result = await fetchPage('train', 'GetCtyCodeList', {}, progress.nextPage, work); }
+      catch (error) {
+        if (error instanceof FetchBudgetError && progress.items.length) { partial = true; break; }
+        throw error;
+      }
+      active(work);
+      if (result.totalCount > 64 || progress.items.length + result.items.length > 64
+        || progress.totalCount !== null && progress.totalCount !== result.totalCount) {
+        trainCitiesProgress = undefined;
+        throw new TransportApiError('INVALID_RESPONSE');
+      }
+      progress.totalCount = result.totalCount;
+      progress.items.push(...result.items.map(region => ({ citycode: clean(region?.citycode, 10), cityname: clean(region?.cityname) })));
+      progress.nextPage++;
+      // Checkpoint successful pages, never errors or late timeout responses.
+      trainCitiesProgress = progress;
+    }
+    const seen = new Set(), items = [];
+    for (const region of progress.items) {
+      const cityCode = region.citycode, cityName = region.cityname;
+      if (!/^\d{1,3}$/.test(cityCode) || !cityName || seen.has(cityCode)) continue;
+      seen.add(cityCode); items.push({ cityCode, cityName });
+    }
+    if (!partial) trainCitiesProgress = undefined;
+    return { items, totalCount: progress.totalCount, truncated: partial, partial, cacheUntil: progress.expiresAt };
+  }
+
+  async function catalog(service, work) {
     return cached(catalogs, `catalog:${service}`, catalogCacheMs, async () => {
-      const unique = new Map(), catalogStarted = Date.now(); let truncated = false, partial = false;
+      const unique = new Map(); let truncated = false, partial = false, cacheUntil;
       if (service === 'train') {
-        const regions = await fetchList(service, 'GetCtyCodeList');
+        const trainWork = context(work.budget, work.reserve);
+        let catalogTimer;
+        const expired = new Promise(resolve => {
+          catalogTimer = setTimeout(() => { close(trainWork); resolve(); }, Math.max(1, catalogTimeoutMs));
+        });
+        try {
+        const regions = await cached(trainLists, 'train:cities', catalogCacheMs, () => trainRegions(trainWork), 65);
         truncated = regions.truncated;
-        if (regions.items.length > 64) throw new TransportApiError('INVALID_RESPONSE');
-        const seen = new Set(), validRegions = [];
-        for (const region of regions.items) {
-          const cityCode = clean(region?.citycode, 10), cityName = clean(region?.cityname);
-          if (!/^\d{1,3}$/.test(cityCode) || !cityName || seen.has(cityCode)) continue;
-          seen.add(cityCode); validRegions.push({ cityCode, cityName });
-        }
+        const validRegions = regions.items;
         // A cold nationwide station search must not wait for every city serially.
         // Four workers bound provider pressure; collect in source order for stable results.
-        const results = new Array(validRegions.length); let nextRegion = 0, stopped = false, catalogTimer;
-        const workers = Promise.all(Array.from({ length: Math.min(4, validRegions.length) }, async () => {
-          while (!stopped && nextRegion < validRegions.length) {
-            const index = nextRegion++, region = validRegions[index];
-            try { results[index] = await fetchList(service, CONFIG[service].stops, { cityCode: region.cityCode }); }
+        const results = new Array(validRegions.length), missing = [];
+        const start = nextTrainRegion % Math.max(1, validRegions.length);
+        for (let offset = 0; offset < validRegions.length; offset++) {
+          const index = (start + offset) % validRegions.length, entry = trainLists.get(`train:region:${validRegions[index].cityCode}`);
+          if (entry && entry.expiresAt > now()) results[index] = entry.payload;
+          else missing.push(index);
+        }
+        let nextRegion = 0;
+        const workers = Promise.all(Array.from({ length: Math.min(4, missing.length) }, async () => {
+          while (available(trainWork) && nextRegion < missing.length) {
+            const index = missing[nextRegion++], region = validRegions[index];
+            nextTrainRegion = (index + 1) % validRegions.length;
+            try {
+              results[index] = await cached(trainLists, `train:region:${region.cityCode}`, catalogCacheMs, async () => {
+                const result = await fetchList(service, CONFIG[service].stops, { cityCode: region.cityCode }, trainWork);
+                return { ...result, items: result.items.map(raw => normalizeStop(service, raw, region.cityName)).filter(Boolean) };
+              }, 65);
+            }
             catch (error) { results[index] = { error }; }
           }
         }));
-        try {
-          await Promise.race([workers, new Promise(resolve => { catalogTimer = setTimeout(() => { stopped = true; resolve(); }, Math.max(1, catalogTimeoutMs - (Date.now() - catalogStarted))); })]);
-        } finally { clearTimeout(catalogTimer); stopped = true; }
-        partial = results.filter(result => result && !result.error).length < validRegions.length;
-        if (partial && !results.some(result => result && !result.error)) {
+        await Promise.race([workers, expired]);
+        close(trainWork);
+        partial = Boolean(regions.partial) || results.filter(result => result && !result.error && !result.partial).length < validRegions.length;
+        if (partial && !regions.partial && !results.some(result => result && !result.error)) {
           throw results.find(result => result?.error)?.error || new TransportApiError('TIMEOUT');
         }
         for (let index = 0; index < results.length; index++) {
           const result = results[index]; if (!result || result.error) continue; truncated ||= result.truncated;
-          for (const raw of result.items) {
-            const stop = normalizeStop(service, raw, validRegions[index].cityName);
+          for (const stop of result.items) {
             if (stop && unique.size < limit) unique.set(stop.providerId, stop);
             else if (stop && !unique.has(stop.providerId)) truncated = true;
           }
         }
+        if (!partial) cacheUntil = Math.min(...['train:cities', ...validRegions.map(region => `train:region:${region.cityCode}`)]
+          .map(key => trainLists.get(key)?.expiresAt ?? now()));
+        } finally { clearTimeout(catalogTimer); close(trainWork); }
       } else {
-        const result = await fetchList(service, CONFIG[service].stops);
-        truncated = result.truncated;
+        const result = await fetchList(service, CONFIG[service].stops, {}, work);
+        truncated = result.truncated; partial = Boolean(result.partial);
         for (const raw of result.items) {
           const stop = normalizeStop(service, raw);
           if (stop) unique.set(stop.providerId, stop);
         }
       }
-      return { items: [...unique.values()], truncated, partial, fetchedAt: new Date(now()).toISOString() };
+      return { items: [...unique.values()], truncated, partial, fetchedAt: new Date(now()).toISOString(), ...(cacheUntil === undefined ? {} : { cacheUntil }) };
     }, 5);
   }
 
@@ -257,7 +337,9 @@ export function createTransportClient({ serviceKey, fetchImpl = globalThis.fetch
       if (!['train', 'bus', 'flight', 'ferry'].includes(mode)) throw new TransportApiError('INVALID_REQUEST');
       const services = service ? [service] : mode === 'bus' ? ['express', 'intercity'] : [mode];
       if (services.some(name => !Object.hasOwn(CONFIG, name) || CONFIG[name].mode !== mode)) throw new TransportApiError('INVALID_REQUEST');
-      const loaded = await Promise.allSettled(services.map(name => catalog(name)));
+      const budget = scope(), work = context(budget);
+      try {
+      const loaded = await Promise.allSettled(services.map(name => catalog(name, work)));
       const catalogs = loaded.filter(result => result.status === 'fulfilled').map(result => result.value);
       if (!catalogs.length) throw loaded.find(result => result.status === 'rejected').reason;
       const unavailableServices = loaded.flatMap((result, index) => result.status === 'rejected'
@@ -271,25 +353,31 @@ export function createTransportClient({ serviceKey, fetchImpl = globalThis.fetch
       matches.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, 'ko') || a.id.localeCompare(b.id));
       return { provider: PROVIDER, items: matches.slice(0, 10), partial: unavailableServices.length > 0, unavailableServices, truncated: catalogs.some(entry => entry.truncated) || matches.length > 10,
         fetchedAt: catalogs.map(entry => entry.fetchedAt).sort()[0] };
+      } finally { close(budget); }
     },
     async getTrips({ service, from, to, date } = {}) {
       if (!Object.hasOwn(CONFIG, service) || !validId(from) || !validId(to) || from === to) throw new TransportApiError('INVALID_REQUEST');
       if (!validDate(date)) throw new TransportApiError('INVALID_DATE');
       if (service === 'intercity' && date !== koreanDate(now())) throw new TransportApiError('TODAY_ONLY');
-      const stops = await catalog(service);
+      const budget = scope();
+      try {
+      // A cold catalog cannot spend the credits needed to retrieve trip pages.
+      const stops = await catalog(service, context(budget, pages));
       const departure = stops.items.find(stop => stop.providerId === from), arrival = stops.items.find(stop => stop.providerId === to);
       if (!departure || !arrival) throw new TransportApiError(stops.partial ? 'CATALOG_INCOMPLETE' : 'UNKNOWN_STOP');
-      return cached(trips, `trips:${service}:${from}:${to}:${date}`, tripCacheMs, async () => {
+      return await cached(trips, `trips:${service}:${from}:${to}:${date}`, tripCacheMs, async () => {
         const config = CONFIG[service], query = { [config.from]: from, depPlandTime: date.replaceAll('-', '') };
         if (config.to) query[config.to] = to;
-        const result = await fetchList(service, config.trips, query), fetchedAt = new Date(now()).toISOString(), unique = new Map();
+        const result = await fetchList(service, config.trips, query, context(budget)), fetchedAt = new Date(now()).toISOString(), unique = new Map();
         for (const raw of result.items) {
           const item = await normalizeTrip(service, raw, departure, arrival, date, fetchedAt);
           if (item) unique.set(item.id, item);
         }
         return { provider: PROVIDER, service, items: [...unique.values()].sort((a, b) => a.departureMinutes - b.departureMinutes
-          || a.arrivalMinutes - b.arrivalMinutes || a.id.localeCompare(b.id)), truncated: result.truncated, fetchedAt };
+          || a.arrivalMinutes - b.arrivalMinutes || a.id.localeCompare(b.id)), truncated: result.truncated, fetchedAt,
+          ...(result.partial ? { partial: true } : {}) };
       });
+      } finally { close(budget); }
     }
   };
 }
