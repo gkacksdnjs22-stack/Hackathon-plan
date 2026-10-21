@@ -1,5 +1,9 @@
 // Only these files may be served publicly or included in the deployment archive.
 export const PUBLIC_FILES = new Map([
+  ['typography.css', 'text/css; charset=utf-8'],
+  ['vendor/fonts/noto-sans-kr-regular.woff', 'font/woff'],
+  ['vendor/fonts/noto-sans-kr-bold.woff', 'font/woff'],
+  ['vendor/fonts/OFL.txt', 'text/plain; charset=utf-8'],
   ['note-toolbar.js', 'text/javascript; charset=utf-8'],
   ['note-toolbar.css', 'text/css; charset=utf-8'],
   ['operating-info.js', 'text/javascript; charset=utf-8'],

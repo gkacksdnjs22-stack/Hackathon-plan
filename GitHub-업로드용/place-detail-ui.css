@@ -1,3 +1,35 @@
 .place-detail{margin-top:12px;border:1px solid #d2dff2;border-radius:10px;background:#f7faff;color:#365879;min-width:0}
-.place-detail summary{min-height:44px;padding:10px 12px;cursor:pointer;font-size:16px;font-weight:650}.place-detail-body{padding:0 12px 12px;line-height:1.8;font-size:16px;overflow-wrap:anywhere}.place-detail-body h4{margin:5px 0}.place-detail-overview,.place-detail-fields dd{white-space:pre-line}.place-detail figure{margin:12px 0}.place-detail-photo{display:block;width:auto;max-width:100%;max-height:360px;height:auto;margin:auto;object-fit:contain}.place-detail figcaption,.place-detail-source,.place-detail-hint,.place-detail-status{font-size:14px}.place-detail-fields{display:grid;grid-template-columns:minmax(70px,auto) minmax(0,1fr);gap:8px 14px}.place-detail-fields dt{font-weight:650}.place-detail-fields dd{margin:0}.place-detail-retry{min-height:44px;padding:8px 12px;border:1px solid #cbd9ed;border-radius:8px;background:#fff;color:#365879;font:inherit;cursor:pointer}.place-detail :focus-visible{outline:3px solid #8798c5;outline-offset:2px}
-@media print{.place-detail{display:none!important}}
+.place-detail summary{min-height:44px;padding:10px 12px;cursor:pointer;font-size:16px;font-weight:600}
+.place-detail-body{padding:0 12px 12px;line-height:1.8;font-size:16px;overflow-wrap:anywhere}
+.place-detail-body h4{margin:5px 0}
+.place-detail-overview,.place-detail-full-overview,.place-detail-fields dd{white-space:pre-line}
+.place-detail-overview.is-collapsed{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;line-height:1.8;max-height:5.4em;overflow:hidden}
+.place-detail-open,.place-detail-retry,.place-detail-dialog-close{min-height:44px;padding:8px 14px;border:1px solid #cbd9ed;border-radius:10px;background:#fff;color:#365879;font:inherit;cursor:pointer;touch-action:manipulation}
+.place-detail-retry[hidden]{display:none}
+.place-detail-status,.place-detail-source,.place-detail-hint,.place-detail-dialog figcaption{font-size:14px}
+.place-detail :focus-visible,.place-detail-dialog :focus-visible{outline:3px solid #8798c5;outline-offset:2px}
+.place-detail-dialog{position:fixed;inset:0;box-sizing:border-box;width:min(780px,calc(100% - 48px));max-width:780px;max-height:calc(100dvh - 48px);margin:auto;padding:0;overflow:hidden;border:1px solid #cbd9ed;border-radius:20px;background:#f7faff;color:#365879;box-shadow:0 24px 80px #15356840;overflow-wrap:anywhere}
+.place-detail-dialog[open]{display:flex;flex-direction:column}
+.place-detail-dialog::backdrop{background:#132e5b80}
+html:has(.place-detail-dialog[open]){overflow:hidden}
+.place-detail-dialog-heading{display:flex;flex:none;align-items:center;justify-content:space-between;gap:16px;padding:18px 24px;border-bottom:1px solid #d2dff2;background:#edf4ff}
+.place-detail-dialog-heading h2{min-width:0;margin:0;font-size:22px;font-weight:600;line-height:1.5}
+.place-detail-dialog-close{flex:none}
+.place-detail-dialog-body{min-height:0;min-width:0;padding:20px 24px;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;font-size:17px;line-height:1.8}
+.place-detail-dialog-body>:first-child{margin-top:0}
+.place-detail-dialog-body h3{margin:20px 0 8px;font-size:19px;font-weight:600}
+.place-detail-dialog-body figure{margin:16px 0}
+.place-detail-photo{display:block;width:auto;max-width:100%;max-height:420px;height:auto;margin:auto;object-fit:contain}
+.place-detail-fields{display:grid;grid-template-columns:minmax(70px,auto) minmax(0,1fr);gap:10px 16px}
+.place-detail-fields dt{font-weight:600}
+.place-detail-fields dd{margin:0}
+.place-detail-dialog a{color:#315f9b;text-underline-offset:3px}
+@media(max-width:600px){
+  .place-detail-dialog{width:calc(100% - 24px);max-height:calc(100dvh - 24px);border-radius:16px}
+  .place-detail-dialog-heading{gap:10px;padding:12px 14px}
+  .place-detail-dialog-heading h2{font-size:18px}
+  .place-detail-dialog-body{padding:16px 14px;font-size:16px}
+  .place-detail-dialog-body h3{font-size:18px}
+  .place-detail-fields{gap:10px 12px}
+}
+@media print{.place-detail,.place-detail-dialog{display:none!important}}

@@ -97,6 +97,8 @@ class Element {
     if (bubbles&&!event.propagationStopped) this.document.dispatch(type, this, event, 'bubble');
   }
   click() { if (!this.disabled) this.dispatch('click'); }
+  showModal() { assert.equal(this.tagName,'DIALOG');assert.equal(this.isConnected,true);this.open=true; }
+  close() { if(!this.open)return;this.open=false;queueMicrotask(()=>this.dispatch('close')); }
   select() { this.selected = true; }
   scrollIntoView(options) { this.lastScrollIntoView = options; }
   focus() {
@@ -2649,8 +2651,13 @@ test('place details are lazy, render safe data and missing fields, retry failure
   const detail=app.$('day-list').querySelector('.place-detail');assert.equal(calls,0);detail.open=true;detail.dispatch('toggle');await settle();
   assert.equal(calls,1);assert.match(detail.querySelector('.place-detail-status').textContent,/불러오지 못했어요/);
   fail=false;detail.querySelector('.place-detail-retry').click();await settle();assert.equal(calls,2);
-  assert.match(detail.querySelector('.place-detail-result').textContent,/09:00~18:00.*정보 미제공/);
+  assert.doesNotMatch(detail.querySelector('.place-detail-result').textContent,/09:00~18:00/);
   assert.equal(detail.querySelector('img'),null);assert.equal(detail.querySelectorAll('script').length,0);
+  detail.querySelector('.place-detail-open').click();
+  const dialog=app.document.body.querySelector('.place-detail-dialog');assert.equal(dialog.open,true);
+  assert.match(dialog.textContent,/09:00~18:00.*정보 미제공/);assert.equal(dialog.querySelector('img'),null);assert.equal(dialog.querySelectorAll('script').length,0);
+  assert.equal(dialog.querySelector('.place-detail-full-overview').textContent,'<script>not executed</script>');
+  dialog.querySelector('.place-detail-dialog-close').click();await settle();assert.equal(app.document.body.querySelector('.place-detail-dialog'),null);
   detail.open=false;detail.dispatch('toggle');detail.open=true;detail.dispatch('toggle');await settle();assert.equal(calls,2);
   assert.deepEqual(noteParameters(app),before);assert.equal(app.writes.length,writes);
 });
@@ -2671,9 +2678,47 @@ test('a valid detail photo and homepage render with attribution; partial results
   const app=runtime({...fixture,withAccount:true});await settle();await app.create();
   app.context.fetch=async()=>({ok:true,json:async()=>({contentId:'101',contentTypeId:'14',title:'문화관',overview:'설명',imageUrl:'https://example.com/original.jpg',homepage:'https://example.com/',partial:true})});
   const detail=app.$('day-list').querySelector('.place-detail');detail.open=true;detail.dispatch('toggle');await settle();
-  assert.equal(detail.querySelector('img').src,'https://example.com/original.jpg');assert.match(detail.querySelector('figcaption').textContent,/한국관광공사/);
+  detail.querySelector('.place-detail-open').click();const dialog=app.document.body.querySelector('.place-detail-dialog');
+  assert.equal(dialog.querySelector('img').src,'https://example.com/original.jpg');assert.match(dialog.querySelector('figcaption').textContent,/한국관광공사/);
+  assert.equal(dialog.querySelectorAll('a').some(link=>link.href==='https://example.com/'),true);
   assert.equal(detail.querySelector('.place-detail-retry').hidden,false);assert.match(detail.querySelector('.place-detail-status').textContent,/일부 운영정보/);
-  detail.querySelector('img').dispatch('error');assert.equal(detail.querySelector('img'),null);assert.match(detail.querySelector('figcaption').textContent,/불러오지 못했어요/);
+  dialog.querySelector('img').dispatch('error');assert.equal(dialog.querySelector('img'),null);assert.match(dialog.querySelector('figcaption').textContent,/불러오지 못했어요/);
+});
+
+test('a place overview opens its complete source in a cached information popup and closes without changing the note',async()=>{
+  const fixture=actualPlannerFixture(),place=fixture.cityData.areas[0].places[0];Object.assign(place,{contentId:'101',contentTypeId:'12'});
+  const app=runtime({...fixture,withAccount:true});await settle();await app.create();
+  const overview='산책로와 전시 공간을 천천히 둘러보는 긴 관광지 소개입니다.\n'.repeat(16)+'원문 마지막 안내';let calls=0;
+  app.context.fetch=async()=>{calls++;return {ok:true,json:async()=>({contentId:'101',contentTypeId:'12',title:place.name,overview,hours:'09:00~18:00',fee:'무료',phone:'02-000-0000'})};};
+  const before=noteParameters(app),writes=app.writes.length,changes=app.account.changes,detail=app.$('day-list').querySelector('.place-detail');
+  detail.open=true;detail.dispatch('toggle');await settle();const trigger=detail.querySelector('.place-detail-open');
+  assert.equal(detail.querySelector('.place-detail-overview').textContent,overview);assert.equal(trigger.getAttribute('aria-haspopup'),'dialog');
+  for(const action of ['button','cancel','backdrop','parent','navigation']){
+    trigger.click();const dialog=app.document.body.querySelector('.place-detail-dialog');assert.ok(dialog?.open,action);
+    assert.equal(dialog.id,trigger.getAttribute('aria-controls'));assert.equal(dialog.querySelector('.place-detail-full-overview').textContent,overview);
+    assert.match(dialog.querySelector('.place-detail-fields').textContent,/09:00~18:00.*무료.*02-000-0000/);
+    assert.equal(app.document.activeElement,dialog.querySelector('.place-detail-dialog-close'));
+    if(action==='button')dialog.querySelector('.place-detail-dialog-close').click();
+    if(action==='cancel')dialog.dispatch('cancel');
+    if(action==='backdrop')dialog.dispatch('click',{clientX:-10,clientY:-10});
+    if(action==='parent'){detail.open=false;detail.dispatch('toggle');detail.open=true;detail.dispatch('toggle');}
+    if(action==='navigation')app.window.dispatch('hashchange',{type:'hashchange'});
+    await settle();assert.equal(app.document.body.querySelector('.place-detail-dialog'),null,action);
+    if(['button','cancel','backdrop'].includes(action))assert.equal(app.document.activeElement,trigger);
+  }
+  assert.equal(calls,1);assert.deepEqual(noteParameters(app),before);assert.equal(app.writes.length,writes);assert.equal(app.account.changes,changes);
+});
+
+test('a candidate popup includes its complete introduction and operating information and is removed with its preview',async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  const host=app.document.createElement('div');app.document.body.append(host);
+  const overview='교체 후보의 소개를 원문 그대로 확인합니다. '.repeat(20)+'마지막 문장';
+  app.context.fetch=async()=>({ok:true,json:async()=>({contentId:'104',contentTypeId:'14',title:'교체 후보 미술관',overview,hours:'10:00~17:00',closed:'월요일',fee:'5000원'})});
+  const before=noteParameters(app),widget=app.window.TravelPlaceDetail.mount(host,{contentId:'104',contentTypeId:'14',name:'교체 후보 미술관'},{candidate:true});
+  const detail=host.querySelector('.place-detail');detail.dispatch('toggle');await settle();detail.querySelector('.place-detail-open').click();
+  const dialog=app.document.body.querySelector('.place-detail-dialog');assert.equal(dialog.querySelector('.place-detail-full-overview').textContent,overview);
+  assert.match(dialog.querySelector('.place-detail-fields').textContent,/10:00~17:00.*월요일.*5000원/);
+  widget.destroy();await settle();assert.equal(app.document.body.querySelector('.place-detail-dialog'),null);assert.equal(host.children.length,0);assert.deepEqual(noteParameters(app),before);
 });
 
 test('invalid restored budget never replaces the current note or its browser draft',async()=>{

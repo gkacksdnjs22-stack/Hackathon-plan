@@ -778,6 +778,89 @@ test('touch taps and keyboard activation operate the handle; pointer dragging ch
   }finally{await context.close();}
 });
 
+const longPlaceOverview=Array.from({length:12},(_,index)=>`${index+1}번째 소개 문단입니다. 산책로와 전시 공간을 천천히 둘러보며 지역의 풍경과 역사를 함께 즐길 수 있어요.`).join('\n')+'\n원문 마지막 안내까지 확인했습니다.';
+
+async function expectThreeLineOverview(description){
+  await expect.poll(()=>description.evaluate(element=>{
+    const lineHeight=parseFloat(getComputedStyle(element).lineHeight);
+    return element.clientHeight/lineHeight;
+  })).toBeCloseTo(3,1);
+  expect(await description.evaluate(element=>element.scrollHeight>element.clientHeight)).toBe(true);
+}
+
+test('place overviews show three lines and open the complete source in a keyboard accessible popup on desktop and mobile',async({page})=>{
+  let requests=0;
+  await page.route('**/api/tour/place-detail?**',route=>{
+    requests++;const url=new URL(route.request().url());
+    return route.fulfill({json:{contentId:url.searchParams.get('contentId'),contentTypeId:url.searchParams.get('contentTypeId'),title:'합성 관광지',overview:longPlaceOverview,imageUrl:'',hours:'09:00~18:00',fee:'무료'}});
+  });
+  await createNote(page,1);
+  const before=await guestNote(page),detail=page.locator('#travel-day-0 [data-event-id="place-0"] .place-detail');
+  await detail.locator(':scope > summary').click();
+  const description=detail.locator('.place-detail-overview'),trigger=detail.locator('.place-detail-open');
+  await expect(trigger).toBeVisible();
+  expect(await description.textContent()).toBe(longPlaceOverview);
+  await expect(trigger).toHaveAttribute('aria-haspopup','dialog');
+  for(const viewport of [{width:1280,height:900},{width:390,height:844}]){
+    await page.setViewportSize(viewport);
+    await expectThreeLineOverview(description);
+    await trigger.focus();await page.keyboard.press('Enter');
+    const dialog=page.locator('.place-detail-dialog'),close=dialog.getByRole('button',{name:'닫기',exact:true});
+    await expect(dialog).toBeVisible();await expect(dialog).toHaveAttribute('id',await trigger.getAttribute('aria-controls'));
+    await expect(close).toBeFocused();expect(await dialog.locator('.place-detail-full-overview').textContent()).toBe(longPlaceOverview);
+    await expect(dialog.locator('.place-detail-fields')).toContainText('09:00~18:00');await expect(dialog.locator('.place-detail-fields')).toContainText('무료');
+    const body=dialog.locator('.place-detail-dialog-body');
+    expect(await body.evaluate(element=>element.scrollHeight>element.clientHeight)).toBe(true);
+    await body.evaluate(element=>{element.scrollTop=element.scrollHeight;});await expect(dialog.locator('.place-detail-hint')).toBeInViewport();
+    await page.keyboard.press('Tab');await expect(dialog.locator(':focus')).toHaveCount(1);
+    await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);await expect(trigger).toBeFocused();
+    await expectThreeLineOverview(description);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  }
+  await trigger.click();const dialog=page.locator('.place-detail-dialog');
+  const bounds=await dialog.boundingBox();await page.mouse.click(Math.max(1,bounds.x-5),Math.max(1,bounds.y-5));
+  await expect(dialog).toHaveCount(0);await expect(trigger).toBeFocused();
+  expect(requests).toBe(1);expect(await guestNote(page)).toEqual(before);
+  await page.screenshot({path:'artifacts/place-overview-mobile.png',fullPage:true});
+});
+
+test('candidate overviews retain more than 220 characters in their popup without applying the candidate',async({page})=>{
+  let requests=0;
+  await page.route('**/api/tour/place-detail?**',route=>{
+    requests++;const url=new URL(route.request().url());
+    return route.fulfill({json:{contentId:url.searchParams.get('contentId'),contentTypeId:url.searchParams.get('contentTypeId'),title:'합성 미술관',overview:longPlaceOverview,imageUrl:'',hours:'10:00~17:00',closed:'월요일'}});
+  });
+  await createNote(page,1);await page.setViewportSize({width:390,height:844});
+  const before=await guestNote(page),row=page.locator('#travel-day-0 [data-event-id="place-0"]');
+  await row.locator('.swap-button').click();
+  const preview=row.locator('.swap-picker .candidate-preview'),description=preview.locator('.place-detail-overview'),trigger=preview.locator('.place-detail-open');
+  await expect(trigger).toBeVisible();await expectThreeLineOverview(description);
+  expect(await description.textContent()).toBe(longPlaceOverview);
+  await trigger.click();const dialog=page.locator('.place-detail-dialog');
+  await expect(dialog).toBeVisible();expect(await dialog.locator('.place-detail-full-overview').textContent()).toBe(longPlaceOverview);
+  await expect(dialog.locator('.place-detail-fields')).toContainText('10:00~17:00');await expect(dialog.locator('.place-detail-fields')).toContainText('월요일');
+  await dialog.getByRole('button',{name:'닫기',exact:true}).click();await expect(dialog).toHaveCount(0);await expect(trigger).toBeFocused();await expectThreeLineOverview(description);
+  await expect(row.locator('.event-title')).toHaveText('합성 문화공원');
+  expect(await guestNote(page)).toEqual(before);expect(requests).toBe(1);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+});
+
+test('short or missing place overviews still offer their information popup',async({page})=>{
+  await page.route('**/api/tour/place-detail?**',route=>{
+    const url=new URL(route.request().url()),contentId=url.searchParams.get('contentId');
+    return route.fulfill({json:{contentId,contentTypeId:url.searchParams.get('contentTypeId'),title:'합성 관광지',overview:contentId==='101'?'짧은 소개입니다.':'   ',imageUrl:''}});
+  });
+  await createNote(page,1);
+  for(const [eventId,expected] of [['place-0','짧은 소개입니다.'],['place-1','이 장소의 자세한 설명은 제공되지 않았어요.']]){
+    const detail=page.locator(`#travel-day-0 [data-event-id="${eventId}"] .place-detail`);
+    await detail.locator(':scope > summary').click();
+    await expect(detail.locator('.place-detail-overview')).toHaveText(expected);
+    await detail.locator('.place-detail-open').click();const dialog=page.locator('.place-detail-dialog');
+    await expect(dialog.locator('.place-detail-full-overview')).toHaveText(expected);await expect(dialog.locator('.place-detail-fields')).toContainText('정보 미제공');
+    await dialog.getByRole('button',{name:'닫기',exact:true}).click();await expect(dialog).toHaveCount(0);
+  }
+});
+
 test('candidate photos can fail without blocking name search or explicit replacement',async({page,baseURL})=>{
   await createNote(page);
   await page.route('**/api/tour/place-detail?**',route=>{
@@ -786,7 +869,9 @@ test('candidate photos can fail without blocking name search or explicit replace
   });
   const row=page.locator('#travel-day-0 [data-event-id="place-0"]');await row.locator('.swap-button').click();
   const picker=row.locator('.swap-picker');await expect(picker.locator('.candidate-region')).toContainText('문화시설');
-  await expect(picker.locator('.place-detail-overview')).toContainText('제공기관에서 확인한 짧은 소개');await expect(picker.locator('figcaption')).toHaveText('제공 사진을 불러오지 못했어요.');
+  await expect(picker.locator('.place-detail-overview')).toContainText('제공기관에서 확인한 짧은 소개');
+  await picker.locator('.place-detail-open').click();const dialog=page.locator('.place-detail-dialog');await expect(dialog.locator('figcaption')).toHaveText('제공 사진을 불러오지 못했어요.');
+  await dialog.getByRole('button',{name:'닫기',exact:true}).click();await expect(dialog).toHaveCount(0);
   await expect(row.locator('.event-title')).toHaveText('합성 문화공원');
   await picker.locator('.select-trigger').click();await picker.locator('.select-search-input').fill('미술관');await expect(picker.getByRole('option',{name:/합성 미술관/})).toBeVisible();await page.keyboard.press('Escape');
   await picker.getByRole('button',{name:'교체 적용',exact:true}).click();await expect(row.locator('.event-title')).toHaveText('합성 미술관');
