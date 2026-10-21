@@ -47,7 +47,7 @@ function byText(root, text) {
   for (const child of root.children) { const match = byText(child, text); if (match) return match; }
   return null;
 }
-function runtime({ user = null, configured = true, plans = [], handler, onUserChange, loadDocument, broadcast = false } = {}) {
+function runtime({ user = null, configured = true, plans = [], handler, onUserChange, loadDocument, broadcast = false, notice = false } = {}) {
   const listeners = new Map(), timers = new Map(); let timerId = 0, reads = 0;
   const document = { activeElement: null, createElement: tag => new Element(tag, document),
     addEventListener(type, listener) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(listener); },
@@ -55,7 +55,7 @@ function runtime({ user = null, configured = true, plans = [], handler, onUserCh
     dispatch(type, extra = {}) { for (const listener of listeners.get(type) || []) listener({ type, target: document.activeElement, preventDefault() {}, ...extra }); }
   };
   document.body = document.createElement('body');
-  const roots = Object.fromEntries(['accountRoot', 'libraryRoot', 'saveRoot'].map(name => [name, document.createElement('div')]));
+  const roots = Object.fromEntries(['accountRoot', 'libraryRoot', 'saveRoot', ...(notice ? ['noticeRoot'] : [])].map(name => [name, document.createElement('div')]));
   document.body.append(...Object.values(roots));
   const state = { user, configured, plans: plans.map(plan => ({ ...plan })), document: documentFixture(), messages: [], users: [], loads: [] };
   const calls = [], signals = [], channels = [], storedDocuments = new Map(plans.map(plan => [plan.id, documentFixture()]));
@@ -130,6 +130,45 @@ test('unconfigured and unknown sessions settle gracefully, preserve local editin
   await failed.ready(); assert.equal(failed.state.users[0].user, undefined);
   assert.match(failed.roots.accountRoot.textContent, /계정 다시 확인/); assert.doesNotMatch(failed.document.body.textContent, /private/);
   failed.controller.destroy();
+});
+
+test('setup can be checked again from the notice without reloading or replacing the guest draft', async () => {
+  const app = runtime({ configured: false, notice: true }); await app.ready();
+  app.state.document.itinerary.memo = '설정하는 동안 작성한 메모';
+  const draft = clone(app.state.document);
+  assert.match(app.roots.noticeRoot.textContent, /계정 저장을 준비/);
+  app.state.configured = true;
+  await app.click('다시 확인', app.roots.noticeRoot);
+  assert.equal(app.calls.filter(call => call.path === '/api/auth/session').length, 2);
+  assert.match(app.roots.accountRoot.textContent, /로그인 · 회원가입/);
+  assert.match(app.roots.noticeRoot.textContent, /다른 기기에서도 내 계획/);
+  assert.deepEqual(app.state.document, draft); assert.equal(app.reads, 0);
+  assert.ok(app.state.users.every(change => change.user === null));
+  await app.click('로그인', app.roots.noticeRoot);
+  assert.ok(app.find('account-username')); app.controller.destroy();
+});
+
+test('the unavailable dialog retries safely and opens login only after setup is ready', async () => {
+  let failSession = false;
+  const app = runtime({ configured: false, handler: request => request.path === '/api/auth/session' && failSession
+    ? Promise.reject(Error('private setup diagnostic')) : undefined });
+  await app.ready(); app.state.document.itinerary.memo = '그대로 남을 초안';
+  const draft = clone(app.state.document);
+  await app.click('계정 저장 준비 중', app.roots.accountRoot);
+  await app.click('다시 확인', app.find('account-dialog'));
+  assert.equal(app.find('account-username'), null);
+  assert.match(app.find('account-dialog-message').textContent, /계정 저장을 준비/);
+  failSession = true;
+  await app.click('다시 확인', app.find('account-dialog'));
+  assert.match(app.find('account-dialog-message').textContent, /계정에 연결하지 못했어요/);
+  assert.doesNotMatch(app.document.body.textContent, /private|diagnostic/);
+  assert.equal(app.find('account-dialog-actions').querySelector('button').disabled, false);
+  failSession = false; app.state.configured = true;
+  await app.click('다시 확인', app.find('account-dialog'));
+  assert.ok(app.find('account-username')); assert.ok(app.find('account-password'));
+  assert.equal(app.calls.filter(call => ['/api/auth/signup', '/api/auth/login'].includes(call.path)).length, 0);
+  assert.deepEqual(app.state.document, draft); assert.equal(app.reads, 0);
+  app.controller.destroy();
 });
 
 test('signup validates confirmation and uses same-origin cookie requests without putting credentials in URLs or storage', async () => {
@@ -292,6 +331,29 @@ test('returning to a visible tab verifies the cookie owner again before showing 
   await settle();
   assert.equal(app.find('account-user'), null); assert.equal(app.calls.filter(call => call.path === '/api/auth/session').length, 2);
   assert.equal(app.state.users.at(-1).user, null); app.controller.destroy();
+});
+
+test('a visible guest tab reflects setup becoming ready or unavailable without an identity transition', async () => {
+  const app = runtime({ configured: false, notice: true }); await app.ready();
+  app.state.document.itinerary.memo = '계속 편집 중인 여행';
+  const draft = clone(app.state.document), initialTransitions = app.state.users.length;
+  await app.click('계정 저장 준비 중', app.roots.accountRoot);
+  app.state.configured = true;
+  app.document.visibilityState = 'visible'; app.document.dispatch('visibilitychange'); await settle();
+  assert.match(app.roots.accountRoot.textContent, /로그인 · 회원가입/);
+  assert.match(app.roots.saveRoot.textContent, /계획표 저장/);
+  assert.equal(app.find('account-dialog-backdrop').hidden, true);
+  await app.click('로그인 · 회원가입'); fillLogin(app);
+  app.state.configured = false;
+  app.document.dispatch('visibilitychange'); await settle();
+  assert.match(app.roots.accountRoot.textContent, /계정 저장 준비 중/);
+  assert.match(app.roots.noticeRoot.textContent, /계정 저장을 준비/);
+  assert.equal(app.find('account-username'), null);
+  await app.click('계정 저장 준비 중', app.roots.accountRoot);
+  assert.equal(app.find('account-username'), null);
+  assert.equal(app.state.users.length, initialTransitions);
+  assert.deepEqual(app.state.document, draft); assert.equal(app.reads, 0);
+  app.controller.destroy();
 });
 
 test('a same-account visibility probe preserves the linked plan, unsaved edits, modal fields and focus', async () => {

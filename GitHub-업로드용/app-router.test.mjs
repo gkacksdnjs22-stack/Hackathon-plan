@@ -77,9 +77,10 @@ class Element {
   dispatch(type, extra = {}) {
     const event = { type, target: this, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
     const bubbles = !['pointerenter', 'pointerleave', 'mouseenter', 'mouseleave', 'focus', 'blur'].includes(type);
+    if (bubbles) this.document.dispatch(type, this, event, 'capture');
     for (let node = this; node; node = bubbles ? node.parentNode : null)
       for (const listener of node.listeners.get(type) || []) listener(event);
-    if (bubbles) this.document.dispatch(type, this, event);
+    if (bubbles) this.document.dispatch(type, this, event, 'bubble');
   }
   click() { if (!this.disabled) this.dispatch('click'); }
   focus() {
@@ -146,38 +147,64 @@ function actualPlannerFixture() {
   return { cityData: city, planner: window.TravelPlanner };
 }
 
+function timedNoteFixture(dayCount = 1) {
+  const fixture = actualPlannerFixture(), city = fixture.cityData;
+  const first = city.areas[0]; city.supportedDays = dayCount;
+  for (let index = 1; index < dayCount; index++) {
+    const area = { id: `area-${index}`, name: `남구 · 산책길 ${index}`, places: [] };
+    area.places = first.places.map(place => ({ ...place, id: `${place.id}-${index}`, areaId: area.id, area: area.name, areaName: area.name }));
+    city.areas.push(area);
+  }
+  const origin = { mode: 'car', id: 'osm-node-1', name: '출발할 숙소', address: '광주광역시 남구 문화로 1',
+    latitude: 35.1, longitude: 126.9, source: 'OpenStreetMap', sourceUrl: 'https://www.openstreetmap.org/node/1' };
+  const dayDepartures = {}, eventEdits = {};
+  for (let index = 0; index < dayCount; index++) {
+    dayDepartures[index] = origin;
+    eventEdits[index] = { departure: { duration: 30 }, 'transfer-0': { duration: 20 }, 'transfer-1': { duration: 15 } };
+  }
+  const note = fixture.planner.createItinerary({ city, startDate: '2026-10-20', dayCount, dayDepartures, eventEdits });
+  assert.equal(note.ok, true, note.reason);
+  assert.ok(note.days.every(day => !day.timesProvisional));
+  return { ...fixture, note };
+}
+
 function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadError, storageError, cityData = null, planner = null, withAccount = false, accountUser = null, accountReady, currentDateTime='2026-10-20T12:00:00' } = {}) {
-  const elements = new Map(), documentListeners = new Map();
+  const elements = new Map(), documentListeners = new Map(), documentCaptureListeners = new Map();
   const document = {
     title: '', activeElement: null,
     createElement: tag => new Element(tag, document),
     getElementById: id => elements.get(id) || document.body.querySelector(`#${id}`),
     querySelector: selector => document.body.querySelector(selector),
     querySelectorAll: selector => document.body.querySelectorAll(selector),
-    addEventListener(type, listener) {
-      if (!documentListeners.has(type)) documentListeners.set(type, new Set());
-      documentListeners.get(type).add(listener);
+    addEventListener(type, listener, options = false) {
+      const listeners = (typeof options === 'boolean' ? options : options.capture) ? documentCaptureListeners : documentListeners;
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(listener);
     },
-    removeEventListener(type, listener) { documentListeners.get(type)?.delete(listener); },
-    dispatch(type, target, extra = {}) {
+    removeEventListener(type, listener, options = false) {
+      const listeners = (typeof options === 'boolean' ? options : options.capture) ? documentCaptureListeners : documentListeners;
+      listeners.get(type)?.delete(listener);
+    },
+    dispatch(type, target, extra = {}, phase = 'all') {
       const event = { type, target, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
-      for (const listener of documentListeners.get(type) || []) listener(event);
+      if (phase !== 'bubble') for (const listener of documentCaptureListeners.get(type) || []) listener(event);
+      if (phase !== 'capture') for (const listener of documentListeners.get(type) || []) listener(event);
     }
   };
   document.body = document.createElement('body');
   const ids = ['country-select', 'city-select', 'start-date', 'day-count', 'trip-form', 'destinations-retry',
     'city-note', 'duration-note', 'data-status', 'app-message', 'date-trigger', 'itinerary-section',
-    'empty-state', 'day-list', 'trip-summary', 'capacity-message', 'print-button', 'clear-button',
+    'empty-state', 'day-list', 'trip-summary', 'note-timing-notice', 'capacity-message', 'print-button', 'clear-button', 'undo-button', 'redo-button',
     'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'saved-plans', 'account-save'];
   for (const id of ids) {
-    const tag = ['city-select', 'day-count'].includes(id) ? 'select' : id === 'trip-form' ? 'form' : 'div';
+    const tag = ['city-select', 'day-count'].includes(id) ? 'select' : id === 'trip-form' ? 'form' : ['print-button','clear-button','undo-button','redo-button'].includes(id) ? 'button' : 'div';
     const element = document.createElement(tag); element.id = id; elements.set(id, element);
   }
   const $ = id => elements.get(id);
-  $('country-select').value = 'KR'; $('app-message').hidden = true;
+  $('country-select').value = 'KR'; $('app-message').hidden = true; $('note-timing-notice').hidden = true;
   $('start-screen').append($('title'), $('trip-form'), $('resume-note'), $('empty-state'));
   $('resume-note').append($('resume-summary'));
-  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('day-list'));
+  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('undo-button'), $('redo-button'), $('note-timing-notice'), $('day-list'));
   $('screen-loading').append($('loading-title'));
   document.body.append($('app-message'), $('screen-loading'), $('start-screen'), $('itinerary-section'));
   const submit = document.createElement('button'); submit.type = 'submit'; submit.append(document.createElement('span'));
@@ -225,7 +252,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   }
   window.TravelDeparture = mountStub('departure');
   window.TravelSchedule = mountStub('schedule');
-  window.TravelRestaurants = { ...mountStub('restaurant'), districtFromAddress: () => '남구' };
+  window.TravelRestaurants = { ...mountStub('restaurant'), mountManual: mountStub('manual-restaurant').mount, districtFromAddress: () => '남구' };
   const account={options:null,changes:0,detaches:0};
   if(withAccount)window.TravelAccount={mount(options){
     account.options=options;
@@ -396,6 +423,50 @@ test('successful creation opens an independent note; logo, resume and browser hi
   assert.equal(app.stored.get(storageKey), stored);
   assert.equal(app.writes.length, 1); assert.equal(app.removals.length, 0);
   assert.ok(app.scrolls.length >= 5);
+});
+
+test('transient messages belong to their screen and cannot follow logo or browser-history navigation', async () => {
+  const app = runtime({ withAccount: true }); await settle(); await app.create(); screen(app, 'note');
+  assert.match(app.$('app-message').textContent, /추천 장소를 여행 노트에 담았어요/);
+  const creationTimer = app.clock.scheduled.at(-1);
+  await app.go('#/start'); screen(app, 'start');
+  assert.equal(app.$('app-message').hidden, true); assert.equal(app.$('app-message').textContent, '');
+  assert.equal(app.clock.pending.has(creationTimer.id), false);
+  app.window.history.back(); screen(app, 'note'); assert.equal(app.$('app-message').hidden, true);
+  app.window.history.forward(); screen(app, 'start'); assert.equal(app.$('app-message').hidden, true);
+  app.account.options.onMessage('선택한 여행 조건을 확인해 주세요.');
+  assert.equal(app.$('app-message').hidden, false);
+  await app.go('#/note'); screen(app, 'note'); assert.equal(app.$('app-message').hidden, true);
+  app.window.history.back(); screen(app, 'start'); assert.equal(app.$('app-message').hidden, true);
+});
+
+test('same-screen route synchronization keeps its message and new redirect guidance survives the transition', async () => {
+  const app = runtime(); await settle(); await app.create();
+  const message = app.$('app-message').textContent, timer = app.clock.scheduled.at(-1);
+  await app.go('#/note/'); screen(app, 'note');
+  assert.equal(app.$('app-message').hidden, false); assert.equal(app.$('app-message').textContent, message);
+  assert.equal(app.clock.pending.has(timer.id), true);
+  app.clock.advance(5000); assert.equal(app.$('app-message').hidden, true);
+  const missing = runtime({ hash: '#/note' }); await settle(); screen(missing, 'start');
+  assert.match(missing.$('app-message').textContent, /먼저 여행 조건/);
+  assert.equal(missing.$('app-message').hidden, false);
+});
+
+test('a screen transition preserves pending-load feedback and a subsequent restoration error', async () => {
+  const waiting = deferred(); let firstLookup = true;
+  const app = runtime({ hash: '#/note', raw: savedNote(), ensureCity: () => {
+    if (firstLookup) { firstLookup = false; return waiting.promise; }
+  } });
+  await settle(); screen(app, 'loading');
+  assert.match(app.$('app-message').textContent, /관광정보를 불러오고/);
+  await app.go('#/start'); screen(app, 'start');
+  assert.equal(app.$('app-message').hidden, false); assert.match(app.$('app-message').textContent, /관광정보를 불러오고/);
+  waiting.reject(Error('연결을 다시 확인해 주세요.')); await settle();
+  assert.equal(app.$('app-message').hidden, false); assert.match(app.$('app-message').textContent, /연결을 다시 확인/);
+  assert.ok(app.$('app-message').classList.contains('is-error'));
+  await app.go('#/note'); screen(app, 'start');
+  assert.match(app.$('app-message').textContent, /연결을 다시 확인/);
+  assert.equal(app.clock.pending.size, 0);
 });
 
 test('setup edits and a failed regeneration retain the previously saved note', async () => {
@@ -708,7 +779,7 @@ test('info and success notices expire after five seconds, and a superseded timer
   emptyNote.clock.advance(5000); assert.equal(emptyNote.$('app-message').hidden, true);
 });
 
-test('typing or changing input dismisses notices immediately, and interactive pointer targets dismiss transient notices', async () => {
+test('typing or changing input dismisses notices immediately, while pointerdown retains notices until an interactive click', async () => {
   const app = runtime(); await settle();
   for (const type of ['input', 'change']) {
     await app.create(); assert.equal(app.$('app-message').hidden, false);
@@ -721,6 +792,8 @@ test('typing or changing input dismisses notices immediately, and interactive po
   assert.equal(app.$('app-message').hidden, false);
   const buttonLabel = app.$('trip-form').querySelector('button[type="submit"]').querySelector('span');
   app.document.dispatch('pointerdown', buttonLabel);
+  assert.equal(app.$('app-message').hidden, false, 'pressing must not collapse a banner and move the click target');
+  app.document.dispatch('click', buttonLabel);
   assert.equal(app.$('app-message').hidden, true);
   assert.equal(app.clock.pending.size, 0);
 });
@@ -731,7 +804,7 @@ test('loading remains visible until completion, while errors persist until the n
   assert.match(app.$('app-message').textContent, /관광정보를 불러오고/);
   assert.equal(app.clock.pending.size, 0);
   app.clock.advance(20000);
-  for (const type of ['input', 'change', 'pointerdown']) app.document.dispatch(type, app.$('trip-form').querySelector('button[type="submit"]'));
+  for (const type of ['input', 'change', 'pointerdown', 'click']) app.document.dispatch(type, app.$('trip-form').querySelector('button[type="submit"]'));
   assert.equal(app.$('app-message').hidden, false);
   restore.resolve(); await settle(); screen(app, 'note');
   assert.match(app.$('app-message').textContent, /불러왔어요/);
@@ -767,6 +840,66 @@ test('built-in transfer editor saves a memo with pending zero duration and lets 
   }
 });
 
+test('one persistent timing notice covers an unfinished later day and disappears after all travel times are entered', async () => {
+  const fixture = timedNoteFixture(2);
+  const pending = fixture.planner.updateEvent({ city: fixture.cityData, itinerary: fixture.note, dayIndex: 1, eventId: 'transfer-1', duration: 0 });
+  assert.equal(pending.ok, true);
+  pending.itinerary.days[1].timesProvisional = false; // A saved display snapshot is rebuilt from canonical edits.
+  const raw = JSON.stringify({ version: 8, itinerary: pending.itinerary });
+  const app = runtime({ ...fixture, hash: '#/note', raw }); await settle(); screen(app, 'note');
+  const notice = app.$('note-timing-notice');
+  assert.equal(notice.hidden, false);
+  assert.match(notice.textContent, /미정은 실제 이동 0분이 아니며/);
+  assert.doesNotMatch(notice.textContent, /공지|알림|안내/);
+  assert.equal(app.document.querySelectorAll('#note-timing-notice').length, 1);
+  assert.doesNotMatch(app.$('day-list').textContent, /미정은 실제 이동 0분이 아니며/);
+  assert.equal(app.$('day-list').querySelectorAll('.departure-row .departure-hint').length, 0);
+  assert.ok(app.$('day-list').querySelectorAll('.meal-row .departure-hint').length > 0, 'the specific restaurant travel reminder stays in meal cards');
+  app.document.dispatch('input', app.$('start-date')); app.clock.advance(20000);
+  assert.equal(notice.hidden, false, 'dismissing a transient message must not dismiss incomplete-plan status');
+  assert.equal(app.writes.length, 0, 'rendering a derived notice does not change saved data');
+  const day = app.$('day-list').querySelector('[data-day-index="1"]');
+  const row = day.querySelector('[data-event-id="transfer-1"]'); row.querySelector('.event-edit-button').click();
+  const editor = row.querySelector('.event-editor');
+  for (const input of editor.querySelectorAll('input')) {
+    if (input.getAttribute('aria-label') === '이동시간: 시간') input.value = '0';
+    if (input.getAttribute('aria-label') === '이동시간: 분') input.value = '23';
+  }
+  editor.dispatch('submit');
+  assert.equal(notice.hidden, true); assert.equal(notice.textContent, '');
+  const restored = runtime({ ...fixture, hash: '#/note', raw: app.stored.get(storageKey) }); await settle();
+  assert.equal(restored.$('note-timing-notice').hidden, true);
+});
+
+test('a new unknown transfer restores the single timing notice until its time is filled or the transfer is removed', async () => {
+  const fixture = timedNoteFixture();
+  const app = runtime({ ...fixture, hash: '#/note', raw: JSON.stringify({ version: 8, itinerary: fixture.note }) }); await settle();
+  const notice = app.$('note-timing-notice'); assert.equal(notice.hidden, true);
+  const schedule = app.mounts.findLast(record => record.kind === 'schedule' && !record.destroyed);
+  const added = schedule.options.onAdd({ type: 'transfer', title: '숙소로 이동', duration: 0 });
+  assert.equal(added.ok, true); assert.equal(notice.hidden, false);
+  const row = app.$('day-list').querySelector('[data-event-id="extra-1"]'); row.querySelector('.event-edit-button').click();
+  const editor = row.querySelector('.event-editor');
+  for (const input of editor.querySelectorAll('input')) {
+    if (input.getAttribute('aria-label') === '이동시간: 시간') input.value = '0';
+    if (input.getAttribute('aria-label') === '이동시간: 분') input.value = '18';
+  }
+  editor.dispatch('submit'); assert.equal(notice.hidden, true);
+  const saved = app.stored.get(storageKey);
+  const restored = runtime({ ...fixture, hash: '#/note', raw: saved }); await settle();
+  assert.equal(restored.$('note-timing-notice').hidden, true);
+  const restoredRow = restored.$('day-list').querySelector('[data-event-id="extra-1"]'); restoredRow.querySelector('.event-edit-button').click();
+  const restoredEditor = restoredRow.querySelector('.event-editor');
+  for (const input of restoredEditor.querySelectorAll('input')) {
+    if (input.getAttribute('aria-label') === '이동시간: 시간' || input.getAttribute('aria-label') === '이동시간: 분') input.value = '0';
+  }
+  restoredEditor.dispatch('submit'); assert.equal(restored.$('note-timing-notice').hidden, false);
+  restored.$('day-list').querySelector('[data-event-id="extra-1"]').querySelector('.event-remove-button').click();
+  assert.equal(restored.$('note-timing-notice').hidden, true);
+  await restored.clear();
+  assert.equal(restored.$('note-timing-notice').hidden, true); assert.equal(restored.$('note-timing-notice').textContent, '');
+});
+
 
 test('invalid JSON draft envelopes preserve storage and do not derail destination setup', async () => {
   for (const raw of ['null','true','7','"text"','[]']) {
@@ -794,4 +927,238 @@ test('cloud load reports local persistence failure without replacing it with suc
   assert.equal(result.ok,true);assert.match(result.warning,/자동저장에 실패/);
   screen(app,'note');assert.match(app.$('app-message').textContent,/자동저장에 실패/);
   assert.ok(app.$('app-message').classList.contains('is-error'));assert.equal(app.writes.length,0);
+});
+
+
+test('manual meal restaurant persists, replaces recommendations and clears without changing duration', async () => {
+  const fixture=actualPlannerFixture(),app=runtime(fixture); await settle(); await app.create();
+  const widget=(target,kind)=>target.mounts.findLast(record=>record.kind===kind&&!record.destroyed&&record.host.closest('.timeline-row').dataset.eventId==='lunch');
+  assert.equal(widget(app,'manual-restaurant').options.name,'');
+  assert.equal(widget(app,'manual-restaurant').options.onSave({name:'<우리 밥집>',description:'서울 골목 1\n예약 12시'}).ok,true);
+  let saved=JSON.parse(app.stored.get(storageKey)).itinerary;
+  const duration=saved.days[0].events.find(event=>event.id==='lunch').duration;
+  assert.match(saved.eventEdits[0].lunch.title,/<우리 밥집>/);
+  assert.equal(saved.eventEdits[0].lunch.description,'서울 골목 1\n예약 12시');
+  const restored=runtime({...fixture,hash:'#/note',raw:app.stored.get(storageKey)});await settle();
+  assert.equal(widget(restored,'manual-restaurant').options.name,'<우리 밥집>');
+  assert.equal(widget(restored,'manual-restaurant').options.description,'서울 골목 1\n예약 12시');
+  assert.equal(widget(restored,'restaurant').options.onSelect({name:'추천 밥집',address:'새 주소'}).ok,true);
+  assert.equal(widget(restored,'manual-restaurant').options.name,'추천 밥집');
+  assert.equal(widget(restored,'manual-restaurant').options.onSave({name:'직접 바꾼 식당',description:''}).ok,true);
+  assert.equal(widget(restored,'manual-restaurant').options.onClear().ok,true);
+  saved=JSON.parse(restored.stored.get(storageKey)).itinerary;
+  assert.equal(saved.eventEdits[0].lunch.description,'');
+  assert.equal(widget(restored,'manual-restaurant').options.name,'');
+  assert.equal(saved.days[0].events.find(event=>event.id==='lunch').duration,duration);
+  const again=runtime({...fixture,hash:'#/note',raw:restored.stored.get(storageKey)});await settle();
+  assert.equal(widget(again,'manual-restaurant').options.name,'');
+  const shifted=fixture.planner.setDayStart({city:fixture.cityData,itinerary:JSON.parse(restored.stored.get(storageKey)).itinerary,dayIndex:0,startTime:'17:00'});
+  assert.equal(shifted.ok,true);
+  const late=runtime({...fixture,hash:'#/note',raw:JSON.stringify({version:8,itinerary:shifted.itinerary})});await settle();
+  assert.equal(widget(late,'manual-restaurant').options.name,'');
+  const lateMeal=shifted.itinerary.days[0].events.find(event=>event.id==='lunch');
+  assert.equal(lateMeal.title,lateMeal.meal);
+  assert.equal(Object.hasOwn(shifted.itinerary.eventEdits[0].lunch,'title'),false);
+});
+
+test('manual restaurant input validates and supports added meal cards', async () => {
+  const fixture=actualPlannerFixture(),app=runtime(fixture);await settle();await app.create();
+  const schedule=app.mounts.findLast(record=>record.kind==='schedule'&&!record.destroyed);
+  assert.equal(schedule.options.onAdd({type:'meal',beforeId:'finish',title:'식사',duration:45}).ok,true);
+  const manual=()=>app.mounts.findLast(record=>record.kind==='manual-restaurant'&&!record.destroyed&&record.host.closest('.timeline-row').dataset.eventId==='extra-1');
+  const before=app.stored.get(storageKey);
+  for(const value of [{name:' ',description:''},{name:'x'.repeat(61),description:''},{name:'밥집',description:'x'.repeat(501)}])assert.equal(manual().options.onSave(value).ok,false);
+  assert.equal(app.stored.get(storageKey),before);
+  assert.equal(manual().options.onSave({name:'추가 식당',description:'창가 자리'}).ok,true);
+  assert.equal(manual().options.name,'추가 식당');
+  let saved=JSON.parse(app.stored.get(storageKey)).itinerary;
+  assert.equal(saved.extraEvents[0][0].title,'식사 · 추가 식당');
+  assert.equal(manual().options.onClear().ok,true);
+  saved=JSON.parse(app.stored.get(storageKey)).itinerary;
+  assert.equal(saved.extraEvents[0][0].duration,45);
+  assert.equal(saved.extraEvents[0][0].description,'');
+});
+
+
+function noteParameters(app){return JSON.parse(JSON.stringify(app.account.options.getDocument().itinerary));}
+function currentSchedule(app){return app.mounts.findLast(record=>record.kind==='schedule'&&!record.destroyed);}
+function manualMeal(app,eventId='lunch'){
+  return app.mounts.findLast(record=>record.kind==='manual-restaurant'&&!record.destroyed&&record.host.closest('.timeline-row').dataset.eventId===eventId);
+}
+function editEntry(app,eventId,{title,description,duration}={}){
+  const row=app.$('day-list').querySelector(`[data-event-id="${eventId}"]`);
+  row.querySelector('.event-edit-button').click();
+  const editor=row.querySelector('.event-editor'),inputs=editor.querySelectorAll('input');
+  if(title!==undefined)inputs.find(input=>input.type==='text').value=title;
+  if(description!==undefined)editor.querySelector('textarea').value=description;
+  if(duration!==undefined){
+    const hours=inputs.find(input=>/시간$/.test(input.getAttribute('aria-label')||''));
+    if(hours){hours.value=String(Math.floor(duration/60));inputs.find(input=>/분$/.test(input.getAttribute('aria-label')||'')).value=String(duration%60);}
+    else inputs.find(input=>input.type==='number').value=String(duration);
+  }
+  editor.dispatch('submit');
+  return editor;
+}
+
+test('editing history undoes and redoes title, memo, overnight times, ordering and removal as separate saved operations',async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  assert.equal(app.$('undo-button').disabled,true);assert.equal(app.$('redo-button').disabled,true);
+  const states=[noteParameters(app)];
+  assert.equal(currentSchedule(app).options.onAdd({type:'free',title:'밤 산책',description:'입구에서 만나기',duration:30}).ok,true);
+  states.push(noteParameters(app));
+  editEntry(app,'extra-1',{title:'내가 고른 산책',description:'야간 개장 확인',duration:55});
+  states.push(noteParameters(app));
+  const start=app.document.getElementById('day-start-0');start.value='23:30';start.dispatch('change');
+  states.push(noteParameters(app));
+  const before=JSON.parse(app.stored.get(storageKey)).itinerary;
+  assert.ok(before.days[0].end>1440,'the edited schedule crosses midnight');
+  app.$('day-list').querySelector('[data-event-id="extra-1"]').querySelector('.event-move-button').click();
+  states.push(noteParameters(app));
+  app.$('day-list').querySelector('[data-event-id="place-1"]').querySelector('.event-remove-button').click();
+  states.push(noteParameters(app));
+  const edits=states.length-1,changes=app.account.changes;
+  for(let index=states.length-2;index>=0;index--){
+    app.$('undo-button').click();
+    assert.deepEqual(noteParameters(app),states[index]);
+    assert.equal(app.$('redo-button').disabled,false);
+  }
+  assert.equal(app.$('undo-button').disabled,true);
+  for(let index=1;index<states.length;index++){
+    app.$('redo-button').click();assert.deepEqual(noteParameters(app),states[index]);
+  }
+  assert.equal(app.$('redo-button').disabled,true);
+  assert.equal(app.account.changes,changes+edits*2,'undo and redo each mark the account document changed');
+  for(const replay of app.creations.slice(1)){
+    assert.equal(replay.days,undefined);assert.equal(replay.routes,undefined);assert.equal(replay.restaurants,undefined);
+    assert.equal(replay.cityName,undefined,'history restores parameters through the planner, without display snapshots');
+  }
+  assert.deepEqual(JSON.parse(app.stored.get(storageKey)).itinerary.eventOrders,states.at(-1).eventOrders);
+});
+
+test('tourist replacement and day area exchange remain reversible alongside manual restaurant choices',async()=>{
+  const fixture=timedNoteFixture(2),app=runtime({...fixture,withAccount:true});await settle();
+  app.$('day-count').value='2';await app.create();
+  const original=noteParameters(app);
+  const row=app.$('day-list').querySelector('[data-event-id="place-0"]');row.querySelector('.swap-button').click();
+  const swap=row.querySelector('.swap-picker');swap.querySelector('select').value='d';swap.querySelector('button').click();
+  const replaced=noteParameters(app);assert.notDeepEqual(replaced.selections,original.selections);
+  const day=app.$('day-list').children[0];day.querySelector('.day-area-select').value='area-1';day.querySelector('.area-apply-button').click();
+  const exchanged=noteParameters(app);assert.deepEqual(exchanged.dayAreaIds,['area-1','area-a']);
+  assert.equal(manualMeal(app).options.onSave({name:'직접 고른 식당',description:'예약 확인'}).ok,true);
+  const restaurant=noteParameters(app);
+  for(const expected of [exchanged,replaced,original]){app.$('undo-button').click();assert.deepEqual(noteParameters(app),expected);}
+  for(const expected of [replaced,exchanged,restaurant]){app.$('redo-button').click();assert.deepEqual(noteParameters(app),expected);}
+});
+
+test('failed edits and failed undo or redo preserve both the current note and usable history',async()=>{
+  const faults={set:false},app=runtime({...actualPlannerFixture(),withAccount:true,storageError:faults});await settle();await app.create();
+  const original=noteParameters(app);
+  assert.equal(manualMeal(app).options.onSave({name:'유효한 식당',description:'원래 메모'}).ok,true);
+  const edited=noteParameters(app),saved=app.stored.get(storageKey),changes=app.account.changes;
+  assert.equal(manualMeal(app).options.onSave({name:'',description:''}).ok,false);
+  faults.set=true;
+  assert.equal(manualMeal(app).options.onSave({name:'저장 실패',description:''}).ok,false);
+  app.$('undo-button').click();
+  assert.deepEqual(noteParameters(app),edited);assert.equal(app.stored.get(storageKey),saved);
+  assert.equal(app.$('undo-button').disabled,false);assert.equal(app.$('redo-button').disabled,true);
+  assert.equal(app.account.changes,changes);
+  assert.match(app.$('app-message').textContent,/현재 노트와 되돌리기 기록은 유지/);
+  faults.set=false;app.behavior.createError='관광정보가 바뀌어 복원할 수 없어요.';
+  app.$('undo-button').click();assert.deepEqual(noteParameters(app),edited);assert.equal(app.account.changes,changes);
+  app.behavior.createError=null;app.$('undo-button').click();assert.deepEqual(noteParameters(app),original);
+  assert.equal(app.$('undo-button').disabled,true,'neither failed edit created an extra step');
+  faults.set=true;app.$('redo-button').click();assert.deepEqual(noteParameters(app),original);
+  assert.equal(app.$('redo-button').disabled,false);
+  faults.set=false;app.$('redo-button').click();assert.deepEqual(noteParameters(app),edited);
+});
+
+test('new successful edits clear redo while an unchanged save or a failed edit retains redo',async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  assert.equal(manualMeal(app).options.onSave({name:'첫 식당',description:'메모'}).ok,true);
+  const first=noteParameters(app);
+  assert.equal(manualMeal(app).options.onSave({name:'두 번째 식당',description:'메모'}).ok,true);
+  app.$('undo-button').click();assert.deepEqual(noteParameters(app),first);
+  assert.equal(manualMeal(app).options.onSave({name:'첫 식당',description:'메모'}).ok,true);
+  assert.equal(app.$('redo-button').disabled,false,'saving identical parameters does not create a new edit');
+  assert.equal(manualMeal(app).options.onSave({name:'',description:''}).ok,false);
+  assert.equal(app.$('redo-button').disabled,false);
+  assert.equal(manualMeal(app).options.onSave({name:'다른 식당',description:'새 메모'}).ok,true);
+  assert.equal(app.$('redo-button').disabled,true);app.$('undo-button').click();
+  assert.deepEqual(noteParameters(app),first);
+});
+
+test('history keeps the latest twenty edits only and is not restored or added to browser documents',async()=>{
+  const fixture=actualPlannerFixture(),app=runtime({...fixture,withAccount:true});await settle();await app.create();
+  for(let index=1;index<=22;index++)assert.equal(manualMeal(app).options.onSave({name:`식당 ${index}`,description:''}).ok,true);
+  const last=app.stored.get(storageKey);
+  assert.equal(JSON.parse(last).history,undefined);assert.equal(JSON.parse(last).itinerary.editHistory,undefined);
+  const reloaded=runtime({...fixture,raw:last,hash:'#/note'});await settle();
+  assert.equal(reloaded.$('undo-button').disabled,true);assert.equal(reloaded.$('redo-button').disabled,true);
+  for(let index=0;index<20;index++)app.$('undo-button').click();
+  assert.equal(manualMeal(app).options.name,'식당 2');assert.equal(app.$('undo-button').disabled,true);
+  const oldest=app.stored.get(storageKey);app.$('undo-button').click();assert.equal(app.stored.get(storageKey),oldest);
+  for(let index=0;index<20;index++)app.$('redo-button').click();
+  assert.equal(manualMeal(app).options.name,'식당 22');assert.equal(app.$('redo-button').disabled,true);
+});
+
+test('new notes, successful remote loads and deletion reset history, while failed loads and canceled deletion preserve it',async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  const initial=app.account.options.getDocument();
+  manualMeal(app).options.onSave({name:'식당',description:''});
+  const invalid={...initial,itinerary:{...initial.itinerary,dayAreaIds:[]}};
+  assert.equal(await app.account.options.loadDocument(invalid),false);assert.equal(app.$('undo-button').disabled,false);
+  app.behavior.confirmClear=false;await app.clear();assert.equal(app.$('undo-button').disabled,false);
+  assert.equal(await app.account.options.loadDocument(initial),true);
+  assert.equal(app.$('undo-button').disabled,true);assert.equal(app.$('redo-button').disabled,true);
+  manualMeal(app).options.onSave({name:'새 식당',description:''});
+  app.behavior.createError='새 노트 생성 실패';await app.create();assert.equal(app.$('undo-button').disabled,false);
+  app.behavior.createError=null;await app.create();
+  assert.equal(app.$('undo-button').disabled,true);assert.equal(app.$('redo-button').disabled,true);
+  manualMeal(app).options.onSave({name:'마지막 식당',description:''});
+  app.behavior.confirmClear=true;await app.clear();
+  assert.equal(app.$('undo-button').disabled,true);assert.equal(app.$('redo-button').disabled,true);
+  assert.equal(app.account.options.getDocument(),null);
+});
+
+test('signing in, switching accounts and signing out cannot apply another owners editing history',async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  manualMeal(app).options.onSave({name:'게스트 식당',description:''});assert.equal(app.$('undo-button').disabled,false);
+  await app.account.options.onUserChange({id:'owner-a',username:'alice'},{initial:false});
+  assert.equal(app.$('undo-button').disabled,true);assert.equal(app.$('redo-button').disabled,true);
+  manualMeal(app).options.onSave({name:'계정 A 식당',description:''});
+  app.$('undo-button').click();assert.equal(app.$('redo-button').disabled,false);
+  const ownerA=app.stored.get(`${storageKey}:owner-a`);
+  await app.account.options.onUserChange({id:'owner-b',username:'bob'},{initial:false});
+  assert.equal(app.account.options.getDocument(),null);
+  assert.equal(app.$('undo-button').disabled,true);assert.equal(app.$('redo-button').disabled,true);
+  await app.create();manualMeal(app).options.onSave({name:'계정 B 식당',description:''});
+  await app.account.options.onUserChange(null,{initial:false});
+  assert.equal(app.account.options.getDocument(),null);assert.equal(app.$('undo-button').disabled,true);
+  await app.account.options.onUserChange({id:'owner-a',username:'alice'},{initial:false});
+  assert.equal(manualMeal(app).options.name,'게스트 식당');
+  assert.equal(app.$('undo-button').disabled,true);assert.equal(app.$('redo-button').disabled,true);
+  assert.equal(app.stored.get(`${storageKey}:owner-a`),ownerA);
+});
+
+
+test('undo and redo each respond to their first click, retaining the pressed layout and the new result message',async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  const original=noteParameters(app);
+  assert.equal(currentSchedule(app).options.onAdd({type:'free',title:'되돌리기 점검',duration:30}).ok,true);
+  const edited=noteParameters(app),notice=app.$('app-message');
+  assert.match(notice.textContent,/일정을 추가했어요/);
+  const captures=[];
+  app.document.addEventListener('click',event=>{
+    if(['undo-button','redo-button'].includes(event.target.id))captures.push({button:event.target.id,hidden:notice.hidden});
+  },true);
+  for(const [action,expected,message] of [['undo',original,/직전 편집을 되돌리고/],['redo',edited,/되돌린 편집을 다시 실행하고/]]){
+    const button=app.$(`${action}-button`),previous=notice.textContent;
+    assert.equal(button.disabled,false);
+    button.dispatch('pointerdown',{pointerType:'mouse'});
+    assert.equal(notice.hidden,false);assert.equal(notice.textContent,previous);
+    button.click();
+    assert.deepEqual(noteParameters(app),expected,'the initial click must apply its action without a second click');
+    assert.equal(notice.hidden,false);assert.match(notice.textContent,message,'capture must clear the old message before the target creates the new one');
+  }
+  assert.deepEqual(captures,[{button:'undo-button',hidden:true},{button:'redo-button',hidden:true}]);
 });

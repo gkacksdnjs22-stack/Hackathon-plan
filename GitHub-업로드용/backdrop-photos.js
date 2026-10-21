@@ -1,0 +1,107 @@
+// Audited photographs and attribution, verified 2026-10-21.
+window.GIL_BACKDROP_FALLBACK_ITEMS = Object.freeze([
+  {
+    "title": "경복궁 경회루",
+    "description": "고요한 연못에 비친 경회루와 가을의 궁궐 풍경.",
+    "imageName": "Gyeonghoeru (Royal Banquet Hall) at Gyeongbokgung Palace, Seoul.jpg",
+    "author": "Frank Schulenburg",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "source": "Wikimedia Commons",
+    "sourceUrl": "https://commons.wikimedia.org/wiki/File:Gyeonghoeru_(Royal_Banquet_Hall)_at_Gyeongbokgung_Palace,_Seoul.jpg",
+    "imageUrl": "./travel-backdrop-01.jpg",
+    "changes": "웹 표시용으로 폭 2400px에 맞춰 축소·JPEG 압축. 색상·풍경 내용은 변경하지 않음. 배경에서는 화면 비율에 맞춰 일부가 잘릴 수 있음.",
+    "verifiedAt": "2026-10-21"
+  },
+  {
+    "title": "광안대교와 광안리 해변",
+    "description": "부산의 바다와 광안대교가 함께 펼쳐지는 해안 풍경.",
+    "imageName": "Gwangalli Beach and Gwangan Bridge Busan.jpg",
+    "author": "Masterhatch",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "source": "Wikimedia Commons",
+    "sourceUrl": "https://commons.wikimedia.org/wiki/File:Gwangalli_Beach_and_Gwangan_Bridge_Busan.jpg",
+    "imageUrl": "./travel-backdrop-02.jpg",
+    "changes": "웹 표시용으로 폭 2400px에 맞춰 축소·JPEG 압축. 색상·풍경 내용은 변경하지 않음. 배경에서는 화면 비율에 맞춰 일부가 잘릴 수 있음.",
+    "verifiedAt": "2026-10-21"
+  },
+  {
+    "title": "설악산",
+    "description": "단풍과 바위 능선이 어우러진 설악산의 풍경.",
+    "imageName": "Landscape in Seoraksan National Park 1.jpg",
+    "author": "Christophe95",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "source": "Wikimedia Commons",
+    "sourceUrl": "https://commons.wikimedia.org/wiki/File:Landscape_in_Seoraksan_National_Park_1.jpg",
+    "imageUrl": "./travel-backdrop-03.jpg",
+    "changes": "웹 표시용으로 폭 2400px에 맞춰 축소·JPEG 압축. 색상·풍경 내용은 변경하지 않음. 배경에서는 화면 비율에 맞춰 일부가 잘릴 수 있음.",
+    "verifiedAt": "2026-10-21"
+  },
+  {
+    "title": "제주 성산 해안",
+    "description": "성산일출봉에서 내려다본 제주 해안과 성산리 마을의 푸른 저녁 풍경.",
+    "imageName": "Seongsan-ri town at blue hour seen from Seongsan Ilchulbong volcano Jeju Island South Korea.jpg",
+    "author": "Basile Morin",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "source": "Wikimedia Commons",
+    "sourceUrl": "https://commons.wikimedia.org/wiki/File:Seongsan-ri_town_at_blue_hour_seen_from_Seongsan_Ilchulbong_volcano_Jeju_Island_South_Korea.jpg",
+    "imageUrl": "./travel-backdrop-04.jpg",
+    "changes": "웹 표시용으로 폭 2400px에 맞춰 축소·JPEG 압축. 색상·풍경 내용은 변경하지 않음. 배경에서는 화면 비율에 맞춰 일부가 잘릴 수 있음.",
+    "verifiedAt": "2026-10-21"
+  },
+  {
+    "title": "경주 동궁과 월지",
+    "description": "잔잔한 연못에 궁궐의 불빛이 비치는 경주의 저녁 풍경.",
+    "imageName": "Anapji Night.jpg",
+    "author": "Ronnie Dayo",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "source": "Wikimedia Commons",
+    "sourceUrl": "https://commons.wikimedia.org/wiki/File:Anapji_Night.jpg",
+    "imageUrl": "./travel-backdrop-05.jpg",
+    "changes": "웹 표시용으로 폭 2400px에 맞춰 축소·JPEG 압축. 색상·풍경 내용은 변경하지 않음. 배경에서는 화면 비율에 맞춰 일부가 잘릴 수 있음.",
+    "verifiedAt": "2026-10-21"
+  },
+  {
+    "title": "강릉 경포해변",
+    "description": "넓은 백사장과 잔잔한 동해가 이어지는 강릉의 해변.",
+    "imageName": "Gyeongpo Beach 20220502 002.jpg",
+    "author": "Mobius6",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "source": "Wikimedia Commons",
+    "sourceUrl": "https://commons.wikimedia.org/wiki/File:Gyeongpo_Beach_20220502_002.jpg",
+    "imageUrl": "./travel-backdrop-06.jpg",
+    "changes": "웹 표시용으로 폭 2400px에 맞춰 축소·JPEG 압축. 색상·풍경 내용은 변경하지 않음. 배경에서는 화면 비율에 맞춰 일부가 잘릴 수 있음.",
+    "verifiedAt": "2026-10-21"
+  },
+  {
+    "title": "순천만",
+    "description": "갈대 사이로 난 산책길을 따라 걷는 순천만의 풍경.",
+    "imageName": "Suncheon Bay Ecological Park.jpg",
+    "author": "Jakob Reichmann",
+    "license": "CC BY-SA 3.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0/",
+    "source": "Wikimedia Commons",
+    "sourceUrl": "https://commons.wikimedia.org/wiki/File:Suncheon_Bay_Ecological_Park.jpg",
+    "imageUrl": "./travel-backdrop-07.jpg",
+    "changes": "웹 표시용으로 폭 2400px에 맞춰 축소·JPEG 압축. 색상·풍경 내용은 변경하지 않음. 배경에서는 화면 비율에 맞춰 일부가 잘릴 수 있음.",
+    "verifiedAt": "2026-10-21"
+  },
+  {
+    "title": "통영 이순신공원",
+    "description": "섬과 해안이 이어지는 남해안 통영의 바다 풍경.",
+    "imageName": "View from the Yi Sun-shin Park.jpg",
+    "author": "VaneTrz20",
+    "license": "CC0 1.0",
+    "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "source": "Wikimedia Commons",
+    "sourceUrl": "https://commons.wikimedia.org/wiki/File:View_from_the_Yi_Sun-shin_Park.jpg",
+    "imageUrl": "./travel-backdrop-08.jpg",
+    "changes": "웹 표시용으로 폭 2400px에 맞춰 축소·JPEG 압축. 색상·풍경 내용은 변경하지 않음. 배경에서는 화면 비율에 맞춰 일부가 잘릴 수 있음.",
+    "verifiedAt": "2026-10-21"
+  }
+].map(Object.freeze));

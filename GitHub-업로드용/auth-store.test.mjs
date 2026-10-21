@@ -127,6 +127,38 @@ test('unknown users perform the same KDF work and a different server pepper cann
   assert.equal((await other.call('/api/auth/login',{method:'POST',body:{username:'owner',password:PASSWORD}})).status,401);
 });
 
+test('a copied single final LF or CRLF keeps existing accounts and newly created passwords on the same server key', async t=>{
+  const original=fixture();t.after(()=>original.db.close());
+  const owner=await original.signup('original_owner');assert.equal(owner.status,201);
+  for(const [index,lineEnding]of ['\n','\r\n'].entries()){
+    const copied=fixture({db:original.db,secret:SECRET+lineEnding});
+    const session=await copied.call('/api/auth/session',{cookie:owner.cookie});
+    assert.deepEqual(session.data,{configured:true,user:owner.data.user});
+    const login=await copied.call('/api/auth/login',{method:'POST',body:{username:'original_owner',password:PASSWORD}});
+    assert.equal(login.status,200);
+    assert.equal((await copied.signup(`copied_owner_${index}`)).status,201);
+    const unchanged=await original.call('/api/auth/login',{method:'POST',body:{username:`copied_owner_${index}`,password:PASSWORD}});
+    assert.equal(unchanged.status,200);
+  }
+});
+
+test('secret normalization rejects extra line content and controls, checks the normalized byte length, and preserves spaces', async t=>{
+  const original=fixture();t.after(()=>original.db.close());await original.signup('owner');
+  for(const secret of [`\n${SECRET}`,`${SECRET.slice(0,8)}\n${SECRET.slice(8)}`,`${SECRET}\n\n`,`${SECRET}\r\n\r\n`,
+    `${SECRET}\r`,`${SECRET}\0`,`${SECRET}\t\n`,'x'.repeat(31)+'\n','x'.repeat(513)+'\r\n']){
+    const invalid=fixture({db:original.db,secret});
+    assert.deepEqual((await invalid.call('/api/auth/session')).data,{configured:false,user:null});
+    assert.equal((await invalid.signup('blocked')).status,503);
+  }
+  for(const length of [32,512]){
+    const boundary=fixture({db:original.db,secret:'x'.repeat(length)+'\r\n'});
+    assert.deepEqual((await boundary.call('/api/auth/session')).data,{configured:true,user:null});
+  }
+  const spaced=fixture({db:original.db,secret:` ${SECRET} `});
+  assert.deepEqual((await spaced.call('/api/auth/session')).data,{configured:true,user:null});
+  assert.equal((await spaced.call('/api/auth/login',{method:'POST',body:{username:'owner',password:PASSWORD}})).status,401);
+});
+
 test('one hundred plans are enforced atomically per account, and another owner has a separate quota', async t=>{
   const f=fixture();t.after(()=>f.db.close());const alice=await f.signup('alice'),bob=await f.signup('bob','192.0.2.2');
   const requests=Array.from({length:101},(_,index)=>f.call('/api/plans',{method:'POST',cookie:alice.cookie,body:{title:`여행 ${index}`,document:doc()}}));

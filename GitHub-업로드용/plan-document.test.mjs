@@ -40,10 +40,18 @@ test('real planner output with hidden recommendations, a whole-catalog tourist a
     const updated=planner.updateEvent({city,itinerary:current,dayIndex:0,eventId,duration:0});
     assert.equal(updated.ok,true,updated.reason);current=updated.itinerary;
   }
+  current=planner.updateEvent({city,itinerary:current,dayIndex:0,eventId:'lunch',title:'점심 식사 · 직접 정한 식당',description:'서울 골목 1\n예약 메모'}).itinerary;
+  const extraMeal=planner.addEvent({city,itinerary:current,dayIndex:0,type:'meal',title:'식사 · 저녁 밥집',description:'주소와 메모',duration:50});
+  assert.equal(extraMeal.ok,true);current=extraMeal.itinerary;
   const saved=normalizePlanDocument({version:8,itinerary:clone(current)});
   for (const eventId of ['transfer-0','transfer-1']) assert.equal(saved.itinerary.eventEdits[0][eventId].duration,0);
   const restored=planner.createItinerary({city,...saved.itinerary});
   assert.equal(restored.ok,true,restored.reason);assert.deepEqual(clone(restored.days),clone(current.days));
+  assert.equal(restored.days[0].events.find(item=>item.id==='lunch').description,'서울 골목 1\n예약 메모');
+  const cleared=planner.updateEvent({city,itinerary:restored,dayIndex:0,eventId:'lunch',resetTitle:true,description:''});
+  assert.equal(cleared.ok,true);
+  const clearSaved=normalizePlanDocument({version:8,itinerary:clone(cleared.itinerary)});
+  assert.equal(planner.createItinerary({city,...clearSaved.itinerary}).days[0].events.find(item=>item.id==='lunch').description,'');
 });
 
 test('unknown top-level and nested API fields are rejected rather than stored', () => {

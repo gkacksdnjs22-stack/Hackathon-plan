@@ -171,5 +171,57 @@
     if (!ready) showMessage('여행 지역을 선택하면 음식점을 찾아드릴게요.');
     return { destroy() { if (destroyed) return; destroyed = true; token++; selectionVersion++; selectionButtons.clear(); pending?.abort(); if (timeout !== null) clearTimeout(timeout); if(progress!==null)clearTimeout(progress); if (details.parentNode === host) host.replaceChildren(); } };
   }
-  window.TravelRestaurants = { mount, districtFromAddress };
+  function mountManual(host, { name = '', description = '', onSave = null, onClear = null } = {}) {
+    const validDescription = value => typeof value === 'string' && value.length <= 500 && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
+    const details = document.createElement('details'); details.className = 'restaurant-lookup restaurant-manual';
+    const summary = document.createElement('summary');
+    const heading = document.createElement('strong'); heading.className = 'restaurant-heading'; heading.textContent = '식당 직접 입력';
+    const preview = document.createElement('span'); preview.className = 'restaurant-preview'; preview.textContent = text(name, 60) ? name : '가고 싶은 식당을 적어 주세요';
+    const action = document.createElement('span'); action.className = 'restaurant-summary-action'; action.textContent = '입력';
+    summary.append(heading, preview, action);
+    const body = document.createElement('div'); body.className = 'restaurant-body restaurant-manual-body';
+    const nameLabel = document.createElement('label'); nameLabel.className = 'restaurant-manual-label'; nameLabel.textContent = '식당 이름 (필수, 최대 60자)';
+    const nameInput = document.createElement('input'); nameInput.type = 'text'; nameInput.className = 'restaurant-manual-name'; nameInput.maxLength = 60; nameInput.required = true; nameInput.autocomplete = 'off'; nameInput.value = typeof name === 'string' ? name : ''; nameLabel.append(nameInput);
+    const memoLabel = document.createElement('label'); memoLabel.className = 'restaurant-manual-label'; memoLabel.textContent = '주소·메모 (선택, 최대 500자)';
+    const memoInput = document.createElement('textarea'); memoInput.rows = 3; memoInput.className = 'restaurant-manual-description'; memoInput.maxLength = 500; memoInput.autocomplete = 'off'; memoInput.value = typeof description === 'string' ? description : ''; memoLabel.append(memoInput);
+    const actions = document.createElement('div'); actions.className = 'restaurant-manual-actions';
+    const save = document.createElement('button'); save.type = 'button'; save.className = 'restaurant-manual-save'; save.textContent = '식사 일정에 저장'; save.disabled = typeof onSave !== 'function';
+    const clear = document.createElement('button'); clear.type = 'button'; clear.className = 'restaurant-manual-clear'; clear.textContent = '식당 정보 지우기'; clear.disabled = typeof onClear !== 'function'; actions.append(save, clear);
+    const message = document.createElement('p'); message.className = 'restaurant-message'; message.setAttribute('role', 'status'); message.setAttribute('aria-live', 'polite');
+    const note = document.createElement('p'); note.className = 'restaurant-note'; note.textContent = '직접 입력한 정보는 따로 조회하지 않아요. 위치·영업시간과 오가는 이동시간을 확인해 주세요.';
+    body.append(nameLabel, memoLabel, actions, message, note); details.append(summary, body); host.replaceChildren(details);
+    let destroyed = false, pending = false, version = 0;
+    const current = () => !destroyed && details.parentNode === host;
+    function show(value, error = false) { message.textContent = value; message.classList.toggle('is-error', error); }
+    function busy(value) {
+      save.disabled = value || typeof onSave !== 'function'; clear.disabled = value || typeof onClear !== 'function';
+      nameInput.disabled = value; memoInput.disabled = value; body.setAttribute('aria-busy', String(value));
+    }
+    async function perform(clearing) {
+      if (!current() || pending || typeof (clearing ? onClear : onSave) !== 'function') return;
+      const rawName = nameInput.value, rawMemo = memoInput.value;
+      const validName = text(rawName, 60), validMemo = validDescription(rawMemo);
+      if (!clearing) {
+        nameInput.setAttribute('aria-invalid', String(!validName)); memoInput.setAttribute('aria-invalid', String(!validMemo));
+        if (!validName || !validMemo) { show(!validName ? '식당 이름을 1~60자로 입력해 주세요. 줄바꿈이나 제어문자는 사용할 수 없어요.' : '주소·메모는 500자 이내로 입력해 주세요. 특수 제어문자는 사용할 수 없어요.', true); return; }
+      }
+      pending = true; const operation = ++version; busy(true); show(clearing ? '입력한 식당을 지우고 있어요.' : '식당을 저장하고 있어요.');
+      try {
+        const value = clearing ? undefined : Object.freeze({ name: rawName.trim(), description: rawMemo.trim() });
+        const outcome = await (clearing ? onClear() : onSave(value));
+        if (!current() || operation !== version) return;
+        if (outcome?.ok === true) {
+          if (clearing) { nameInput.value = ''; memoInput.value = ''; nameInput.setAttribute('aria-invalid', 'false'); memoInput.setAttribute('aria-invalid', 'false'); }
+          preview.textContent = clearing ? '가고 싶은 식당을 적어 주세요' : value.name;
+          show(clearing ? '입력한 식당을 지웠어요.' : '식사 일정에 저장했어요. 식당까지 오가는 이동시간은 직접 확인해 주세요.');
+        } else show(text(outcome?.reason, 500) ? outcome.reason : '변경 내용을 저장하지 못했어요. 다시 시도해 주세요.', true);
+      } catch (_error) {
+        if (current() && operation === version) show('변경 내용을 저장하지 못했어요. 다시 시도해 주세요.', true);
+      } finally { if (current() && operation === version) { pending = false; busy(false); } }
+    }
+    const saveClick = () => perform(false), clearClick = () => perform(true);
+    save.addEventListener('click', saveClick); clear.addEventListener('click', clearClick);
+    return { destroy() { if (destroyed) return; destroyed = true; version++; save.removeEventListener('click', saveClick); clear.removeEventListener('click', clearClick); if (details.parentNode === host) host.replaceChildren(); } };
+  }
+  window.TravelRestaurants = { mount, mountManual, districtFromAddress };
 })();
