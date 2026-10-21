@@ -4,22 +4,50 @@
 
 ## 실행
 
-Node.js 24 이상이 필요합니다. 로컬 DB는 Node 내장 SQLite를 사용합니다.
+Node.js 24 이상과 Git이 필요합니다. 로컬 DB는 Node 내장 SQLite를 사용합니다. 아래 명령은 PowerShell 기준입니다.
+
+### 1. 저장소와 실행 폴더 준비
+
+처음 받는 경우, 저장소를 보관할 폴더에서 실행합니다.
 
 ```powershell
-cd 'C:\Users\User\OneDrive\문서\ChatGPT\해커톤\여행의-결'
-npm start
+git clone https://github.com/gkacksdnjs22-stack/Hackathon-plan.git
+cd Hackathon-plan
+cd 'GitHub-업로드용'
+node --version
 ```
 
-브라우저에서 http://127.0.0.1:3000 을 엽니다. `index.html`을 파일로 직접 열면 API 연동이 동작하지 않습니다.
+이미 저장소를 받은 경우에는 저장소 루트에서 `cd 'GitHub-업로드용'`으로 이동하면 됩니다. `package.json`과 `server.mjs`가 있는 폴더가 실행 폴더입니다. `node --version`이 `v24` 이상인지 확인하세요.
 
-프로젝트의 `.env`에 공공데이터포털 공통 인증키를 설정합니다. 형식은 `.env.example`을 참고합니다.
+### 2. 로컬 API 키 설정
+
+실행 폴더에 `.env` 파일을 만들고, 아래 예시의 값을 본인에게 발급된 공공데이터포털 인증키로 바꿔 저장합니다. 파일 이름이 `.env.txt`가 되지 않도록 확인하세요.
 
 ```dotenv
 DATA_GO_KR_SERVICE_KEY=공공데이터포털_인증키
 ```
 
 `DATA_GO_KR_SERVICE_KEY`는 관광지·음식점 조회와 TAGO 서비스가 공유합니다. 공통 키를 쓰더라도 사용할 API의 활용신청은 각각 승인되어 있어야 합니다. 공공데이터포털의 디코딩 키와 인코딩 키를 모두 지원하며, 이전 `TOURAPI_SERVICE_KEY`·`TAGO_SERVICE_KEY` 설정도 호환합니다. 음식점도 기존 TourAPI로 조회하므로 별도 맛집 키는 필요하지 않습니다. 키를 바꿨으면 서버를 다시 시작합니다.
+
+차량·대중교통 경로 조회도 사용할 경우, 같은 `.env`에 `KAKAO_REST_API_KEY=카카오_REST_API_키`를 추가합니다. 자세한 설정과 제공 범위는 아래 **출발지와 교통편 시간표**를 참고하세요. 이 키가 없으면 해당 경로 조회 기능을 사용할 수 없습니다.
+
+`.env`는 Git 추적에서 제외됩니다. 실제 키를 README나 소스 코드, PR에 적지 마세요. 로컬 계정 DB와 인증용 비밀값은 서버가 처음 실행될 때 자동으로 준비합니다.
+
+### 3. 서버 실행과 접속
+
+```powershell
+npm start
+```
+
+로컬 실행에는 별도의 `npm install`이 필요하지 않습니다. 배포 파일을 빌드할 때는 아래 Cloudflare 안내에 따라 `npm ci`로 개발 도구를 설치합니다.
+
+터미널에 `길: http://127.0.0.1:3000`이 표시되면 브라우저에서 해당 주소를 엽니다. 서버를 사용하는 동안 터미널을 열어 두고, 종료할 때는 `Ctrl+C`를 누릅니다. `index.html`을 파일로 직접 열면 API 연동이 동작하지 않습니다.
+
+- PowerShell에서 `npm.ps1` 실행 정책 오류가 나면 `npm.cmd start`를 사용합니다.
+- `package.json`을 찾지 못하면 현재 위치가 `GitHub-업로드용` 폴더인지 확인합니다.
+- 포트 사용 오류가 나면 기존 서버를 종료하거나 `.env`에 `PORT=3001`을 추가하고 다시 실행한 뒤, 터미널에 표시된 주소로 접속합니다.
+
+앱 사용 중 궁금한 점은 **[이용 안내와 자주 묻는 질문](help.html#faq)**에서 확인할 수 있습니다.
 
 ## 일정 만들기와 편집
 
