@@ -280,3 +280,9 @@ button,input,select{font:inherit}button,select{cursor:pointer}button:disabled{cu
   .day-footnote { padding-left:30px; }
   .footer-links { gap:4px 14px; }
 }
+
+/* Editing history belongs to the current note and stays compact on small screens. */
+.note-history{display:flex;flex-wrap:wrap;gap:6px}
+body[data-screen="note"] .heading-actions .note-history-button{min-height:38px;padding:0 11px;font-size:11px}
+body[data-screen="note"] .note-history-button:disabled{color:#667fa2;border-color:#cddbf0;background:#edf3fc;opacity:.55;cursor:not-allowed}
+@media(max-width:760px){.heading-actions .note-history{flex-basis:100%}}

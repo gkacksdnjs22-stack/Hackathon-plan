@@ -4,6 +4,9 @@
   const $=id=>document.getElementById(id);
   const country=$('country-select'),citySelect=$('city-select'),dateInput=$('start-date'),duration=$('day-count');
   let currentItinerary=null;
+  const EDIT_HISTORY_LIMIT=20;
+  const editHistory={undo:[],redo:[]};
+  const editingKeys=['cityId','startDate','dayCount','dayAreaIds','selections','dayStarts','eventEdits','extraEvents','excludedEvents','eventOrders','departure','dayDepartures','dayArrivals','dayTransports'];
   let account=null;
   let activeAccountUser=null;
   const draftStorageKey=()=>activeAccountUser?`${STORAGE_KEY}:${activeAccountUser.id}`:STORAGE_KEY;
@@ -46,6 +49,7 @@
     $('start-screen').hidden=screen!=='start';
     $('itinerary-section').hidden=screen!=='note';
     $('screen-loading').hidden=screen!=='loading';
+    syncEditHistoryControls();
     $('resume-note').hidden=!currentItinerary;
     $('empty-state').hidden=Boolean(currentItinerary);
     $('resume-summary').textContent=currentItinerary?`${currentItinerary.cityName} · ${currentItinerary.startDate}부터 ${currentItinerary.dayCount}일`:'';
@@ -214,6 +218,7 @@
     destroyDepartureWidgets();
     departureDraftModes={};
     currentItinerary=null;
+    resetEditHistory();
     account?.detach();
     $('itinerary-section').hidden=true;
     $('empty-state').hidden=false;
@@ -252,6 +257,7 @@
     result.dataSource=city.dataSource||'bundled';
     departureDraftModes={};
     currentItinerary=result;
+    resetEditHistory();
     account?.detach();
     renderItinerary();
     const saved=saveItinerary();
@@ -268,6 +274,68 @@
       account?.changed();
       return true;
     }catch(error){return false;}
+  }
+  function editingSnapshot(itinerary=currentItinerary){
+    if(!itinerary)return null;
+    const parameters={};
+    for(const key of editingKeys){
+      if(itinerary[key]!==undefined)parameters[key]=itinerary[key];
+    }
+    return JSON.stringify(parameters);
+  }
+  function syncEditHistoryControls(){
+    for(const action of ['undo','redo']){
+      const button=$(`${action}-button`);
+      if(!button)continue;
+      button.disabled=!currentItinerary||editHistory[action].length===0;
+      button.title=button.disabled?(action==='undo'?'되돌릴 편집이 없어요.':'다시 실행할 편집이 없어요.'):(action==='undo'?'직전 편집 되돌리기':'되돌린 편집 다시 실행');
+    }
+  }
+  function resetEditHistory(){
+    editHistory.undo=[];editHistory.redo=[];
+    syncEditHistoryControls();
+  }
+  function keepHistoryStep(stack,snapshot){
+    stack.push(snapshot);
+    if(stack.length>EDIT_HISTORY_LIMIT)stack.shift();
+  }
+  function saveEditedItinerary(itinerary){
+    // Keep only user editing parameters in this tab; provider results and rendered days stay out of history.
+    let before,after;
+    try{before=editingSnapshot();after=editingSnapshot(itinerary);}catch(error){return false;}
+    if(!saveItinerary(itinerary))return false;
+    if(before!==null&&before!==after){
+      keepHistoryStep(editHistory.undo,before);
+      editHistory.redo=[];
+      syncEditHistoryControls();
+    }
+    return true;
+  }
+  function applyEditHistory(action){
+    const from=editHistory[action];
+    if(!currentItinerary||!from?.length)return;
+    let restored,before;
+    try{
+      const parameters=JSON.parse(from.at(-1));
+      const city=window.TRAVEL_DATA.cities[currentItinerary.cityId];
+      if(!city||parameters.cityId!==currentItinerary.cityId)throw Error('다른 여행 노트의 기록은 적용할 수 없어요.');
+      before=editingSnapshot();
+      restored=window.TravelPlanner.createItinerary({city,...parameters});
+      if(!restored.ok)throw Error(restored.reason||'편집 기록을 복원하지 못했어요.');
+    }catch(error){
+      showMessage(`편집 기록을 적용하지 못했어요. ${error.message||'잠시 후 다시 시도해 주세요.'} 현재 노트는 유지했어요.`,'error');
+      return;
+    }
+    if(!saveItinerary(restored)){
+      showMessage('편집 기록을 저장하지 못했어요. 현재 노트와 되돌리기 기록은 유지했어요. 저장 공간 설정을 확인하고 다시 시도해 주세요.','error');
+      return;
+    }
+    from.pop();
+    keepHistoryStep(editHistory[action==='undo'?'redo':'undo'],before);
+    departureDraftModes={};
+    currentItinerary=restored;
+    renderItinerary();
+    showMessage(action==='undo'?'직전 편집을 되돌리고 일정 시각을 다시 계산했어요.':'되돌린 편집을 다시 실행하고 일정 시각을 다시 계산했어요.','success');
   }
   async function loadItinerary(){
     let raw;
@@ -291,6 +359,7 @@
   async function accountUserChanged(user,{initial=false}={}){
     const previous=activeAccountUser;
     activeAccountUser=user||null;
+    if(previous?.id!==activeAccountUser?.id)resetEditHistory();
     if(user===undefined&&!initial){
       requestVersion++;
       resetDisplayedItinerary();
@@ -312,11 +381,7 @@
   }
   function cloudDocument(){
     if(!currentItinerary)return null;
-    const itinerary={};
-    for(const key of ['cityId','startDate','dayCount','dayAreaIds','selections','dayStarts','eventEdits','extraEvents','excludedEvents','eventOrders','departure','dayDepartures','dayArrivals','dayTransports']){
-      if(currentItinerary[key]!==undefined)itinerary[key]=currentItinerary[key];
-    }
-    return JSON.parse(JSON.stringify({version:8,itinerary}));
+    return {version:8,itinerary:JSON.parse(editingSnapshot())};
   }
   async function restoreDocument(parsed,{remote=false,isCurrent=()=>true}={}){
     const version=++requestVersion;
@@ -377,6 +442,7 @@
     if(version!==requestVersion||!isCurrent())return false;
     departureDraftModes={};
     currentItinerary=restored;
+    resetEditHistory();
     let persistenceWarning='';
     if(remote){
       if(!saveItinerary(restored))persistenceWarning='계정의 계획을 열었지만 이 기기 자동저장에 실패했어요. 새로고침하면 현재 작업이 사라질 수 있으니 수정한 내용은 계정에 저장해 주세요.';
@@ -478,7 +544,7 @@
         onAdd:input=>{
           const result=window.TravelPlanner.addEvent({city,itinerary:currentItinerary,dayIndex:index,...input});
           if(!result.ok)return result;
-          if(!saveItinerary(result.itinerary))return {ok:false,reason:'추가한 일정을 저장하지 못했어요. 기존 노트는 유지했어요.'};
+          if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'추가한 일정을 저장하지 못했어요. 기존 노트는 유지했어요.'};
           currentItinerary=result.itinerary;renderItinerary();
           focusEvent(index,result.eventId);
           showMessage('일정을 추가했어요. 필요한 이동시간과 뒤 일정을 확인해 주세요.','success');
@@ -495,7 +561,7 @@
         restore.addEventListener('click',()=>{
           const result=window.TravelPlanner.restoreEvent({city,itinerary:currentItinerary,dayIndex:index,eventId:event.id});
           if(!result.ok){showMessage(result.reason,'error');return;}
-          if(!saveItinerary(result.itinerary)){showMessage('다시 담은 일정을 저장하지 못했어요. 기존 노트는 유지했어요.','error');return;}
+          if(!saveEditedItinerary(result.itinerary)){showMessage('다시 담은 일정을 저장하지 못했어요. 기존 노트는 유지했어요.','error');return;}
           currentItinerary=result.itinerary;renderItinerary();focusEvent(index,event.id);
           showMessage('뺀 일정을 다시 담았어요. 연결된 이동시간을 확인해 주세요.','success');
         });
@@ -512,7 +578,7 @@
   function applyAreaChange(dayIndex,areaId,city){
     const result=window.TravelPlanner.changeDayArea({city,itinerary:currentItinerary,dayIndex,areaId});
     if(!result.ok){showMessage(result.reason,'error');return;}
-    if(!saveItinerary(result.itinerary)){
+    if(!saveEditedItinerary(result.itinerary)){
       showMessage('권역 변경을 저장하지 못했어요. 기존 일정과 저장본을 그대로 유지했습니다. 저장 공간 설정을 확인해 주세요.','error');
       return;
     }
@@ -568,7 +634,7 @@
       move.addEventListener('click',()=>{
         const result=window.TravelPlanner.moveEvent({city,itinerary:currentItinerary,dayIndex,eventId:event.id,direction});
         if(!result.ok){showMessage(result.reason,'error');return;}
-        if(!saveItinerary(result.itinerary)){showMessage('일정 순서를 저장하지 못했어요. 기존 노트는 유지했어요.','error');return;}
+        if(!saveEditedItinerary(result.itinerary)){showMessage('일정 순서를 저장하지 못했어요. 기존 노트는 유지했어요.','error');return;}
         currentItinerary=result.itinerary;renderItinerary();
         const article=$('day-list').querySelector(`[data-day-index="${dayIndex}"]`);
         const moved=[...(article?.querySelectorAll('.timeline-row')||[])].find(item=>item.dataset.eventId===event.id);
@@ -588,7 +654,7 @@
     const widget=window.TravelDeparture.mount(originHost,{departure:day.departure,mode:departureDraftModes[dayIndex],onChange:(departure,selection={})=>{
       const result=window.TravelPlanner.setDayDeparture({city,itinerary:currentItinerary,dayIndex,departure});
       if(!result.ok){widget.set(currentItinerary.days[dayIndex].departure);showMessage(result.reason,'error');return;}
-      if(!saveItinerary(result.itinerary)){widget.set(currentItinerary.days[dayIndex].departure);showMessage('출발지 변경을 저장하지 못했어요. 기존 일정은 유지했어요.','error');return;}
+      if(!saveEditedItinerary(result.itinerary)){widget.set(currentItinerary.days[dayIndex].departure);showMessage('출발지 변경을 저장하지 못했어요. 기존 일정은 유지했어요.','error');return;}
       departureDraftModes[dayIndex]=selection.mode||departure?.mode||'';
       currentItinerary=result.itinerary;
       renderItinerary();
@@ -604,7 +670,7 @@
       const arrivalWidget=window.TravelDeparture.mount(arrivalHost,{role:'arrival',mode:day.departure.mode,service:day.departure.service,departure:day.arrival,onChange:arrival=>{
         const result=window.TravelPlanner.setDayArrival({city,itinerary:currentItinerary,dayIndex,arrival});
         if(!result.ok){arrivalWidget.set(currentItinerary.days[dayIndex].arrival);showMessage(result.reason,'error');return;}
-        if(!saveItinerary(result.itinerary)){arrivalWidget.set(currentItinerary.days[dayIndex].arrival);showMessage('도착지 변경을 저장하지 못했어요. 기존 일정은 유지했어요.','error');return;}
+        if(!saveEditedItinerary(result.itinerary)){arrivalWidget.set(currentItinerary.days[dayIndex].arrival);showMessage('도착지 변경을 저장하지 못했어요. 기존 일정은 유지했어요.','error');return;}
         currentItinerary=result.itinerary;
         renderItinerary();
         $(`day-arrival-${dayIndex}`).querySelector('summary').focus({preventScroll:true});
@@ -631,7 +697,7 @@
     input.addEventListener('change',()=>{
       const result=window.TravelPlanner.setDayStart({city,itinerary:currentItinerary,dayIndex,startTime:input.value});
       if(!result.ok){note.textContent=result.reason;note.hidden=false;return;}
-      if(!saveItinerary(result.itinerary)){note.textContent='시간을 저장하지 못했어요. 다시 시도해 주세요.';note.hidden=false;return;}
+      if(!saveEditedItinerary(result.itinerary)){note.textContent='시간을 저장하지 못했어요. 다시 시도해 주세요.';note.hidden=false;return;}
       currentItinerary=result.itinerary;
       renderItinerary();
       if(window.TravelTimePicker)window.TravelTimePicker.focus(`day-start-${dayIndex}`);
@@ -647,7 +713,7 @@
       const commitTransport=transport=>{
         const result=window.TravelPlanner.setDayTransport({city,itinerary:currentItinerary,dayIndex,transport});
         if(!result.ok)return result;
-        if(!saveItinerary(result.itinerary))return {ok:false,reason:'교통편 변경을 저장하지 못했어요. 기존 일정은 유지했어요.'};
+        if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'교통편 변경을 저장하지 못했어요. 기존 일정은 유지했어요.'};
         currentItinerary=result.itinerary;renderItinerary();
         $(`day-transport-${dayIndex}`)?.querySelector('summary')?.focus({preventScroll:true});
         showMessage(transport?'교통편 시간표로 출발·도착 시각과 뒤 일정을 조정하고 저장했어요.':'교통편 선택을 해제했어요. 현재 시간은 직접 수정할 수 있어요.','success');
@@ -660,7 +726,7 @@
         departureWidgets.push(window.TravelConnections.mount(connectionHost,{date:travelDate.toISOString().slice(0,10),departure:day.departure,arrival:day.arrival,transport:day.transport,onApply:connection=>{
           const result=window.TravelPlanner.setDayConnection({city,itinerary:currentItinerary,dayIndex,...connection});
           if(!result.ok)return result;
-          if(!saveItinerary(result.itinerary))return {ok:false,reason:'환승 여정을 저장하지 못했어요. 기존 일정은 유지했어요.'};
+          if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'환승 여정을 저장하지 못했어요. 기존 일정은 유지했어요.'};
           currentItinerary=result.itinerary;renderItinerary();
           $(`day-connection-${dayIndex}`)?.querySelector('summary')?.focus({preventScroll:true});
           showMessage('구간별 시간표와 환승 대기시간을 반영해 뒤 일정을 조정하고 저장했어요.','success');
@@ -690,7 +756,7 @@
   function applyCarRoute(route,dayIndex,eventId,city){
       const result=window.TravelPlanner.updateEvent({city,itinerary:currentItinerary,dayIndex,eventId,duration:route.durationMinutes});
       if(!result.ok)return result;
-      if(!saveItinerary(result.itinerary))return {ok:false,reason:'이동시간을 저장하지 못했어요. 기존 일정은 유지했어요.'};
+      if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'이동시간을 저장하지 못했어요. 기존 일정은 유지했어요.'};
       currentItinerary=result.itinerary;
       renderItinerary();
       focusEvent(dayIndex,eventId);
@@ -833,7 +899,7 @@
       remove.addEventListener('click',()=>{
         const result=window.TravelPlanner.removeEvent({city,itinerary:currentItinerary,dayIndex,eventId:event.id});
         if(!result.ok){showMessage(result.reason,'error');return;}
-        if(!saveItinerary(result.itinerary)){showMessage('삭제 내용을 저장하지 못했어요. 기존 노트는 유지했어요.','error');return;}
+        if(!saveEditedItinerary(result.itinerary)){showMessage('삭제 내용을 저장하지 못했어요. 기존 노트는 유지했어요.','error');return;}
         currentItinerary=result.itinerary;renderItinerary();
         $('day-list').querySelector(`[data-day-index="${dayIndex}"] .schedule-add-container summary`)?.focus({preventScroll:true});
         showMessage(extra?'추가한 일정을 지우고 뒤 시각을 다시 계산했어요.':'일정에서 뺐어요. 아래의 뺀 일정 다시 담기로 복구할 수 있어요.','success');
@@ -853,7 +919,7 @@
           onModeChange:mode=>{
             const result=window.TravelPlanner.setTransferMode({city,itinerary:currentItinerary,dayIndex,eventId:event.id,mode});
             if(!result.ok)return result;
-            if(!saveItinerary(result.itinerary))return {ok:false,reason:'이동수단을 저장하지 못했어요. 기존 일정은 유지했어요.'};
+            if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'이동수단을 저장하지 못했어요. 기존 일정은 유지했어요.'};
             currentItinerary=result.itinerary;renderItinerary();focusEvent(dayIndex,event.id);
             showMessage('이 구간의 이동수단을 저장했어요. 예상 이동시간을 확인해 주세요.','success');
             return {ok:true};
@@ -883,7 +949,7 @@
         if(!clear&&(!name||name.length>60||/[\u0000-\u001f\u007f]/.test(name)||description.length>500||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(description)))return {ok:false,reason:'식당 이름은 1~60자, 주소·메모는 500자 이내로 입력해 주세요.'};
         const result=window.TravelPlanner.updateEvent({city,itinerary:currentItinerary,dayIndex,eventId:event.id,title:clear?(extra?'식사':undefined):`${selected.meal||'식사'} · ${name}`,resetTitle:clear&&!extra,description:clear?'':description});
         if(!result.ok)return result;
-        if(!saveItinerary(result.itinerary))return {ok:false,reason:'식당 정보를 저장하지 못했어요. 기존 노트는 유지했어요.'};
+        if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'식당 정보를 저장하지 못했어요. 기존 노트는 유지했어요.'};
         currentItinerary=result.itinerary;renderItinerary();focusEvent(dayIndex,event.id);
         showMessage(clear?'식당 정보를 지웠어요. 식사 시간은 그대로 유지했어요.':'입력한 식당을 저장했어요. 필요한 이동시간은 직접 추가해 주세요.','success');
         return {ok:true};
@@ -902,7 +968,7 @@
           if(description.length>500)return {ok:false,reason:'식당 주소와 메모를 함께 담으려면 기존 식사 메모를 조금 줄여 주세요.'};
           const result=window.TravelPlanner.updateEvent({city,itinerary:currentItinerary,dayIndex,eventId:event.id,title:`${selected.meal||'식사'} · ${item.name}`.slice(0,80),description});
           if(!result.ok)return result;
-          if(!saveItinerary(result.itinerary))return {ok:false,reason:'선택한 식당을 저장하지 못했어요. 기존 노트는 유지했어요.'};
+          if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'선택한 식당을 저장하지 못했어요. 기존 노트는 유지했어요.'};
           currentItinerary=result.itinerary;renderItinerary();focusEvent(dayIndex,event.id);
           showMessage('식당을 담았어요. 식당까지 오가는 이동시간은 포함되지 않아요. 필요한 이동 일정을 직접 추가해 주세요.','success');
           return {ok:true};
@@ -975,7 +1041,7 @@
       }
       const result=window.TravelPlanner.updateEvent({city,itinerary:currentItinerary,dayIndex,eventId:event.id,title:title.readOnly?undefined:title.value,description:description.value,duration:editedDuration});
       if(!result.ok){error.textContent=result.reason;error.hidden=false;return;}
-      if(!saveItinerary(result.itinerary)){error.textContent='수정 내용을 저장하지 못했어요. 다시 시도해 주세요.';error.hidden=false;return;}
+      if(!saveEditedItinerary(result.itinerary)){error.textContent='수정 내용을 저장하지 못했어요. 다시 시도해 주세요.';error.hidden=false;return;}
       currentItinerary=result.itinerary;
       renderItinerary();
       focusEvent(dayIndex,event.id);
@@ -1012,7 +1078,7 @@
     apply.addEventListener('click',()=>{
       const result=window.TravelPlanner.replaceTouristEvent({city,itinerary:currentItinerary,dayIndex,eventId:selectedEvent.id,replacementId:select.value});
       if(!result.ok){showMessage(result.reason,'error');return;}
-      if(!saveItinerary(result.itinerary)){
+      if(!saveEditedItinerary(result.itinerary)){
         showMessage('장소 교체를 저장하지 못했어요. 기존 일정과 저장본을 그대로 유지했습니다.','error');
         return;
       }
@@ -1032,6 +1098,8 @@
   dateInput.addEventListener('change',discardItineraryForChangedConditions);
   duration.addEventListener('change',discardItineraryForChangedConditions);
   $('destinations-retry').addEventListener('click',()=>initializeDestinations(!currentItinerary));
+  $('undo-button')?.addEventListener('click',()=>applyEditHistory('undo'));
+  $('redo-button')?.addEventListener('click',()=>applyEditHistory('redo'));
   $('print-button').addEventListener('click',()=>window.print());
   $('clear-button').addEventListener('click',()=>{
     if(!window.confirm('이 브라우저의 여행 노트와 자동저장본을 지울까요? 계정에 따로 저장하지 않은 내용은 되돌릴 수 없어요. 계정에 저장한 계획은 지워지지 않아요.'))return;
@@ -1052,8 +1120,12 @@
   document.addEventListener('change',dismissMessageForInput);
   document.addEventListener('pointerdown',event=>{
     if(activeReorder&&!activeReorder.host.contains(event.target))closeReorderControls();
-    if(messageKind!=='error'&&messageKind!=='loading'&&event.target.closest?.('input,select,textarea,button,a,[role="option"]'))hideMessage();
   });
+  // Wait until the click target is fixed so removing a notice cannot move a pressed button.
+  // Capture clears the previous notice before the target handler can show its new result.
+  document.addEventListener('click',event=>{
+    if(messageKind!=='error'&&messageKind!=='loading'&&event.target.closest?.('input,select,textarea,button,a,[role="option"]'))hideMessage();
+  },true);
   document.addEventListener('keydown',event=>{
     if(event.key==='Escape'&&activeReorder){event.preventDefault();closeReorderControls(true);}
   });

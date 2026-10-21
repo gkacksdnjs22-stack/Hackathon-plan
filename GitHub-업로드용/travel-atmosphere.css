@@ -469,6 +469,18 @@
   body[data-screen="note"] .editor-field input:focus,
   body[data-screen="note"] .editor-field textarea:focus,
   body[data-screen="note"] .account-dialog-field input:focus { border-color:#8dabda; }
+  /* Keep account forms in the same blue palette on both screens. */
+  .account-dialog-backdrop { background:rgba(12,27,60,.42); }
+  .account-dialog { color:#203758; border-color:#cbdaf2; background:rgba(255,255,255,.98); box-shadow:0 18px 70px rgba(17,43,85,.24); }
+  .account-dialog-title { color:#294f8f; }
+  .account-dialog-copy, .account-dialog-field, .account-dialog-message, .account-dialog-close { color:#546c8a; }
+  .account-dialog-field input { color:#203758; border-color:#cbdaf2; background:#fff; }
+  .account-dialog-field input:focus { border-color:#8dabda; }
+  .account-dialog-close:hover { background:#eaf2ff; }
+  .account-dialog .account-button:not(.is-primary):not(.is-danger) { color:#365e9f; border-color:#d2dff2; background:#f6f9ff; }
+  .account-dialog .account-dialog-tabs .account-button[aria-pressed="true"],
+  .account-dialog .account-dialog-tabs .account-button[aria-pressed="true"]:hover { color:#294f8f; border-color:#a8c1e9; background:#e7efff; }
+  .account-dialog :focus-visible { outline-color:#7296cf; }
   @media (max-width: 600px) {
     .site-header { gap:10px; min-height:80px; padding:12px; }
     .site-header .wordmark { gap:8px; }

@@ -172,6 +172,77 @@ test('API catalog supports one to three days with unique places and consecutive 
   }
 });
 
+test('new recommendations choose the next nearest visit within the same area instead of crossing back past the first visit', async () => {
+  const points = [37.5, 37.505, 37.494, 37.507];
+  const items = points.map((latitude, index) => ({
+    contentId: String(7000 + index), title: `근접 관광지 ${index}`, contentTypeId: '12', areaCode: '1',
+    latitude, longitude: 127, address: `서울 관광로 ${index}`
+  }));
+  const app = runtime(async () => response(items)), city = await app.TourData.ensureCity('seoul');
+  const before = plain(city), [first, second, across, onward] = city.areas[0].places;
+  assert.deepEqual([first.id, second.id, across.id, onward.id], items.map(item => `tourapi-${item.contentId}`));
+  const itinerary = app.TravelPlanner.createItinerary({ city, startDate: '2026-10-20', dayCount: 1 });
+  assert.equal(itinerary.ok, true, itinerary.reason);
+  assert.deepEqual(visitIds(itinerary), [[first.id, second.id, onward.id]]);
+  const oldLegs = Math.abs(first.latitude - second.latitude) + Math.abs(second.latitude - across.latitude);
+  const newLegs = Math.abs(first.latitude - second.latitude) + Math.abs(second.latitude - onward.latitude);
+  assert.ok(newLegs < oldLegs / 2, 'a nearby continuation avoids a needless return across the anchor');
+  assert.deepEqual(plain(city), before, 'recommendations never reorder or mutate the shared catalog');
+  assert.ok(itinerary.days[0].events.filter(event => event.type === 'transfer').every(event => event.duration === 0),
+    'straight-line selection does not invent a travel duration');
+
+  const withExtra = app.TravelPlanner.createItinerary({ city, startDate: '2026-10-20', dayCount: 1,
+    extraEvents: { 0: [{ id: 'extra-1', beforeId: 'finish', type: 'place', placeId: first.id, duration: 60 }] } });
+  assert.equal(withExtra.ok, true, withExtra.reason);
+  assert.equal(new Set(visitIds(withExtra).flat()).size, 4, 'a directly added visit stays excluded from new recommendations');
+  assert.deepEqual(plain(withExtra.selections[0]), [second.id, onward.id, across.id]);
+});
+
+test('new proximity recommendations preserve legacy order for invalid coordinates and distance ties', () => {
+  const make = points => {
+    const app = runtime(), city = app.TRAVEL_DATA.cities.seoul;
+    const area = { id: 'legacy-area', name: '기존 권역', places: [] };
+    area.places = points.map((point, index) => ({ id: `legacy-${index}`, name: `기존 장소 ${index}`,
+      areaId: area.id, areaName: area.name, area: area.name, stayMinutes: 60, ...point }));
+    city.areas = [area]; city.supportedDays = 1;
+    return app.TravelPlanner.createItinerary({ city, startDate: '2026-10-20', dayCount: 1 });
+  };
+  const valid = { latitude: 37.5, longitude: 127 };
+  for (const invalid of [{}, { latitude: null, longitude: 127 }, { latitude: '37.5', longitude: 127 },
+    { latitude: NaN, longitude: 127 }, { latitude: 37.5, longitude: Infinity }, { latitude: 0, longitude: 127 },
+    { latitude: 37.5, longitude: 133 }]) {
+    const itinerary = make([valid, { latitude: 37.51, longitude: 127 }, { latitude: 37.5001, longitude: 127 }, invalid]);
+    assert.equal(itinerary.ok, true, itinerary.reason);
+    assert.deepEqual(visitIds(itinerary), [['legacy-0', 'legacy-1', 'legacy-2']]);
+  }
+  const tied = make([valid, { latitude: 37.501, longitude: 127 }, { latitude: 37.499, longitude: 127 }, valid]);
+  assert.equal(tied.ok, true, tied.reason);
+  assert.deepEqual(visitIds(tied), [['legacy-0', 'legacy-3', 'legacy-1']], 'equal-distance candidates keep their catalog order');
+});
+
+test('explicit saved selections and manual row placement bypass new proximity recommendations', async () => {
+  const items = [37.5, 37.505, 37.494, 37.507].map((latitude, index) => ({
+    contentId: String(7100 + index), title: `저장 관광지 ${index}`, contentTypeId: '12', areaCode: '1',
+    latitude, longitude: 127, address: `서울 저장로 ${index}`
+  }));
+  const app = runtime(async () => response(items)), city = await app.TourData.ensureCity('seoul');
+  const selections = { 0: ['tourapi-7102', 'tourapi-7100', 'tourapi-7101'] };
+  const itinerary = app.TravelPlanner.createItinerary({ city, startDate: '2026-10-20', dayCount: 1,
+    selections, eventOrders: { 0: ['place-2', 'place-1', 'place-0'] }, eventEdits: { 0: { lunch: { description: '예약한 식당' } } } });
+  assert.equal(itinerary.ok, true, itinerary.reason);
+  assert.deepEqual(plain(itinerary.selections), selections);
+  assert.deepEqual(visitIds(itinerary), [['tourapi-7101', 'tourapi-7100', 'tourapi-7102']]);
+  const saved = plain(itinerary);
+  const restored = app.TravelPlanner.createItinerary({ city, startDate: saved.startDate, dayCount: saved.dayCount,
+    dayAreaIds: saved.dayAreaIds, selections: saved.selections, eventOrders: saved.eventOrders, eventEdits: saved.eventEdits });
+  assert.equal(restored.ok, true, restored.reason);
+  assert.deepEqual(plain(restored.days), saved.days);
+  const edited = app.TravelPlanner.updateEvent({ city, itinerary: restored, dayIndex: 0, eventId: 'lunch', description: '예약 시간 변경' });
+  assert.equal(edited.ok, true, edited.reason);
+  assert.deepEqual(visitIds(edited.itinerary), visitIds(saved));
+  assert.deepEqual(plain(edited.itinerary.selections), selections);
+});
+
 test('Seoul includes Gangseo, Gangnam and Nowon beyond the previous fixed areas and supports three to seven days', async () => {
   const app = runtime();
   const city = await app.TourData.ensureCity('seoul');

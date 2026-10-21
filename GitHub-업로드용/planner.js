@@ -417,6 +417,30 @@
   }
   function defaultSelection(area,excluded=new Set()){
     const candidates=area.places.filter(place=>!excluded.has(place.id));
+    if(candidates.length<3)return null;
+    const validPoint=place=>Number.isFinite(place.latitude)&&Number.isFinite(place.longitude)
+      &&place.latitude>=33&&place.latitude<=39.5&&place.longitude>=124&&place.longitude<=132;
+    // Only new recommendations use straight-line proximity. Saved selections
+    // and manual visit orders take separate paths and keep their exact order.
+    if(candidates.every(validPoint)){
+      const remaining=candidates.slice(1);
+      const places=[candidates[0]];
+      const radians=value=>value*Math.PI/180;
+      const meters=(from,to)=>{
+        const lat=radians(to.latitude-from.latitude),lon=radians(to.longitude-from.longitude);
+        const h=Math.sin(lat/2)**2+Math.cos(radians(from.latitude))*Math.cos(radians(to.latitude))*Math.sin(lon/2)**2;
+        return 6371000*2*Math.asin(Math.min(1,Math.sqrt(h)));
+      };
+      while(places.length<3){
+        let closest=0,distance=meters(places.at(-1),remaining[0]);
+        for(let index=1;index<remaining.length;index++){
+          const candidateDistance=meters(places.at(-1),remaining[index]);
+          if(candidateDistance<distance-0.000001){closest=index;distance=candidateDistance;}
+        }
+        places.push(remaining.splice(closest,1)[0]);
+      }
+      if(scheduleDay(area,places).ok)return places.map(place=>place.id);
+    }
     for(let first=0;first<candidates.length-2;first++){
       for(let second=first+1;second<candidates.length-1;second++){
         for(let third=second+1;third<candidates.length;third++){

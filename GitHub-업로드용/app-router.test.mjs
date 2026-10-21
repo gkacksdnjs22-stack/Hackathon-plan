@@ -77,9 +77,10 @@ class Element {
   dispatch(type, extra = {}) {
     const event = { type, target: this, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
     const bubbles = !['pointerenter', 'pointerleave', 'mouseenter', 'mouseleave', 'focus', 'blur'].includes(type);
+    if (bubbles) this.document.dispatch(type, this, event, 'capture');
     for (let node = this; node; node = bubbles ? node.parentNode : null)
       for (const listener of node.listeners.get(type) || []) listener(event);
-    if (bubbles) this.document.dispatch(type, this, event);
+    if (bubbles) this.document.dispatch(type, this, event, 'bubble');
   }
   click() { if (!this.disabled) this.dispatch('click'); }
   focus() {
@@ -168,37 +169,42 @@ function timedNoteFixture(dayCount = 1) {
 }
 
 function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadError, storageError, cityData = null, planner = null, withAccount = false, accountUser = null, accountReady, currentDateTime='2026-10-20T12:00:00' } = {}) {
-  const elements = new Map(), documentListeners = new Map();
+  const elements = new Map(), documentListeners = new Map(), documentCaptureListeners = new Map();
   const document = {
     title: '', activeElement: null,
     createElement: tag => new Element(tag, document),
     getElementById: id => elements.get(id) || document.body.querySelector(`#${id}`),
     querySelector: selector => document.body.querySelector(selector),
     querySelectorAll: selector => document.body.querySelectorAll(selector),
-    addEventListener(type, listener) {
-      if (!documentListeners.has(type)) documentListeners.set(type, new Set());
-      documentListeners.get(type).add(listener);
+    addEventListener(type, listener, options = false) {
+      const listeners = (typeof options === 'boolean' ? options : options.capture) ? documentCaptureListeners : documentListeners;
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(listener);
     },
-    removeEventListener(type, listener) { documentListeners.get(type)?.delete(listener); },
-    dispatch(type, target, extra = {}) {
+    removeEventListener(type, listener, options = false) {
+      const listeners = (typeof options === 'boolean' ? options : options.capture) ? documentCaptureListeners : documentListeners;
+      listeners.get(type)?.delete(listener);
+    },
+    dispatch(type, target, extra = {}, phase = 'all') {
       const event = { type, target, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
-      for (const listener of documentListeners.get(type) || []) listener(event);
+      if (phase !== 'bubble') for (const listener of documentCaptureListeners.get(type) || []) listener(event);
+      if (phase !== 'capture') for (const listener of documentListeners.get(type) || []) listener(event);
     }
   };
   document.body = document.createElement('body');
   const ids = ['country-select', 'city-select', 'start-date', 'day-count', 'trip-form', 'destinations-retry',
     'city-note', 'duration-note', 'data-status', 'app-message', 'date-trigger', 'itinerary-section',
-    'empty-state', 'day-list', 'trip-summary', 'note-timing-notice', 'capacity-message', 'print-button', 'clear-button',
+    'empty-state', 'day-list', 'trip-summary', 'note-timing-notice', 'capacity-message', 'print-button', 'clear-button', 'undo-button', 'redo-button',
     'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'saved-plans', 'account-save'];
   for (const id of ids) {
-    const tag = ['city-select', 'day-count'].includes(id) ? 'select' : id === 'trip-form' ? 'form' : 'div';
+    const tag = ['city-select', 'day-count'].includes(id) ? 'select' : id === 'trip-form' ? 'form' : ['print-button','clear-button','undo-button','redo-button'].includes(id) ? 'button' : 'div';
     const element = document.createElement(tag); element.id = id; elements.set(id, element);
   }
   const $ = id => elements.get(id);
   $('country-select').value = 'KR'; $('app-message').hidden = true; $('note-timing-notice').hidden = true;
   $('start-screen').append($('title'), $('trip-form'), $('resume-note'), $('empty-state'));
   $('resume-note').append($('resume-summary'));
-  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('note-timing-notice'), $('day-list'));
+  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('undo-button'), $('redo-button'), $('note-timing-notice'), $('day-list'));
   $('screen-loading').append($('loading-title'));
   document.body.append($('app-message'), $('screen-loading'), $('start-screen'), $('itinerary-section'));
   const submit = document.createElement('button'); submit.type = 'submit'; submit.append(document.createElement('span'));
@@ -773,7 +779,7 @@ test('info and success notices expire after five seconds, and a superseded timer
   emptyNote.clock.advance(5000); assert.equal(emptyNote.$('app-message').hidden, true);
 });
 
-test('typing or changing input dismisses notices immediately, and interactive pointer targets dismiss transient notices', async () => {
+test('typing or changing input dismisses notices immediately, while pointerdown retains notices until an interactive click', async () => {
   const app = runtime(); await settle();
   for (const type of ['input', 'change']) {
     await app.create(); assert.equal(app.$('app-message').hidden, false);
@@ -786,6 +792,8 @@ test('typing or changing input dismisses notices immediately, and interactive po
   assert.equal(app.$('app-message').hidden, false);
   const buttonLabel = app.$('trip-form').querySelector('button[type="submit"]').querySelector('span');
   app.document.dispatch('pointerdown', buttonLabel);
+  assert.equal(app.$('app-message').hidden, false, 'pressing must not collapse a banner and move the click target');
+  app.document.dispatch('click', buttonLabel);
   assert.equal(app.$('app-message').hidden, true);
   assert.equal(app.clock.pending.size, 0);
 });
@@ -796,7 +804,7 @@ test('loading remains visible until completion, while errors persist until the n
   assert.match(app.$('app-message').textContent, /관광정보를 불러오고/);
   assert.equal(app.clock.pending.size, 0);
   app.clock.advance(20000);
-  for (const type of ['input', 'change', 'pointerdown']) app.document.dispatch(type, app.$('trip-form').querySelector('button[type="submit"]'));
+  for (const type of ['input', 'change', 'pointerdown', 'click']) app.document.dispatch(type, app.$('trip-form').querySelector('button[type="submit"]'));
   assert.equal(app.$('app-message').hidden, false);
   restore.resolve(); await settle(); screen(app, 'note');
   assert.match(app.$('app-message').textContent, /불러왔어요/);
@@ -969,4 +977,188 @@ test('manual restaurant input validates and supports added meal cards', async ()
   saved=JSON.parse(app.stored.get(storageKey)).itinerary;
   assert.equal(saved.extraEvents[0][0].duration,45);
   assert.equal(saved.extraEvents[0][0].description,'');
+});
+
+
+function noteParameters(app){return JSON.parse(JSON.stringify(app.account.options.getDocument().itinerary));}
+function currentSchedule(app){return app.mounts.findLast(record=>record.kind==='schedule'&&!record.destroyed);}
+function manualMeal(app,eventId='lunch'){
+  return app.mounts.findLast(record=>record.kind==='manual-restaurant'&&!record.destroyed&&record.host.closest('.timeline-row').dataset.eventId===eventId);
+}
+function editEntry(app,eventId,{title,description,duration}={}){
+  const row=app.$('day-list').querySelector(`[data-event-id="${eventId}"]`);
+  row.querySelector('.event-edit-button').click();
+  const editor=row.querySelector('.event-editor'),inputs=editor.querySelectorAll('input');
+  if(title!==undefined)inputs.find(input=>input.type==='text').value=title;
+  if(description!==undefined)editor.querySelector('textarea').value=description;
+  if(duration!==undefined){
+    const hours=inputs.find(input=>/시간$/.test(input.getAttribute('aria-label')||''));
+    if(hours){hours.value=String(Math.floor(duration/60));inputs.find(input=>/분$/.test(input.getAttribute('aria-label')||'')).value=String(duration%60);}
+    else inputs.find(input=>input.type==='number').value=String(duration);
+  }
+  editor.dispatch('submit');
+  return editor;
+}
+
+test('editing history undoes and redoes title, memo, overnight times, ordering and removal as separate saved operations',async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  assert.equal(app.$('undo-button').disabled,true);assert.equal(app.$('redo-button').disabled,true);
+  const states=[noteParameters(app)];
+  assert.equal(currentSchedule(app).options.onAdd({type:'free',title:'밤 산책',description:'입구에서 만나기',duration:30}).ok,true);
+  states.push(noteParameters(app));
+  editEntry(app,'extra-1',{title:'내가 고른 산책',description:'야간 개장 확인',duration:55});
+  states.push(noteParameters(app));
+  const start=app.document.getElementById('day-start-0');start.value='23:30';start.dispatch('change');
+  states.push(noteParameters(app));
+  const before=JSON.parse(app.stored.get(storageKey)).itinerary;
+  assert.ok(before.days[0].end>1440,'the edited schedule crosses midnight');
+  app.$('day-list').querySelector('[data-event-id="extra-1"]').querySelector('.event-move-button').click();
+  states.push(noteParameters(app));
+  app.$('day-list').querySelector('[data-event-id="place-1"]').querySelector('.event-remove-button').click();
+  states.push(noteParameters(app));
+  const edits=states.length-1,changes=app.account.changes;
+  for(let index=states.length-2;index>=0;index--){
+    app.$('undo-button').click();
+    assert.deepEqual(noteParameters(app),states[index]);
+    assert.equal(app.$('redo-button').disabled,false);
+  }
+  assert.equal(app.$('undo-button').disabled,true);
+  for(let index=1;index<states.length;index++){
+    app.$('redo-button').click();assert.deepEqual(noteParameters(app),states[index]);
+  }
+  assert.equal(app.$('redo-button').disabled,true);
+  assert.equal(app.account.changes,changes+edits*2,'undo and redo each mark the account document changed');
+  for(const replay of app.creations.slice(1)){
+    assert.equal(replay.days,undefined);assert.equal(replay.routes,undefined);assert.equal(replay.restaurants,undefined);
+    assert.equal(replay.cityName,undefined,'history restores parameters through the planner, without display snapshots');
+  }
+  assert.deepEqual(JSON.parse(app.stored.get(storageKey)).itinerary.eventOrders,states.at(-1).eventOrders);
+});
+
+test('tourist replacement and day area exchange remain reversible alongside manual restaurant choices',async()=>{
+  const fixture=timedNoteFixture(2),app=runtime({...fixture,withAccount:true});await settle();
+  app.$('day-count').value='2';await app.create();
+  const original=noteParameters(app);
+  const row=app.$('day-list').querySelector('[data-event-id="place-0"]');row.querySelector('.swap-button').click();
+  const swap=row.querySelector('.swap-picker');swap.querySelector('select').value='d';swap.querySelector('button').click();
+  const replaced=noteParameters(app);assert.notDeepEqual(replaced.selections,original.selections);
+  const day=app.$('day-list').children[0];day.querySelector('.day-area-select').value='area-1';day.querySelector('.area-apply-button').click();
+  const exchanged=noteParameters(app);assert.deepEqual(exchanged.dayAreaIds,['area-1','area-a']);
+  assert.equal(manualMeal(app).options.onSave({name:'직접 고른 식당',description:'예약 확인'}).ok,true);
+  const restaurant=noteParameters(app);
+  for(const expected of [exchanged,replaced,original]){app.$('undo-button').click();assert.deepEqual(noteParameters(app),expected);}
+  for(const expected of [replaced,exchanged,restaurant]){app.$('redo-button').click();assert.deepEqual(noteParameters(app),expected);}
+});
+
+test('failed edits and failed undo or redo preserve both the current note and usable history',async()=>{
+  const faults={set:false},app=runtime({...actualPlannerFixture(),withAccount:true,storageError:faults});await settle();await app.create();
+  const original=noteParameters(app);
+  assert.equal(manualMeal(app).options.onSave({name:'유효한 식당',description:'원래 메모'}).ok,true);
+  const edited=noteParameters(app),saved=app.stored.get(storageKey),changes=app.account.changes;
+  assert.equal(manualMeal(app).options.onSave({name:'',description:''}).ok,false);
+  faults.set=true;
+  assert.equal(manualMeal(app).options.onSave({name:'저장 실패',description:''}).ok,false);
+  app.$('undo-button').click();
+  assert.deepEqual(noteParameters(app),edited);assert.equal(app.stored.get(storageKey),saved);
+  assert.equal(app.$('undo-button').disabled,false);assert.equal(app.$('redo-button').disabled,true);
+  assert.equal(app.account.changes,changes);
+  assert.match(app.$('app-message').textContent,/현재 노트와 되돌리기 기록은 유지/);
+  faults.set=false;app.behavior.createError='관광정보가 바뀌어 복원할 수 없어요.';
+  app.$('undo-button').click();assert.deepEqual(noteParameters(app),edited);assert.equal(app.account.changes,changes);
+  app.behavior.createError=null;app.$('undo-button').click();assert.deepEqual(noteParameters(app),original);
+  assert.equal(app.$('undo-button').disabled,true,'neither failed edit created an extra step');
+  faults.set=true;app.$('redo-button').click();assert.deepEqual(noteParameters(app),original);
+  assert.equal(app.$('redo-button').disabled,false);
+  faults.set=false;app.$('redo-button').click();assert.deepEqual(noteParameters(app),edited);
+});
+
+test('new successful edits clear redo while an unchanged save or a failed edit retains redo',async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  assert.equal(manualMeal(app).options.onSave({name:'첫 식당',description:'메모'}).ok,true);
+  const first=noteParameters(app);
+  assert.equal(manualMeal(app).options.onSave({name:'두 번째 식당',description:'메모'}).ok,true);
+  app.$('undo-button').click();assert.deepEqual(noteParameters(app),first);
+  assert.equal(manualMeal(app).options.onSave({name:'첫 식당',description:'메모'}).ok,true);
+  assert.equal(app.$('redo-button').disabled,false,'saving identical parameters does not create a new edit');
+  assert.equal(manualMeal(app).options.onSave({name:'',description:''}).ok,false);
+  assert.equal(app.$('redo-button').disabled,false);
+  assert.equal(manualMeal(app).options.onSave({name:'다른 식당',description:'새 메모'}).ok,true);
+  assert.equal(app.$('redo-button').disabled,true);app.$('undo-button').click();
+  assert.deepEqual(noteParameters(app),first);
+});
+
+test('history keeps the latest twenty edits only and is not restored or added to browser documents',async()=>{
+  const fixture=actualPlannerFixture(),app=runtime({...fixture,withAccount:true});await settle();await app.create();
+  for(let index=1;index<=22;index++)assert.equal(manualMeal(app).options.onSave({name:`식당 ${index}`,description:''}).ok,true);
+  const last=app.stored.get(storageKey);
+  assert.equal(JSON.parse(last).history,undefined);assert.equal(JSON.parse(last).itinerary.editHistory,undefined);
+  const reloaded=runtime({...fixture,raw:last,hash:'#/note'});await settle();
+  assert.equal(reloaded.$('undo-button').disabled,true);assert.equal(reloaded.$('redo-button').disabled,true);
+  for(let index=0;index<20;index++)app.$('undo-button').click();
+  assert.equal(manualMeal(app).options.name,'식당 2');assert.equal(app.$('undo-button').disabled,true);
+  const oldest=app.stored.get(storageKey);app.$('undo-button').click();assert.equal(app.stored.get(storageKey),oldest);
+  for(let index=0;index<20;index++)app.$('redo-button').click();
+  assert.equal(manualMeal(app).options.name,'식당 22');assert.equal(app.$('redo-button').disabled,true);
+});
+
+test('new notes, successful remote loads and deletion reset history, while failed loads and canceled deletion preserve it',async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  const initial=app.account.options.getDocument();
+  manualMeal(app).options.onSave({name:'식당',description:''});
+  const invalid={...initial,itinerary:{...initial.itinerary,dayAreaIds:[]}};
+  assert.equal(await app.account.options.loadDocument(invalid),false);assert.equal(app.$('undo-button').disabled,false);
+  app.behavior.confirmClear=false;await app.clear();assert.equal(app.$('undo-button').disabled,false);
+  assert.equal(await app.account.options.loadDocument(initial),true);
+  assert.equal(app.$('undo-button').disabled,true);assert.equal(app.$('redo-button').disabled,true);
+  manualMeal(app).options.onSave({name:'새 식당',description:''});
+  app.behavior.createError='새 노트 생성 실패';await app.create();assert.equal(app.$('undo-button').disabled,false);
+  app.behavior.createError=null;await app.create();
+  assert.equal(app.$('undo-button').disabled,true);assert.equal(app.$('redo-button').disabled,true);
+  manualMeal(app).options.onSave({name:'마지막 식당',description:''});
+  app.behavior.confirmClear=true;await app.clear();
+  assert.equal(app.$('undo-button').disabled,true);assert.equal(app.$('redo-button').disabled,true);
+  assert.equal(app.account.options.getDocument(),null);
+});
+
+test('signing in, switching accounts and signing out cannot apply another owners editing history',async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  manualMeal(app).options.onSave({name:'게스트 식당',description:''});assert.equal(app.$('undo-button').disabled,false);
+  await app.account.options.onUserChange({id:'owner-a',username:'alice'},{initial:false});
+  assert.equal(app.$('undo-button').disabled,true);assert.equal(app.$('redo-button').disabled,true);
+  manualMeal(app).options.onSave({name:'계정 A 식당',description:''});
+  app.$('undo-button').click();assert.equal(app.$('redo-button').disabled,false);
+  const ownerA=app.stored.get(`${storageKey}:owner-a`);
+  await app.account.options.onUserChange({id:'owner-b',username:'bob'},{initial:false});
+  assert.equal(app.account.options.getDocument(),null);
+  assert.equal(app.$('undo-button').disabled,true);assert.equal(app.$('redo-button').disabled,true);
+  await app.create();manualMeal(app).options.onSave({name:'계정 B 식당',description:''});
+  await app.account.options.onUserChange(null,{initial:false});
+  assert.equal(app.account.options.getDocument(),null);assert.equal(app.$('undo-button').disabled,true);
+  await app.account.options.onUserChange({id:'owner-a',username:'alice'},{initial:false});
+  assert.equal(manualMeal(app).options.name,'게스트 식당');
+  assert.equal(app.$('undo-button').disabled,true);assert.equal(app.$('redo-button').disabled,true);
+  assert.equal(app.stored.get(`${storageKey}:owner-a`),ownerA);
+});
+
+
+test('undo and redo each respond to their first click, retaining the pressed layout and the new result message',async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  const original=noteParameters(app);
+  assert.equal(currentSchedule(app).options.onAdd({type:'free',title:'되돌리기 점검',duration:30}).ok,true);
+  const edited=noteParameters(app),notice=app.$('app-message');
+  assert.match(notice.textContent,/일정을 추가했어요/);
+  const captures=[];
+  app.document.addEventListener('click',event=>{
+    if(['undo-button','redo-button'].includes(event.target.id))captures.push({button:event.target.id,hidden:notice.hidden});
+  },true);
+  for(const [action,expected,message] of [['undo',original,/직전 편집을 되돌리고/],['redo',edited,/되돌린 편집을 다시 실행하고/]]){
+    const button=app.$(`${action}-button`),previous=notice.textContent;
+    assert.equal(button.disabled,false);
+    button.dispatch('pointerdown',{pointerType:'mouse'});
+    assert.equal(notice.hidden,false);assert.equal(notice.textContent,previous);
+    button.click();
+    assert.deepEqual(noteParameters(app),expected,'the initial click must apply its action without a second click');
+    assert.equal(notice.hidden,false);assert.match(notice.textContent,message,'capture must clear the old message before the target creates the new one');
+  }
+  assert.deepEqual(captures,[{button:'undo-button',hidden:true},{button:'redo-button',hidden:true}]);
 });

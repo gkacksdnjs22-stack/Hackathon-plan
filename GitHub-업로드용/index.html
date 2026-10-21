@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f2eee6">
+  <meta name="theme-color" content="#edf3ff">
   <meta name="description" content="처음 가는 지역의 관광지와 식당을 찾아보고, 이동 예상시간을 참고해 완성하는 나만의 국내 여행 노트.">
   <title>길 — 마음이 향하는 국내 여행</title>
-  <link rel="stylesheet" href="./styles.css?v=11">
+  <link rel="stylesheet" href="./styles.css?v=12">
   <link rel="stylesheet" href="./date-picker.css?v=3">
   <link rel="stylesheet" href="./free-theme.css?v=1">
   <link rel="stylesheet" href="./select-ui.css?v=3">
@@ -23,7 +23,7 @@
   <link rel="stylesheet" href="./account-ui.css?v=2">
   <link rel="icon" type="image/png" href="./travel-sticker-v1.png">
   <script src="./places.js?v=10" defer></script>
-  <script src="./planner.js?v=16" defer></script>
+  <script src="./planner.js?v=17" defer></script>
   <script src="./tour-data.js?v=11" defer></script>
   <script src="./date-picker.js?v=5" defer></script>
   <script src="./select-ui.js?v=5" defer></script>
@@ -37,8 +37,8 @@
   <script src="./connection-ui.js?v=2" defer></script>
   <script src="./schedule-ui.js?v=3" defer></script>
   <script src="./account-ui.js?v=3" defer></script>
-  <link rel="stylesheet" href="./travel-atmosphere.css?v=12">
-  <script src="./app.js?v=38" defer></script>
+  <link rel="stylesheet" href="./travel-atmosphere.css?v=13">
+  <script src="./app.js?v=39" defer></script>
   <script src="./backdrop-photos.js?v=2" defer></script>
   <script src="./travel-backdrop.js?v=4" defer></script>
 </head>
@@ -83,7 +83,7 @@
     </div>
 
     <section id="itinerary-section" class="itinerary-section" aria-labelledby="itinerary-title" hidden>
-      <div class="itinerary-heading"><div><span class="step-label"><span class="step-number">02</span> 나만의 여행 노트</span><h1 id="itinerary-title" class="note-page-title" tabindex="-1">이렇게 떠나보면 어때요? <span class="title-sticker" aria-hidden="true"><img class="travel-sticker" src="./travel-sticker-v1.png" alt="" width="44" height="44"></span></h1><p id="trip-summary"></p></div><div class="heading-actions"><button id="print-button" class="button button-quiet" type="button">인쇄 · PDF</button><button id="clear-button" class="button button-quiet" type="button">불러온 일정 지우기</button></div></div>
+      <div class="itinerary-heading"><div><span class="step-label"><span class="step-number">02</span> 나만의 여행 노트</span><h1 id="itinerary-title" class="note-page-title" tabindex="-1">이렇게 떠나보면 어때요? <span class="title-sticker" aria-hidden="true"><img class="travel-sticker" src="./travel-sticker-v1.png" alt="" width="44" height="44"></span></h1><p id="trip-summary"></p></div><div class="heading-actions"><div class="note-history" role="group" aria-label="일정 편집 기록"><button id="undo-button" class="button button-quiet note-history-button" type="button" disabled><span aria-hidden="true">↶</span> 되돌리기</button><button id="redo-button" class="button button-quiet note-history-button" type="button" disabled><span aria-hidden="true">↷</span> 다시 실행</button></div><button id="print-button" class="button button-quiet" type="button">인쇄 · PDF</button><button id="clear-button" class="button button-quiet" type="button">불러온 일정 지우기</button></div></div>
       <p id="note-timing-notice" class="note-timing-notice" role="status" aria-atomic="true" hidden></p>
       <div id="account-save" class="account-save" aria-label="계획표 저장"></div>
       <div id="capacity-message" class="capacity-message" hidden></div>
