@@ -33,7 +33,7 @@
     return fallback;
   }
 
-  function mount({ accountRoot, libraryRoot, saveRoot, noticeRoot, getDocument, getDefaultTitle = () => '나의 여행 계획', loadDocument, onMessage = () => {}, onUserChange = async () => {}, onAttachmentChange = () => {} } = {}) {
+  function mount({ accountRoot, libraryRoot, saveRoot, noticeRoot, getDocument, getDefaultTitle = () => '나의 여행 계획', loadDocument, onMessage = () => {}, onUserChange = async () => {}, onAttachmentChange = () => {}, onSaved = () => {} } = {}) {
     if (!accountRoot || !libraryRoot || !saveRoot || typeof getDocument !== 'function' || typeof loadDocument !== 'function')
       throw new Error('Account UI requires its three hosts and document callbacks.');
     const id = `travel-account-${++sequence}`;
@@ -508,7 +508,10 @@
           if (!sameAccount(account)) return;
           if (!validPlan(data?.plan)) throw { code: 'INVALID_RESPONSE' };
           let persisted = true;
-          if (link === attachment) { currentPlan = planMetadata(data.plan); attachmentState = 'ready'; dirty = draftVersion !== edited; persisted = attachmentChanged(); }
+          if (link === attachment) {
+            currentPlan = planMetadata(data.plan); attachmentState = 'ready'; dirty = draftVersion !== edited; persisted = attachmentChanged();
+            onSaved(snapshot);
+          }
           closeDialog(true); renderSave(); refreshPlans();
           notify(!persisted ? '계정에는 저장했어요. 현재 화면의 저장 연결은 유지되지만 이 기기에 기록하지 못했어요. 새로고침 후에는 계정의 계획을 다시 불러와 주세요.'
             : link !== attachment ? '이전 작업을 계정에 저장했어요. 현재 노트는 그대로예요.' : dirty ? '저장했어요. 이후 수정한 내용은 한 번 더 저장해 주세요.' : '계정에 계획표를 저장했어요.', persisted ? 'success' : 'error');
