@@ -1,0 +1,39 @@
+.personal-tools { display:grid; gap:10px; margin:14px 0; }
+.personal-tools[hidden] { display:none!important; }
+.personal-tools details { min-width:0; border:1px solid #d4e0f2; border-radius:12px; background:#f7faff; color:#365879; }
+.personal-tools summary { min-height:44px; padding:12px 15px; font-size:12px; font-weight:700; cursor:pointer; }
+.personal-panel-body { padding:0 14px 14px; }
+.personal-checklist-form { display:flex; align-items:flex-end; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+.personal-checklist-form label,.personal-place-search-label { display:grid; flex:1; gap:6px; min-width:0; color:#586c89; font-size:12px; }
+.personal-tools input:not([type="checkbox"]) { box-sizing:border-box; width:100%; min-width:0; min-height:44px; padding:9px 11px; border:1px solid #cbd9ed; border-radius:9px; background:#fff; color:#365879; font:inherit; font-size:14px; }
+.personal-tools ul { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
+.personal-checklist-items > li { display:flex; align-items:center; gap:8px; }
+.personal-check-item { display:flex; align-items:center; flex:1; gap:9px; min-width:0; min-height:44px; color:#365879; font-size:13px; overflow-wrap:anywhere; }
+.personal-check-item input { flex:none; width:19px; height:19px; accent-color:#3e67ad; }
+.personal-check-item .is-done { color:#677588; text-decoration:line-through; }
+.personal-button { min-height:44px; padding:8px 11px; border:1px solid #cbd9ed; border-radius:9px; background:#fff; color:#365879; font:inherit; font-size:11px; cursor:pointer; }
+.personal-button:disabled { opacity:.55; cursor:default; }
+.personal-hint,.personal-status { margin:0 0 10px; color:#586c89; font-size:11px; line-height:1.8; overflow-wrap:anywhere; }
+.personal-status:empty { display:none; }
+.personal-place-row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:10px; border:1px solid #d4e0f2; border-radius:9px; background:#fff; }
+.personal-place-copy { flex:1 1 180px; min-width:0; font-size:12px; line-height:1.8; overflow-wrap:anywhere; }
+.personal-place-copy strong,.personal-place-copy span { display:block; }
+.personal-place-copy span { color:#586c89; font-size:11px; }
+.personal-place-actions { display:flex; flex-wrap:wrap; gap:7px; }
+.personal-place-search-label { margin:14px 0 8px; }
+.personal-place-results { max-height:280px; overflow-y:auto; }
+.event-personal-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:12px; }
+.event-personal-controls label { display:flex; align-items:center; gap:7px; color:#586c89; font-size:11px; }
+.event-tag-select { min-height:44px; max-width:100%; padding:7px 9px; border:1px solid #cbd9ed; border-radius:8px; background:#fff; color:#365879; font:inherit; }
+.event-tag-badge { display:inline-block; margin:0 0 8px; padding:3px 9px; border:1px solid currentColor; border-radius:6px; font-size:11px; font-weight:700; line-height:1.7; }
+.event-tag-badge[hidden] { display:none!important; }
+.timeline-row[data-personal-tag="must"] .event-tag-badge { color:#94402f; background:#fff0e9; }
+.timeline-row[data-personal-tag="booked"] .event-tag-badge { color:#286348; background:#eaf8ef; }
+.timeline-row[data-personal-tag="flex"] .event-tag-badge { color:#65518e; background:#f3eeff; }
+.personal-tools :focus-visible,.event-personal-controls :focus-visible { outline:3px solid #8798c5; outline-offset:2px; }
+@media (max-width:760px) { .personal-tools input:not([type="checkbox"]),.event-tag-select { font-size:16px; } }
+@media print {
+  .personal-favorites,.personal-checklist-form,.personal-tools .personal-button,.personal-status,.event-personal-controls { display:none!important; }
+  .personal-checklist .personal-panel-body { display:block!important; }
+  .event-tag-badge { color:#222!important; background:none!important; }
+}
