@@ -30,26 +30,27 @@ test('insertion before an added row preserves exact order, memos and existing ta
  assert.equal(r.itinerary.days[0].events.find(e=>e.id===first).description,'내 메모');
 });
 
-test('same-day reordering preserves memo, stay, tag and fixed time after account normalization',()=>{
+test('same-day reordering preserves memo, stay and booked tag after account normalization',()=>{
  const {city,planner,create}=runtime();let note=create({dayCount:2});
- note=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId:'place-1',description:'예약번호 ABC',duration:95,fixedStart:'14:00'}).itinerary;
+ note=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId:'place-1',description:'예약번호 ABC',duration:95}).itinerary;
  note=planner.updatePersonalization({city,itinerary:note,personalization:{checklist:[],favoritePlaceIds:[],eventTags:{0:{'place-1':'booked'}}}}).itinerary;
  const moved=planner.moveEvent({city,itinerary:note,dayIndex:0,eventId:'place-1',direction:1});assert.equal(moved.ok,true,moved.reason);
  const next=moved.itinerary,event=next.days[0].events.find(e=>e.id==='place-1');
- assert.equal(event.description,'예약번호 ABC');assert.equal(event.duration,95);assert.equal(event.fixedStart,'14:00');assert.equal(next.personalization.eventTags[0]['place-1'],'booked');
+ assert.equal(event.description,'예약번호 ABC');assert.equal(event.duration,95);assert.equal(next.personalization.eventTags[0]['place-1'],'booked');
  const document=normalizePlanDocument({version:8,itinerary:plain(next)});const restored=planner.createItinerary({city,...document.itinerary});assert.equal(restored.ok,true,restored.reason);assert.deepEqual(plain(restored.days),plain(next.days));
  assert.equal(planner.moveEventToDay,undefined);
 });
 
-test('fixed reservations keep their displayed time, propagate lateness and retain uncertainty without removing other rows',()=>{
+test('duration edits linearly recalculate later rows while keeping booked tags, notes and all entries',()=>{
  const {city,planner,create}=runtime();let note=create();
- note=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId:'place-1',fixedStart:'14:00'}).itinerary;
- const count=note.days[0].events.length;
+ note=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId:'place-1',description:'예약번호 ABC',duration:95}).itinerary;
+ note=planner.updatePersonalization({city,itinerary:note,personalization:{checklist:[],favoritePlaceIds:[],eventTags:{0:{'place-1':'booked'}}}}).itinerary;
+ const before=note.days[0].events.find(e=>e.id==='place-1').start,count=note.days[0].events.length;
  note=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId:'place-0',duration:400}).itinerary;
  const event=note.days[0].events.find(e=>e.id==='place-1'),after=note.days[0].events.find(e=>e.id==='rest');
- assert.equal(event.start,840);assert.equal(event.arrivalUncertain,true);assert.ok(event.lateMinutes>0);assert.equal(event.lateMinutes,event.plannedArrival-840);assert.equal(after.start,event.plannedArrival+event.duration);assert.equal(note.days[0].events.length,count);
- const restored=planner.createItinerary({city,...normalizePlanDocument({version:8,itinerary:plain(note)}).itinerary});assert.equal(restored.ok,true,restored.reason);assert.equal(restored.days[0].events.find(e=>e.id==='place-1').lateMinutes,event.lateMinutes);
- const unfixed=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId:'place-1',fixedStart:null});assert.equal(unfixed.ok,true);assert.equal(unfixed.itinerary.days[0].events.find(e=>e.id==='place-1').start,event.plannedArrival);
+ assert.equal(event.start,before+340);assert.equal(after.start,event.end);assert.equal(event.description,'예약번호 ABC');assert.equal(note.personalization.eventTags[0]['place-1'],'booked');assert.equal(note.days[0].events.length,count);
+ const restored=planner.createItinerary({city,...normalizePlanDocument({version:8,itinerary:plain(note)}).itinerary});assert.equal(restored.ok,true,restored.reason);assert.deepEqual(plain(restored.days),plain(note.days));
+ const travel=planner.updateEvent({city,itinerary:restored,dayIndex:0,eventId:'transfer-0',duration:25});assert.equal(travel.ok,true,travel.reason);assert.equal(travel.itinerary.days[0].events.find(e=>e.id==='place-1').start,event.start+25);
 });
 
 const restaurant={id:'tour-food-90',name:'실제 데이터 식당',address:'서울 주소',latitude:37.56,longitude:126.92,kind:'meal'};
@@ -65,11 +66,11 @@ test('meal locations change route endpoints, invalidate affected manual times an
  }
 });
 
-test('a missing leg after a chosen restaurant keeps reservation arrival unconfirmed even when other travel times are known',()=>{
+test('a missing leg after a chosen restaurant keeps the timetable provisional even when other travel times are known',()=>{
  const {city,planner,create}=runtime();const departure={mode:'walk',id:'osm-node-1',name:'출발',address:'서울',latitude:37.55,longitude:126.9,source:'OpenStreetMap',sourceUrl:'https://www.openstreetmap.org/node/1'};
- let note=create({departure,eventEdits:{0:{departure:{duration:10},'transfer-0':{duration:10},'transfer-1':{duration:10},'place-1':{fixedStart:'14:00'}}}});
- assert.equal(note.days[0].events.find(e=>e.id==='place-1').arrivalUncertain,false);
+ let note=create({departure,eventEdits:{0:{departure:{duration:10},'transfer-0':{duration:10},'transfer-1':{duration:10}}}});
+ assert.equal(note.days[0].timesProvisional,false);
  note=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId:'lunch',location:restaurant}).itinerary;
  note=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId:'transfer-0',duration:10}).itinerary;
- const booked=note.days[0].events.find(e=>e.id==='place-1');assert.equal(booked.routePending,true);assert.equal(booked.arrivalUncertain,true);assert.equal(note.days[0].timesProvisional,true);
+ const nextVisit=note.days[0].events.find(e=>e.id==='place-1');assert.equal(nextVisit.routePending,true);assert.equal(note.days[0].timesProvisional,true);
 });

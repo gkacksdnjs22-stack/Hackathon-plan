@@ -204,7 +204,6 @@
 .schedule-insert-button,.schedule-leg-add,.day-view-toggle,.event-show-map { min-height:44px; padding:8px 12px; border:1px solid #ccd9ec; border-radius:8px; color:#365879; background:#fff; font:inherit; font-size:13px; cursor:pointer; }
 .schedule-insert-button { width:100%; border-style:dashed; background:transparent; }
 .schedule-insert .schedule-add { margin:0; }
-.reservation-status { padding:8px 10px; border:1px solid #d7aa5c; border-radius:8px; color:#734600; background:#fff8e8; font-size:13px; }
 .event-show-map { margin-top:8px; }
 .timeline-guide,.timeline-guide-desktop { margin:16px 18px; padding:14px; border:1px solid #d2dff2; border-radius:12px; background:#f4f8ff; color:#61728b; font-size:13px; line-height:1.8; word-break:keep-all; overflow-wrap:anywhere; }
 .timeline-guide strong,.timeline-guide-desktop strong { display:flex; align-items:center; gap:7px; color:#365879; font-size:13px; font-weight:650; }

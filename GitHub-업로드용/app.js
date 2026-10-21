@@ -46,6 +46,7 @@
   }
   const eventLocation=event=>event?.place||event?.location||event?.departure||event?.arrival||null;
   const visitEvent=event=>Boolean(event?.type!=='transfer'&&(event?.type==='place'||event?.location||event?.type==='meal'&&event.title?.includes(' · ')||/^extra-/.test(event?.id)&&['free','rest','meal'].includes(event.type)||event?.departure||event?.arrival));
+  const mealRestaurantName=event=>event?.title?.includes(' · ')?event.title.slice(event.title.indexOf(' · ')+3).trim():event?.title&&event.title!==(event.meal||'식사')?event.title.trim():'';
   const compactDays=new Set();
   let activeReorder=null;
   function closeReorderControls(restoreFocus=false){
@@ -354,7 +355,7 @@
       if(typeof item.base!=='string'||item.base.length>2000||typeof item.title!=='string'||item.title.length>200
         ||typeof item.description!=='string'||item.description.length>500||typeof item.minutes!=='string'||item.minutes.length>16
         ||!(item.hours===null||typeof item.hours==='string'&&item.hours.length<=16))continue;
-      result[key]={base:item.base,title:item.title,description:item.description,minutes:item.minutes,hours:item.hours,...Object.fromEntries(['fixed','fixedTime','locationName','locationAddress','latitude','longitude','locationKind'].filter(k=>typeof item[k]==='boolean'||typeof item[k]==='string'&&item[k].length<=500).map(k=>[k,item[k]]))};
+      result[key]={base:item.base,title:item.title,description:item.description,minutes:item.minutes,hours:item.hours,...Object.fromEntries(['locationName','locationAddress','latitude','longitude','locationKind'].filter(k=>typeof item[k]==='boolean'||typeof item[k]==='string'&&item[k].length<=500).map(k=>[k,item[k]]))};
     }
     return result;
   }
@@ -362,10 +363,14 @@
     const day=currentItinerary.days[dayIndex],at=day.events.findIndex(item=>item.id===event.id);
     const before=event.id==='arrival-transfer'?day.arrival:eventLocation(day.events.slice(0,at).reverse().find(visitEvent));
     const after=eventLocation(day.events.slice(at+1).find(visitEvent));
-    return JSON.stringify([event.type,event.place?.id||null,event.departure?.id||null,event.travelMode||null,
+    const identity=[event.type,event.place?.id||null,event.departure?.id||null,event.travelMode||null,
       event.departure?.mode||null,event.departure?.source||null,event.departure?.service||null,
       event.type==='transfer'?before?.id||null:null,event.type==='transfer'?after?.id||null:null,
-      event.type==='departure'?(day.arrival||day.events.find(item=>item.type==='place')?.place)?.id||null:null]);
+      event.type==='departure'?(day.arrival||day.events.find(item=>item.type==='place')?.place)?.id||null:null];
+    const restaurantName=event.type==='meal'?mealRestaurantName(event):'';
+    if(event.location||restaurantName)identity.push(['location',event.location?.id||null,event.location?.latitude??null,event.location?.longitude??null,restaurantName||event.location?.name||'']);
+    if(event.type==='transfer')identity.push(['route',before?.latitude??null,before?.longitude??null,after?.latitude??null,after?.longitude??null]);
+    return JSON.stringify(identity);
   }
   function validatedReorders(value){
     const result={},validId=id=>typeof id==='string'&&/^(?:place-[0-2]|transfer-[01]|free-[01]|lunch|dinner|rest|extra-[1-9]\d{0,8})$/.test(id);
@@ -902,18 +907,13 @@
     const article=$('day-list').querySelector(`[data-day-index="${dayIndex}"]`);
     if(!day||!article)return;
     const rows=new Map([...article.querySelectorAll('.timeline-row')].map(row=>[row.dataset.eventId,row]));
-    let clock=day.start,preview=false,uncertain=!day.departure;
+    let clock=day.start,preview=false;
     for(const event of day.events){
       const row=rows.get(event.id),minutes=liveTransitDurations.get(`${dayIndex}:${event.id}`);
       const duration=minutes??event.duration;
       preview=preview||minutes!==undefined;
       const labels=row?.querySelector('.timeline-time-labels');
-      const plannedArrival=clock,fixed=event.fixedStart?Number(event.fixedStart.slice(0,2))*60+Number(event.fixedStart.slice(3)):null;
-      if((event.type==='departure'||event.type==='transfer')&&duration===0||event.routePending)uncertain=true;
-      const shownStart=fixed===null?clock:fixed;
-      if(labels)labels.innerHTML=eventTimeMarkup(formatTime(shownStart),formatTime(shownStart+duration),duration);
-      const reservation=row?.querySelector('.reservation-status');
-      if(reservation){const late=fixed===null?0:Math.max(0,plannedArrival-fixed);reservation.textContent=`시작 ${event.fixedStart} 고정`+(late?` · 도착 ${late}분 초과 (${formatTime(plannedArrival)} 예상)`:'')+(uncertain?' · 이동시간 미정: 정시 도착 확인 필요':'');}
+      if(labels)labels.innerHTML=eventTimeMarkup(formatTime(clock),formatTime(clock+duration),duration);
       if(event.type==='departure'||event.type==='transfer'){
         const pill=row?.querySelector('.event-duration');
         if(pill){pill.textContent=travelDurationLabel(event,day,duration,minutes!==undefined);pill.hidden=event.type==='departure'&&duration===0;}
@@ -927,8 +927,8 @@
         if(title&&!Object.hasOwn(edits,'title'))title.textContent=meal;
         if(description&&!Object.hasOwn(edits,'description'))description.textContent=`${day.area}에서 ${meal} · 식당을 특정하지 않음`;
       }
-      if(row)syncCompactSummary(row,event,shownStart,duration);
-      clock=Math.max(clock,shownStart)+duration;
+      if(row)syncCompactSummary(row,event,clock,duration);
+      clock+=duration;
     }
     const foot=article.querySelector('.day-footnote');
     if(foot)foot.textContent=dayFootnote(day,clock,preview);
@@ -1357,7 +1357,6 @@
     if(event.type==='departure'&&!event.departure)warnings.push('출발지 미정');
     else if(['departure','transfer'].includes(event.type)&&duration===0)warnings.push('이동시간 미정');
     if(event.routePending)warnings.push('이동 구간 미정');
-    const reservation=row.querySelector('.reservation-status');if(reservation)warnings.push(reservation.textContent);
     const alerts=row.querySelector('.compact-event-alerts');alerts.textContent=warnings.join(' · ');alerts.hidden=!warnings.length;
   }
   function attachCompactSummary(row,event,dayIndex){
@@ -1517,9 +1516,8 @@
       const nearby=day.events.slice(0,mealIndex).reverse().find(item=>item.type==='place')?.place||day.events.find(item=>item.type==='place')?.place;
       const manualHost=document.createElement('div');manualHost.className='meal-manual-container';
       content.append(manualHost);
-      const mealLabel=event.meal||'식사';
       const savedMeal=currentItinerary.eventEdits?.[dayIndex]?.[event.id]||(extra?event:null);
-      const manualName=event.title?.includes(' · ')?event.title.slice(event.title.indexOf(' · ')+3):(savedMeal?.title&&savedMeal.title!==mealLabel?savedMeal.title:'');
+      const manualName=mealRestaurantName(event);
       const saveManualMeal=(value,clear=false)=>{
         if(currentItinerary?.cityId!==city.id)return {ok:false,reason:'현재 여행 노트에서 다시 입력해 주세요.'};
         const selected=currentItinerary.days[dayIndex]?.events.find(entry=>entry.id===event.id&&entry.type==='meal');
@@ -1527,7 +1525,8 @@
         const name=typeof value?.name==='string'?value.name.trim():'';
         const description=typeof value?.description==='string'?value.description.trim():'';
         if(!clear&&(!name||name.length>60||/[\u0000-\u001f\u007f]/.test(name)||description.length>500||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(description)))return {ok:false,reason:'식당 이름은 1~60자, 주소·메모는 500자 이내로 입력해 주세요.'};
-        const result=window.TravelPlanner.updateEvent({city,itinerary:currentItinerary,dayIndex,eventId:event.id,title:clear?(extra?'식사':undefined):`${selected.meal||'식사'} · ${name}`,resetTitle:clear&&!extra,description:clear?'':description,location:null});
+        const location=!clear&&name===mealRestaurantName(selected)?selected.location||null:null;
+        const result=window.TravelPlanner.updateEvent({city,itinerary:currentItinerary,dayIndex,eventId:event.id,title:clear?(extra?'식사':undefined):`${selected.meal||'식사'} · ${name}`,resetTitle:clear&&!extra,description:clear?'':description,location});
         if(!result.ok)return result;
         if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'식당 정보를 저장하지 못했어요. 기존 노트는 유지했어요.'};
         currentItinerary=result.itinerary;renderItinerary();focusEvent(dayIndex,event.id);
@@ -1556,10 +1555,6 @@
       }));
     }
     if(event.routePending){const notice=document.createElement('p');notice.className='route-status';notice.textContent='이전 방문 장소에서 오는 이동 구간 미정 · 여기에 이동 일정을 추가하고 시간을 입력하거나 조회해 주세요.';content.append(notice);}
-    if(event.fixedStart){
-      const warning=document.createElement('p');warning.className='reservation-status';warning.setAttribute('role','status');
-      warning.textContent=`시작 ${event.fixedStart} 고정`+(event.lateMinutes?` · 도착 ${event.lateMinutes}분 초과 (${formatTime(event.plannedArrival)} 예상)`:'')+(event.arrivalUncertain?' · 이동시간 미정: 정시 도착 확인 필요':'');content.append(warning);
-    }
     if(['free','meal'].includes(event.type)&&!event.location){const hint=document.createElement('p');hint.className='location-missing';hint.textContent='위치 미설정 · 일정 수정에서 장소와 확인한 좌표를 입력할 수 있어요.';content.append(hint);}
     const location=eventLocation(event);
     if(location){const map=document.createElement('button');map.type='button';map.className='event-show-map';map.textContent='방문 지도에서 보기';map.addEventListener('click',()=>{noteToolbar?.openGroup?.('map');dayMap.showEvent(event.id);});content.append(map);}
@@ -1613,10 +1608,6 @@
     description.rows=2;description.maxLength=500;
     description.value=event.description??event.label??(event.type==='place'?event.place.intro:'');
     field('설명·메모',description,true);
-    const canFix=!['departure','arrival','arrival-transfer','finish'].includes(event.id);
-    const fixed=document.createElement('input');fixed.type='checkbox';fixed.checked=Boolean(event.fixedStart);
-    const fixedTime=document.createElement('input');fixedTime.type='time';fixedTime.value=event.fixedStart||event.startLabel.match(/\d{2}:\d{2}/)?.[0]||'14:00';
-    if(canFix){field('시작 시각 고정',fixed);field('고정 시작 시각',fixedTime);const hint=document.createElement('p');hint.className='editor-help';hint.textContent='시각 고정은 시간표의 시작 시각을 유지해요. 예약 완료 태그는 예약 상태만 표시해요. 늦거나 이동시간이 미정이면 따로 안내해요.';grid.append(hint);}
     const canLocate=['free','rest','meal'].includes(event.type);
     const locationName=document.createElement('input'),locationAddress=document.createElement('input'),latitude=document.createElement('input'),longitude=document.createElement('input'),locationKind=document.createElement('select');locationKind.setAttribute('aria-label','장소 종류');
     locationName.maxLength=160;locationAddress.maxLength=500;locationName.value=event.location?.name||'';locationAddress.value=event.location?.address||'';
@@ -1625,18 +1616,18 @@
     if(canLocate){field('장소 종류',locationKind);field('위치 이름',locationName);field('위치 주소',locationAddress,true);field('확인한 위도',latitude);field('확인한 경도',longitude);const hint=document.createElement('p');hint.className='editor-help';hint.textContent='위치 미설정이면 지도에 표시하지 않아요. 지도에서 확인한 국내 위도·경도를 함께 입력하거나 식당 검색 결과를 담아 주세요. 숙소도 직접 입력 일정의 장소 종류에서 고를 수 있어요.';grid.append(hint);}
     const updateCounter=window.TravelNoteTools.memoCounter(description);
     const draftKey=`${dayIndex}:${event.id}`,base=editorIdentity(event,dayIndex);
-    const original={base,title:title.value,description:description.value,minutes:minutes.value,hours:hours?.value??null,fixed:fixed.checked,fixedTime:fixedTime.value,locationName:locationName.value,locationAddress:locationAddress.value,latitude:latitude.value,longitude:longitude.value,locationKind:locationKind.value};
+    const original={base,title:title.value,description:description.value,minutes:minutes.value,hours:hours?.value??null,locationName:locationName.value,locationAddress:locationAddress.value,latitude:latitude.value,longitude:longitude.value,locationKind:locationKind.value};
     const draft=editorDrafts[draftKey];
     if(draft?.base===base){
       if(!title.readOnly)title.value=draft.title;
       description.value=draft.description;minutes.value=draft.minutes;if(hours&&draft.hours!==null)hours.value=draft.hours;
-      fixed.checked=draft.fixed??fixed.checked;fixedTime.value=draft.fixedTime??fixedTime.value;for(const [input,key]of [[locationName,'locationName'],[locationAddress,'locationAddress'],[latitude,'latitude'],[longitude,'longitude'],[locationKind,'locationKind']])input.value=draft[key]??input.value;
+      for(const [input,key]of [[locationName,'locationName'],[locationAddress,'locationAddress'],[latitude,'latitude'],[longitude,'longitude'],[locationKind,'locationKind']])input.value=draft[key]??input.value;
       updateCounter();
     }
     const draftStatus=document.createElement('p');draftStatus.className='editor-help editor-draft-status';draftStatus.setAttribute('role','status');
     draftStatus.textContent=draft?.base===base?'저장 전 입력을 불러왔어요. 수정 저장을 누르면 일정에 반영돼요.':'';
     function capture(){
-      const value={base,title:title.value,description:description.value,minutes:minutes.value,hours:hours?.value??null,fixed:fixed.checked,fixedTime:fixedTime.value,locationName:locationName.value,locationAddress:locationAddress.value,latitude:latitude.value,longitude:longitude.value,locationKind:locationKind.value};
+      const value={base,title:title.value,description:description.value,minutes:minutes.value,hours:hours?.value??null,locationName:locationName.value,locationAddress:locationAddress.value,latitude:latitude.value,longitude:longitude.value,locationKind:locationKind.value};
       if(JSON.stringify(value)===JSON.stringify(original))delete editorDrafts[draftKey];else editorDrafts[draftKey]=value;
       if(!persistDraftContext())draftStatus.textContent='입력 내용을 기기에 보관하지 못했어요. 이 창을 유지하고 수정 저장을 눌러 주세요.';
     }
@@ -1662,7 +1653,7 @@
         if(hasPoint&&(!latitude.value.trim()||!longitude.value.trim()||!locationName.value.trim())){error.textContent='지도에 표시하려면 위치 이름과 확인한 위도·경도를 모두 입력해 주세요.';error.hidden=false;return;}
         location=hasPoint?{id:event.location?.id||`manual-${event.id}`,name:locationName.value.trim(),address:locationAddress.value.trim(),latitude:Number(latitude.value),longitude:Number(longitude.value),kind:locationKind.value}:null;
       }
-      const result=window.TravelPlanner.updateEvent({city,itinerary:currentItinerary,dayIndex,eventId:event.id,title:title.readOnly?undefined:title.value,description:description.value,duration:editedDuration,...(canFix?{fixedStart:fixed.checked?fixedTime.value:null}:{}),...(canLocate?{location}:{})});
+      const result=window.TravelPlanner.updateEvent({city,itinerary:currentItinerary,dayIndex,eventId:event.id,title:title.readOnly?undefined:title.value,description:description.value,duration:editedDuration,...(canLocate?{location}:{})});
       if(!result.ok){error.textContent=result.reason;error.hidden=false;return;}
       const previousDraft=editorDrafts[draftKey];delete editorDrafts[draftKey];editorCaptures.delete(form);
       if(!saveEditedItinerary(result.itinerary)){if(previousDraft)editorDrafts[draftKey]=previousDraft;editorCaptures.set(form,capture);error.textContent='수정 내용을 저장하지 못했어요. 다시 시도해 주세요.';error.hidden=false;return;}

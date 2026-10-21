@@ -106,6 +106,25 @@ test('revisions reject stale updates and deletes while preserving the newest sav
   assert.equal((await f.call(`/api/plans/${id}`,{cookie:owner.cookie})).status,404);
 });
 
+test('hidden duplicate recommendations cannot be created or overwrite a valid saved account plan', async t=>{
+  const f=fixture();t.after(()=>f.db.close());const owner=await f.socialLogin('duplicate-review');
+  const created=await f.call('/api/plans',{method:'POST',cookie:owner.cookie,body:{title:'정상 여행',document:doc()}});
+  assert.equal(created.status,201);const id=created.data.plan.id;
+  for(const hidden of [['place-0'],['place-1'],['place-0','place-1']]) {
+    const document=doc();document.itinerary.selections[0]=['tourapi-1','tourapi-1','tourapi-3'];
+    document.itinerary.excludedEvents={0:hidden};
+    for(const method of ['POST','PUT']) {
+      const path=method==='POST'?'/api/plans':`/api/plans/${id}`;
+      const response=await f.call(path,{method,cookie:owner.cookie,body:{title:'중복 여행',document,...(method==='PUT'?{revision:1}:{})}});
+      assert.equal(response.status,400);assert.equal(response.data.error.code,'INVALID_PLAN');
+    }
+  }
+  const loaded=await f.call(`/api/plans/${id}`,{cookie:owner.cookie});
+  assert.equal(loaded.status,200);assert.equal(loaded.data.plan.revision,1);assert.equal(loaded.data.plan.title,'정상 여행');
+  assert.deepEqual(loaded.data.plan.document.itinerary.selections[0],doc().itinerary.selections[0]);
+  assert.equal((await f.call('/api/plans',{cookie:owner.cookie})).data.plans.length,1);
+});
+
 test('expected owner guards stale tab reads and writes with another accounts current cookie', async t=>{
   const f=fixture();t.after(()=>f.db.close());
   const alice=await f.socialLogin('alice'),bob=await f.socialLogin('bob','192.0.2.2');

@@ -13,7 +13,7 @@
           const title=event.type==='place'?event.place?.name:event.type==='departure'?(includeDeparture&&event.departure?`${event.departure.name}에서 출발`:'출발')
             :event.type==='arrival'?(includeDeparture?event.title||event.arrival?.name:'도착')
             :sensitive&&!includeDeparture?(arrivalTransfer?'첫 관광지로 이동':'이동'):event.title||event.meal||'일정';
-          return {type:event.type,title:clean(title+(event.fixedStart?` [${event.fixedStart} 시각 고정${event.lateMinutes?` · ${event.lateMinutes}분 초과`:''}${event.arrivalUncertain?' · 정시 도착 미확인':''}]`:''),240),start:event.start,end:event.end,
+          return {type:event.type,title:clean(title,240),start:event.start,end:event.end,
             address:clean(sensitive&&!includeDeparture?'':event.place?.address||event.location?.address||event.departure?.address||event.arrival?.address,500),
             memo:clean(includeMemos&&(!sensitive||includeDeparture)?event.description:'',500)};
         })}))};

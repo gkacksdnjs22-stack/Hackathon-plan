@@ -15,7 +15,6 @@
       .filter(item => dayIndex === null || item.index === dayIndex);
   }
   function title(event) {
-    if(event.fixedStart)return `${event.type==='place'?event.place.name:event.title||'일정'} [${event.fixedStart} 시각 고정${event.lateMinutes?` · ${event.lateMinutes}분 초과`:''}${event.arrivalUncertain?' · 정시 도착 미확인':''}]`;
     if (event.type === 'place') return event.place.name;
     if (event.type === 'departure') return event.departure ? `${event.departure.name}에서 출발` : '출발지 미정';
     return event.title || event.meal || '일정';

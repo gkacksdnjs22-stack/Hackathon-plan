@@ -18,7 +18,7 @@
   const LOCAL_TRANSFER_IDS=['arrival-transfer',...TRANSFER_IDS];
   const TRANSFER_MODES=['walk','local-bus','subway','car'];
   const EXTRA_TYPES=['free','meal','rest','place','transfer'];
-  const EXTRA_FIELDS=['id','beforeId','type','title','description','duration','placeId','travelMode','fixedStart','location'];
+  const EXTRA_FIELDS=['id','beforeId','type','title','description','duration','placeId','travelMode','location'];
   function normalizeLocation(value){
     if(value===null)return null;
     if(!record(value)||Object.keys(value).some(key=>!['id','name','address','latitude','longitude','kind'].includes(key))
@@ -283,7 +283,7 @@
       const normalized={};
       for(const id of Object.keys(eventEdits[key])){
         const edit=eventEdits[key][id];
-        if(!EVENT_IDS.includes(id)||!record(edit)||Object.keys(edit).some(field=>!['title','description','duration','travelMode','fixedStart','location'].includes(field)))
+        if(!EVENT_IDS.includes(id)||!record(edit)||Object.keys(edit).some(field=>!['title','description','duration','travelMode','location'].includes(field)))
           return {ok:false,reason:'수정할 일정의 ID 또는 항목 형식이 올바르지 않습니다.'};
         const patch={};
         if(Object.hasOwn(edit,'title')){
@@ -304,10 +304,6 @@
           const mode=canonicalTravelMode(edit.travelMode);
           if(!LOCAL_TRANSFER_IDS.includes(id)||!TRANSFER_MODES.includes(mode))return {ok:false,reason:'관광지까지 이동수단을 목록에서 선택해 주세요.'};
           patch.travelMode=mode;
-        }
-        if(Object.hasOwn(edit,'fixedStart')){
-          if(PROTECTED_IDS.includes(id)||edit.fixedStart!==null&&!validStart(edit.fixedStart))return {ok:false,reason:'고정 시작 시각은 HH:MM 형식으로 입력해 주세요.'};
-          patch.fixedStart=edit.fixedStart;
         }
         if(Object.hasOwn(edit,'location')){
           const location=normalizeLocation(edit.location);
@@ -355,10 +351,6 @@
           if(mode!==null&&!TRANSFER_MODES.includes(mode))return {ok:false,reason:'추가 이동수단을 목록에서 선택해 주세요.'};
           item.travelMode=mode;
         }else if(Object.hasOwn(entry,'travelMode'))return {ok:false,reason:'이동 일정에만 이동수단을 지정할 수 있습니다.'};
-        if(Object.hasOwn(entry,'fixedStart')){
-          if(entry.fixedStart!==null&&!validStart(entry.fixedStart))return {ok:false,reason:'고정 시작 시각을 확인해 주세요.'};
-          item.fixedStart=entry.fixedStart;
-        }
         if(Object.hasOwn(entry,'location')){
           const location=normalizeLocation(entry.location);
           if(location===undefined||['place','transfer'].includes(entry.type))return {ok:false,reason:'장소의 국내 좌표와 이름을 확인해 주세요.'};
@@ -423,7 +415,7 @@
     const combined=order?[...active.filter(event=>PROTECTED_IDS.includes(event.id)&&event.id!=='finish'),
       ...order.map(id=>active.find(event=>event.id===id)),active.find(event=>event.id==='finish')].filter(Boolean):active;
     const firstPlace=eventLocation(combined.map(event=>({...event,...edits[event.id]})).find(event=>!['departure','arrival','transfer','finish'].includes(event.type)&&visitEvent(event)));
-    let clock=startMinutes(startTime),uncertain=!departure;
+    let clock=startMinutes(startTime);
     for(const base of combined){
       let defaults=base;
       if(base.id==='arrival-transfer')defaults={...base,from:arrival.id,to:firstPlace?.id??null,
@@ -436,15 +428,9 @@
       const event={...defaults,...edits[base.id]};
       const previousAt=events.findLastIndex(visitEvent),previous=events[previousAt];
       const routePending=Boolean(visitEvent(event)&&!['departure','arrival'].includes(event.type)&&previous&&previous.type!=='departure'&&!events.slice(previousAt+1).some(item=>item.type==='transfer'));
-      if(routePending)uncertain=true;
-      const plannedArrival=clock,fixed=event.fixedStart?startMinutes(event.fixedStart):null;
-      const lateMinutes=fixed===null?0:Math.max(0,plannedArrival-fixed);
-      if((event.type==='transfer'||event.type==='departure')&&event.duration===0)uncertain=true;
-      const start=fixed===null?clock:fixed;
-      events.push({...event,start,end:start+event.duration,startLabel:formatTime(start),endLabel:formatTime(start+event.duration),
-        ...(routePending?{routePending:true}:{}),...(fixed===null?{}:{plannedArrival,lateMinutes,arrivalUncertain:uncertain})});
-      // Keep the reservation label fixed, but carry actual lateness downstream.
-      clock=Math.max(clock,start)+event.duration;
+      events.push({...event,start:clock,end:clock+event.duration,startLabel:formatTime(clock),endLabel:formatTime(clock+event.duration),
+        ...(routePending?{routePending:true}:{})});
+      clock+=event.duration;
     }
     const travelDuration=events[0].duration;
     const arrivalTransfer=arrival?events.find(event=>event.id==='arrival-transfer').duration:null;
@@ -797,14 +783,13 @@
     }
     return {ok:true,changed:afterCost<beforeCost-epsilon,itinerary:best,beforeIds:[...beforeIds],afterIds,beforeCost,afterCost,unit:mode==='car'?'minutes':'meters'};
   }
-  function updateEvent({city,itinerary,dayIndex,eventId,title,description,duration,beforeId,placeId,resetTitle=false,fixedStart,location}={}){
+  function updateEvent({city,itinerary,dayIndex,eventId,title,description,duration,beforeId,placeId,resetTitle=false,location}={}){
     const current=editableItinerary(city,itinerary,dayIndex);
     if(!current.ok)return {ok:false,reason:current.reason};
     if(extraId(eventId)){
       const entries=current.extraEvents[dayIndex]??[],selected=entries.find(event=>event.id===eventId);
       if(!selected)return {ok:false,reason:'수정할 추가 일정을 찾지 못했습니다.'};
       const patch={...selected};
-      if(fixedStart!==undefined)patch.fixedStart=fixedStart;
       if(location!==undefined)patch.location=location;
       if(title!==undefined)patch.title=title;
       if(description!==undefined)patch.description=description;
@@ -831,7 +816,6 @@
     if(placeId!==undefined)return {ok:false,reason:'기본 관광지는 장소 변경 목록에서 교체해 주세요.'};
     if(!EVENT_IDS.includes(eventId))return {ok:false,reason:'수정할 일정의 ID를 확인할 수 없습니다.'};
     const patch={...current.eventEdits[dayIndex]?.[eventId]};
-    if(fixedStart!==undefined)patch.fixedStart=fixedStart;
     if(location!==undefined)patch.location=location;
     if(title!==undefined)patch.title=title;
     if(resetTitle===true)delete patch.title;

@@ -175,6 +175,21 @@ test('dates, source identities, day maps, duplicates and protected rows are vali
   for(const value of ['',null,'가'.repeat(81),'PRIVATE\n제목'])assert.throws(()=>normalizePlanTitle(value),error('INVALID_TITLE'));
 });
 
+test('hidden recommendations still require distinct daily slots while their unused place can remain in extras', () => {
+  for(const ids of [['tourapi-100','tourapi-100','tourapi-102'],['tourapi-100','tourapi-101','tourapi-100']]) {
+    for(const hidden of [[],['place-0'],['place-1'],['place-0','place-1'],['place-0','place-2']]) {
+      const input=document();input.itinerary.selections[0]=ids;input.itinerary.excludedEvents={0:hidden};
+      assert.throws(()=>normalizePlanDocument(input),error('INVALID_PLAN'),JSON.stringify({ids,hidden}));
+    }
+  }
+  const valid=document();valid.itinerary.excludedEvents={0:['place-0']};
+  valid.itinerary.extraEvents={0:[{id:'extra-1',type:'place',placeId:'tourapi-100',duration:60}]};
+  const stored=normalizePlanDocument(valid);
+  assert.deepEqual(stored.itinerary.selections[0],valid.itinerary.selections[0]);
+  assert.equal(stored.itinerary.extraEvents[0][0].placeId,'tourapi-100');
+  assert.deepEqual(normalizePlanDocument(stored),stored);
+});
+
 test('only selected official transport summaries and validated connections survive with matching clocks', () => {
   const input=document();Object.assign(input.itinerary,{dayDepartures:{0:stop()},dayArrivals:{0:stop('TO')},dayStarts:{0:'09:00'},eventEdits:{0:{departure:{duration:60}}},dayTransports:{0:trip()}});
   assert.equal(normalizePlanDocument(input).itinerary.dayTransports[0].tripNo,'KTX1');

@@ -1552,6 +1552,87 @@ test('restaurant selection updates a real meal, preserves its memo and replaces 
   assert.doesNotMatch(saved.eventEdits[0].lunch.description, /첫길/);
 });
 
+test('manual meal memo edits keep a chosen restaurant location and travel times, while renaming or clearing invalidates them', async () => {
+  for (const eventId of ['lunch','extra-1']) {
+    const fixture=timedNoteFixture(),app=runtime({...fixture,withAccount:true,hash:'#/note',raw:ownerNote(fixture.note,null)});await settle();
+    if(eventId==='extra-1')assert.equal(currentSchedule(app).options.onAdd({type:'meal',beforeId:'place-1',title:'식사',duration:45}).ok,true);
+    const restaurant={id:'tour-food-101',name:'좌표가 있는 식당',address:'광주광역시 남구 첫길 1',latitude:35.12,longitude:126.92};
+    assert.equal(restaurantMeal(app,eventId).options.onSelect(restaurant).ok,true);
+    editEntry(app,'transfer-0',{duration:25});
+    const before=JSON.parse(app.stored.get(storageKey)).itinerary,original=before.days[0].events.find(event=>event.id===eventId);
+    assert.equal(manualMeal(app,eventId).options.onSave({name:restaurant.name,description:'같은 식당 예약 메모만 수정'}).ok,true);
+    const saved=JSON.parse(app.stored.get(storageKey)).itinerary,meal=saved.days[0].events.find(event=>event.id===eventId);
+    assert.deepEqual(meal.location,original.location);assert.equal(meal.description,'같은 식당 예약 메모만 수정');assert.equal(meal.duration,original.duration);
+    assert.equal(saved.days[0].events.find(event=>event.id==='transfer-0').duration,25);assert.equal(saved.days[0].events.find(event=>event.id==='transfer-1').duration,15);
+    assert.equal(app.window.TravelDayMap.placesForDay(saved.days[0]).find(place=>place.eventId===eventId).mapped,true);
+    const restored=runtime({...fixture,withAccount:true,hash:'#/note',raw:app.stored.get(storageKey)});await settle();
+    assert.equal(manualMeal(restored,eventId).options.onSave({name:restaurant.name,description:'새로고침 후 메모 수정'}).ok,true);
+    let note=JSON.parse(restored.stored.get(storageKey)).itinerary;
+    assert.deepEqual(note.days[0].events.find(event=>event.id===eventId).location,original.location);assert.equal(note.days[0].events.find(event=>event.id==='transfer-0').duration,25);
+    assert.equal(manualMeal(restored,eventId).options.onSave({name:'다른 식당',description:''}).ok,true);
+    note=JSON.parse(restored.stored.get(storageKey)).itinerary;
+    assert.equal(note.days[0].events.find(event=>event.id===eventId).location,null);assert.equal(note.days[0].events.find(event=>event.id==='transfer-0').duration,0);
+    assert.equal(restaurantMeal(restored,eventId).options.onSelect(restaurant).ok,true);editEntry(restored,'transfer-0',{duration:25});
+    assert.equal(manualMeal(restored,eventId).options.onClear().ok,true);
+    note=JSON.parse(restored.stored.get(storageKey)).itinerary;
+    assert.equal(note.days[0].events.find(event=>event.id===eventId).location,null);assert.equal(note.days[0].events.find(event=>event.id==='transfer-0').duration,0);
+  }
+});
+
+test('switching restaurants discards the former meal editor draft before reopening or reloading, including restaurants without coordinates', async () => {
+  for (const coordinates of [true,false]) for(const reload of [false,true]) {
+    const fixture=actualPlannerFixture();let app=runtime({...fixture,withAccount:true});await settle();await app.create();
+    const first={id:'tour-food-101',name:'첫 식당',address:'첫 주소',latitude:coordinates?35.12:null,longitude:coordinates?126.92:null};
+    const second={id:'tour-food-102',name:'다음 식당',address:'다음 주소',latitude:coordinates?35.22:null,longitude:coordinates?126.95:null};
+    assert.equal(restaurantMeal(app).options.onSelect(first).ok,true);
+    const row=editRow(app,'lunch');
+    editorField(row,'일정 이름').value='첫 식당에서 작성하던 제목';inputMemo(row,'첫 식당의 미저장 메모');
+    editorField(row,'위치 이름').value='첫 식당의 미저장 위치';editorField(row,'확인한 위도').value='35.99';editorField(row,'확인한 경도').value='127.99';
+    row.querySelector('.event-editor').dispatch('keydown',{key:'Escape'});
+    assert.ok(JSON.parse(app.stored.get(storageKey)).editorDrafts['0:lunch']);
+    assert.equal(restaurantMeal(app).options.onSelect(second).ok,true);
+    assert.equal(JSON.parse(app.stored.get(storageKey)).editorDrafts['0:lunch'],undefined);
+    if(reload){app=runtime({...fixture,withAccount:true,hash:'#/note',raw:app.stored.get(storageKey)});await settle();}
+    const reopened=editRow(app,'lunch');
+    assert.match(editorField(reopened,'일정 이름').value,/다음 식당/);assert.notEqual(reopened.querySelector('textarea').value,'첫 식당의 미저장 메모');
+    assert.equal(editorField(reopened,'위치 이름').value,coordinates?second.name:'');
+    assert.equal(editorField(reopened,'확인한 위도').value,coordinates?String(second.latitude):'');assert.equal(editorField(reopened,'확인한 경도').value,coordinates?String(second.longitude):'');
+    reopened.querySelector('.event-editor').dispatch('submit');
+    const saved=JSON.parse(app.stored.get(storageKey)).itinerary;
+    assert.match(saved.eventEdits[0].lunch.title,/다음 식당/);assert.equal(saved.eventEdits[0].lunch.location?.id||null,coordinates?second.id:null);
+  }
+});
+
+test('the same restaurant keeps unfinished location and memo fields across compact view, another saved edit and reload', async () => {
+  const fixture=actualPlannerFixture(),app=runtime({...fixture,withAccount:true});await settle();await app.create();
+  const restaurant={id:'tour-food-101',name:'유지할 식당',address:'광주광역시 남구 첫길 1',latitude:35.12,longitude:126.92};
+  assert.equal(restaurantMeal(app).options.onSelect(restaurant).ok,true);
+  const row=editRow(app,'lunch');inputMemo(row,'이 식당에서 이어 쓸 메모');editorField(row,'위치 이름').value='이 식당의 입구';editorField(row,'확인한 위도').value='35.123';
+  app.$('day-list').children[0].querySelector('.day-view-toggle').click();app.$('day-list').children[0].querySelector('.day-view-toggle').click();
+  assert.equal(row.querySelector('textarea').value,'이 식당에서 이어 쓸 메모');assert.equal(editorField(row,'위치 이름').value,'이 식당의 입구');
+  row.querySelector('.event-editor').dispatch('keydown',{key:'Escape'});
+  editEntry(app,'place-0',{duration:75});
+  assert.equal(manualMeal(app).options.onSave({name:restaurant.name,description:'저장된 메모'}).ok,true);
+  const restored=runtime({...fixture,withAccount:true,hash:'#/note',raw:app.stored.get(storageKey)});await settle();
+  const reopened=editRow(restored,'lunch');
+  assert.equal(reopened.querySelector('textarea').value,'이 식당에서 이어 쓸 메모');assert.equal(editorField(reopened,'위치 이름').value,'이 식당의 입구');assert.equal(editorField(reopened,'확인한 위도').value,'35.123');
+  assert.equal(JSON.parse(restored.stored.get(storageKey)).itinerary.eventEdits[0].lunch.location.latitude,restaurant.latitude);
+});
+
+test('changed restaurant coordinates invalidate a transfer draft even when its endpoint ID stays the same', async () => {
+  const fixture=timedNoteFixture(),app=runtime({...fixture,withAccount:true,hash:'#/note',raw:ownerNote(fixture.note,null)});await settle();
+  const restaurant={id:'tour-food-101',name:'좌표를 확인한 식당',address:'광주광역시 남구 첫길 1',latitude:35.12,longitude:126.92};
+  assert.equal(restaurantMeal(app).options.onSelect(restaurant).ok,true);editEntry(app,'transfer-0',{duration:25});
+  const row=editRow(app,'transfer-0');inputMemo(row,'예전 위치까지 이동하는 미저장 메모');
+  row.querySelectorAll('input').find(input=>input.getAttribute('aria-label')==='이동시간: 분').value='45';
+  row.querySelector('.event-editor').dispatch('keydown',{key:'Escape'});
+  assert.equal(restaurantMeal(app).options.onSelect({...restaurant,latitude:35.25}).ok,true);
+  assert.equal(JSON.parse(app.stored.get(storageKey)).editorDrafts['0:transfer-0'],undefined);
+  const reopened=editRow(app,'transfer-0');
+  assert.notEqual(reopened.querySelector('textarea').value,'예전 위치까지 이동하는 미저장 메모');
+  assert.equal(reopened.querySelectorAll('input').find(input=>input.getAttribute('aria-label')==='이동시간: 분').value,'0');
+});
+
 test('editing an added entry keeps its position when its original base anchor has been excluded', async () => {
   const fixture = actualPlannerFixture(), app = runtime(fixture); await settle(); await app.create();
   const add = app.mounts.findLast(record => record.kind === 'schedule' && !record.destroyed);
@@ -2344,6 +2425,10 @@ test('invalid restored budget never replaces the current note or its browser dra
 function manualMeal(app,eventId='lunch'){
   return app.mounts.findLast(record=>record.kind==='manual-restaurant'&&!record.destroyed&&record.host.closest('.timeline-row').dataset.eventId===eventId);
 }
+function restaurantMeal(app,eventId='lunch'){
+  return app.mounts.findLast(record=>record.kind==='restaurant'&&!record.destroyed&&record.host.closest('.timeline-row').dataset.eventId===eventId);
+}
+function editorField(row,caption){return row.querySelectorAll('.editor-field').find(field=>field.children[0]?.textContent===caption).children[1];}
 function editEntry(app,eventId,{title,description,duration}={}){
   const row=app.$('day-list').querySelector(`[data-event-id="${eventId}"]`);
   row.querySelector('.event-edit-button').click();
