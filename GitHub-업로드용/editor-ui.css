@@ -167,7 +167,9 @@
   .timeline-row[data-reordering="true"] { z-index:12; }
 }
 @media screen and (max-width:600px) {
-  .timeline-row .timeline-reorder { --dot-size:10px; --dot-border:2px; flex:0 0 10px; margin-right:2px; }
+  .timeline-row .timeline-time { flex-wrap:nowrap; }
+  .timeline-row .timeline-reorder { --dot-size:10px; --dot-border:2px; order:-1; flex:0 0 10px; margin-right:2px; }
+  .timeline-row .timeline-time-labels { display:flex; flex:1 1 0; align-items:center; flex-wrap:wrap; gap:6px; min-width:0; }
 }
 @media screen and (max-width:600px), screen and (pointer:coarse) {
   .timeline-move-controls { top:20px; left:0; flex-direction:row; gap:4px; width:max-content; padding:4px; border:1px solid #e0dccf; border-radius:12px; background:#fffefa; box-shadow:0 4px 16px #505b7720; pointer-events:auto; }
