@@ -34,8 +34,9 @@ class Element {
   dispatch(type, extra = {}) { for (const listener of this.listeners.get(type) || []) listener({ type, target: this, preventDefault() {}, ...extra }); }
   click() { if (!this.disabled) this.dispatch('click'); }
   focus() { if (!this.disabled) this.document.activeElement = this; }
+  setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }
   querySelector(selector) {
-    for (const child of this.children) { if (child.tagName === selector) return child; const found = child.querySelector(selector); if (found) return found; }
+    for (const child of this.children) { if (selector.startsWith('.') ? child.className.split(/\s+/).includes(selector.slice(1)) : child.tagName === selector) return child; const found = child.querySelector(selector); if (found) return found; }
     return null;
   }
 }
@@ -215,6 +216,68 @@ test('saved plans sort locally by updated time or start date and retain the choi
   assert.deepEqual(titles(), ['먼저 출발', '중간 출발', '늦게 출발']); assert.equal(app.calls.length, calls);
   await app.click('새로고침', app.roots.libraryRoot);
   assert.equal(app.find('account-sort-select').value, 'start'); assert.deepEqual(titles(), ['먼저 출발', '중간 출발', '늦게 출발']);
+  app.controller.destroy();
+});
+
+test('saved plan search combines normalized title and region words locally while preserving the input and its focus', async () => {
+  const app = runtime({ user: person, plans: [
+    planFixture({ id: 'one', title: '가족 Summer 여행', cityId: 'busan' }),
+    planFixture({ id: 'two', title: '친구 Summer 여행', cityId: 'busan' }),
+    planFixture({ id: 'three', title: '가족 산책' })
+  ] });
+  app.window.TRAVEL_DATA.cities.busan = { name: '부산' }; await app.ready();
+  const before = clone(app.state), calls = app.calls.length, search = app.find('account-plan-search');
+  const titles = () => app.all('account-plan-title').map(node => node.textContent);
+  search.focus();
+  for (const query of ['부산 가족', '  ＳＵＭＭＥＲ 가족  ']) {
+    search.value = query; search.dispatch('input');
+    assert.deepEqual(titles(), ['가족 Summer 여행']);
+    assert.equal(app.find('account-plan-search'), search); assert.equal(app.document.activeElement, search);
+    assert.match(app.find('account-search-result').textContent, /검색 결과 1개 · 전체 3개/);
+  }
+  search.value = '<script>.*'; search.dispatch('input');
+  assert.equal(titles().length, 0); assert.match(app.find('account-search-result').textContent, /검색 결과가 없어요/);
+  await app.click('검색 지우기');
+  assert.equal(search.value, ''); assert.equal(titles().length, 3); assert.equal(app.document.activeElement, search);
+  search.value = '   '; search.dispatch('input'); assert.equal(titles().length, 3);
+  assert.equal(app.calls.length, calls); assert.deepEqual(clone(app.state), before);
+  app.controller.destroy();
+});
+
+test('search survives sorting, list refresh and late destination names while retaining cursor on catalog updates', async () => {
+  const app = runtime({ user: person, plans: [
+    planFixture({ id: 'later', title: '가족 나들이', cityId: 'busan', startDate: '2026-11-01' }),
+    planFixture({ id: 'early', title: '가족 산책', cityId: 'busan' }), planFixture({ id: 'other', title: '혼자 여행' })
+  ] }); await app.ready();
+  const search = app.find('account-plan-search'); search.value = '부산'; search.dispatch('input');
+  assert.equal(app.all('account-plan-card').length, 0);
+  search.focus(); search.setSelectionRange(1, 2);
+  const calls = app.calls.length;
+  app.window.TRAVEL_DATA.cities.busan = { name: '부산' }; app.controller.refreshDestinations();
+  assert.equal(app.calls.length, calls); assert.equal(app.all('account-plan-card').length, 2);
+  assert.equal(app.document.activeElement, app.find('account-plan-search'));
+  assert.equal(app.find('account-plan-search').selectionStart, 1); assert.equal(app.find('account-plan-search').selectionEnd, 2);
+  const sort = app.find('account-sort-select'); sort.value = 'start'; sort.dispatch('change');
+  assert.equal(app.find('account-plan-search').value, '부산');
+  assert.deepEqual(app.all('account-plan-title').map(node => node.textContent), ['가족 산책', '가족 나들이']);
+  await app.click('새로고침', app.roots.libraryRoot);
+  assert.equal(app.find('account-plan-search').value, '부산'); assert.equal(app.find('account-sort-select').value, 'start');
+  assert.equal(app.all('account-plan-card').length, 2); app.controller.destroy();
+});
+
+test('filtered load and delete actions target the matching plan and account changes clear the former search', async () => {
+  const app = runtime({ user: person, plans: [planFixture({ id: 'one', title: '가족 산책' }), planFixture({ id: 'two', title: '혼자 여행' })] });
+  await app.ready();
+  const search = app.find('account-plan-search'); search.value = '혼자'; search.dispatch('input');
+  await app.click('불러오기', app.roots.libraryRoot); await app.click('불러오기', app.find('account-dialog-actions'));
+  assert.equal(app.calls.filter(call => call.path === '/api/plans/two' && call.method === 'GET').length, 1);
+  await app.click('삭제', app.roots.libraryRoot); await app.click('삭제', app.find('account-dialog-actions'));
+  assert.equal(app.calls.filter(call => call.path === '/api/plans/two' && call.method === 'DELETE').length, 1);
+  assert.equal(app.find('account-plan-search').value, '혼자'); assert.equal(app.all('account-plan-card').length, 0);
+  app.state.user = { id: 'user-two', username: 'traveler_2' }; app.state.plans = [planFixture({ title: '새 계정 계획' })];
+  app.window.dispatch('storage', { key: 'gil-account-session-change', newValue: 'changed' }); await settle();
+  assert.equal(app.find('account-plan-search').value, '');
+  assert.deepEqual(app.all('account-plan-title').map(node => node.textContent), ['새 계정 계획']);
   app.controller.destroy();
 });
 

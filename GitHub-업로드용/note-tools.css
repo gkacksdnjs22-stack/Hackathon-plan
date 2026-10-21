@@ -10,6 +10,23 @@
 .note-export-fallback[hidden] { display:none!important; }
 .note-export-fallback textarea { display:block; width:100%; margin-top:6px; padding:10px; border:1px solid #cbd9ed; border-radius:8px; background:#fff; color:#243e61; font:inherit; line-height:1.7; resize:vertical; }
 .note-export :focus-visible { outline:3px solid #8798c5; outline-offset:2px; }
+.pending-transfers { margin:14px 0; border:1px solid #cbd9ed; border-radius:12px; background:#f7faff; color:#365879; }
+.pending-transfers[hidden] { display:none!important; }
+.pending-transfers > summary { min-height:44px; padding:12px 15px; font-size:12px; font-weight:700; cursor:pointer; }
+.pending-transfers-hint { margin:0; padding:0 15px 12px; color:#586c89; font-size:11px; line-height:1.8; }
+.pending-transfer-list { display:grid; gap:7px; max-height:320px; margin:0; padding:0 12px 12px; overflow-y:auto; list-style:none; }
+.pending-transfer-list:empty { display:none; }
+.pending-transfer-link { display:block; width:100%; min-height:44px; padding:10px 12px; border:1px solid #d4e0f2; border-radius:8px; background:#fff; color:#365879; font:inherit; text-align:left; cursor:pointer; overflow-wrap:anywhere; }
+.pending-transfer-link:hover { background:#eaf2ff; }
+.pending-transfer-title { display:block; font-size:12px; font-weight:700; line-height:1.7; }
+.pending-transfer-reason { display:block; margin-top:3px; color:#586c89; font-size:11px; line-height:1.7; }
+.pending-transfers :focus-visible { outline:3px solid #8798c5; outline-offset:2px; }
+.account-search-row { display:flex; align-items:flex-end; flex-wrap:wrap; gap:8px; margin-top:14px; }
+.account-search-label { display:grid; flex:1 1 200px; gap:6px; color:#586c89; font-size:11px; }
+.account-plan-search { box-sizing:border-box; width:100%; min-width:0; min-height:44px; padding:9px 11px; border:1px solid #cbd9ed; border-radius:9px; background:#fff; color:#365879; font:inherit; font-size:14px; }
+.account-search-row .account-button { min-height:44px; }
+.account-search-result { margin:10px 0 0; color:#586c89; font-size:11px; line-height:1.8; overflow-wrap:anywhere; }
+.account-search-result:empty { display:none; }
 .address-copy { display:inline-flex; align-items:center; flex-wrap:wrap; gap:6px 10px; min-width:0; max-width:100%; }
 .address-copy-button,.day-collapse { min-height:40px; padding:8px 11px; border:1px solid #cbd9ed; border-radius:9px; background:#f7faff; color:#365879; font:inherit; font-size:11px; cursor:pointer; }
 .address-copy-status { max-width:280px; color:#586c89; font-size:11px; line-height:1.7; overflow-wrap:anywhere; }
@@ -44,6 +61,7 @@ body[data-screen="note"] .day-card.is-collapsed .day-card-header { border-bottom
   .day-bookmark { font-size:14px; }
 }
 @media (max-width:760px) {
+  .account-plan-search { font-size:16px; }
   .day-card-header { flex-wrap:wrap; }
   .day-header-actions { width:100%; justify-content:space-between; }
   .day-header-actions .day-area-controls { flex:1; width:auto; min-width:0; }
@@ -51,7 +69,7 @@ body[data-screen="note"] .day-card.is-collapsed .day-card-header { border-bottom
   .day-bookmark { padding-right:15px; padding-left:15px; }
 }
 @media print {
-  .note-export { display:none!important; }
+  .note-export,.pending-transfers { display:none!important; }
   .day-bookmarks,.day-collapse,.address-copy,.memo-counter { display:none!important; }
   .day-card[hidden] { display:block!important; }
   .day-card-body[hidden] { display:block!important; }

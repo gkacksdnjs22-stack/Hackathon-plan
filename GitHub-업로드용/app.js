@@ -126,6 +126,7 @@
       const loaded=await window.TourData.loadDestinations();
       if(destinationVersion!==destinationRequestVersion)return;
       destinations=loaded;
+      account?.refreshDestinations?.();
       updateCityOptions(true);
       citySelect.disabled=false;
       setBusy(false);
@@ -251,6 +252,9 @@
     $('day-bookmarks-bottom')?.replaceChildren();
     $('note-timing-notice').hidden=true;
     $('note-timing-notice').textContent='';
+    $('pending-transfers').replaceChildren();
+    $('pending-transfers').hidden=true;
+    $('pending-transfers').open=false;
     syncScreen();
   }
   function discardItineraryForChangedConditions(){
@@ -524,6 +528,7 @@
     const timingMessage=provisional?'출발지와 미정인 이동시간을 먼저 정해 주세요. 미정은 실제 이동 0분이 아니며, 도착·식사 시각은 달라질 수 있어요.':'';
     timingNotice.hidden=!provisional;
     if(timingNotice.textContent!==timingMessage)timingNotice.textContent=timingMessage;
+    renderPendingTransfers();
     $('capacity-message').hidden=true;
     const list=$('day-list');
     destroyDepartureWidgets();
@@ -576,6 +581,37 @@
     if(focus)card.focus({preventScroll:true});
     if(scroll)($('day-bookmarks')||card).scrollIntoView({block:'start',behavior:'instant'});
     return changed;
+  }
+  function renderPendingTransfers(){
+    const panel=$('pending-transfers');
+    const pending=window.TravelNoteTools.pendingTransfers(currentItinerary);
+    panel.hidden=false;panel.replaceChildren();
+    const summary=document.createElement('summary');
+    summary.textContent=pending.length?`미정 이동 ${pending.length}구간 모아보기`:'미정 이동 구간 없음';
+    const hint=document.createElement('p');hint.className='pending-transfers-hint';
+    hint.textContent=pending.length?'전체 날짜에서 아직 정하지 않은 구간이에요. 선택하면 해당 일정으로 이동해요. 미정은 실제 이동 0분을 뜻하지 않아요.':'모든 이동 구간에 소요시간이 입력되어 있어요. 여행 당일의 실제 소요시간도 확인해 주세요.';
+    const list=document.createElement('ul');list.className='pending-transfer-list';
+    pending.forEach(item=>{
+      const entry=document.createElement('li');
+      const button=document.createElement('button');button.type='button';button.className='pending-transfer-link';
+      const day=currentItinerary.days[item.dayIndex];
+      const title=document.createElement('span');title.className='pending-transfer-title';
+      title.textContent=`Day ${String(item.dayIndex+1).padStart(2,'0')} · ${day.date} · ${item.title}`;
+      const reason=document.createElement('span');reason.className='pending-transfer-reason';reason.textContent=`${item.reason} · 구간으로 이동 →`;
+      button.append(title,reason);
+      button.addEventListener('click',()=>{
+        window.location.hash=`#/note/day/${item.dayIndex+1}`;
+        syncScreen({focus:false});
+        selectDayPage(item.dayIndex,{expand:true});
+        const row=[...$(`travel-day-${item.dayIndex}`).querySelectorAll('.timeline-row')].find(row=>row.dataset.eventId===item.eventId);
+        if(!row)return;
+        const target=item.target==='time'?row.querySelector('.event-edit-button'):$(`day-${item.target==='arrival'?'arrival':'origin'}-${item.dayIndex}`)?.querySelector('summary');
+        target?.focus({preventScroll:true});
+        row.scrollIntoView({block:'center',behavior:'instant'});
+      });
+      entry.append(button);list.append(entry);
+    });
+    panel.append(summary,hint,list);
   }
   function refreshCountdown(){
     if(!currentItinerary)return;

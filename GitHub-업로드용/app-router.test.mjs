@@ -199,7 +199,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   document.body = document.createElement('body');
   const ids = ['country-select', 'city-select', 'start-date', 'day-count', 'trip-form', 'destinations-retry',
     'city-note', 'duration-note', 'data-status', 'app-message', 'date-trigger', 'itinerary-section',
-    'empty-state', 'day-list', 'day-bookmarks', 'day-bookmarks-bottom', 'trip-summary', 'note-timing-notice', 'capacity-message', 'print-button', 'clear-button', 'undo-button', 'redo-button',
+    'empty-state', 'day-list', 'day-bookmarks', 'day-bookmarks-bottom', 'trip-summary', 'note-timing-notice', 'pending-transfers', 'capacity-message', 'print-button', 'clear-button', 'undo-button', 'redo-button',
     'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'account-notice', 'saved-plans', 'account-save', 'note-export'];
   for (const id of ids) {
     const tag = ['city-select', 'day-count'].includes(id) ? 'select' : id === 'trip-form' ? 'form' : ['print-button','clear-button','undo-button','redo-button'].includes(id) ? 'button' : 'div';
@@ -209,7 +209,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   $('country-select').value = 'KR'; $('app-message').hidden = true; $('note-timing-notice').hidden = true;
   $('start-screen').append($('title'), $('trip-form'), $('resume-note'), $('empty-state'));
   $('resume-note').append($('resume-summary'));
-  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('undo-button'), $('redo-button'), $('note-timing-notice'), $('note-export'), $('day-bookmarks'), $('day-list'), $('day-bookmarks-bottom'));
+  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('undo-button'), $('redo-button'), $('note-timing-notice'), $('pending-transfers'), $('note-export'), $('day-bookmarks'), $('day-list'), $('day-bookmarks-bottom'));
   $('screen-loading').append($('loading-title'));
   document.body.append($('app-message'), $('screen-loading'), $('start-screen'), $('itinerary-section'));
   const submit = document.createElement('button'); submit.type = 'submit'; submit.append(document.createElement('span'));
@@ -1233,6 +1233,62 @@ test('loading remains visible until completion, while errors persist until the n
   assert.equal(app.$('app-message').hidden, true);
 });
 
+
+test('pending transfer links switch to a collapsed later day, focus its input and scroll to the row without changing data', async () => {
+  const fixture = timedNoteFixture(3);
+  const pending = fixture.planner.updateEvent({ city: fixture.cityData, itinerary: fixture.note, dayIndex: 2, eventId: 'transfer-1', duration: 0 });
+  assert.equal(pending.ok, true);
+  const app = runtime({ ...fixture, raw: savedNote(pending.itinerary), hash: '#/note', withAccount: true }); await settle();
+  const panel = app.$('pending-transfers'), day = app.document.getElementById('travel-day-2');
+  assert.equal(panel.hidden, false); assert.match(panel.querySelector('summary').textContent, /1구간/);
+  assert.match(panel.querySelector('button').textContent, /Day 03.*이동시간 미정/);
+  day.querySelector('.day-collapse').click();
+  const before = app.stored.get(storageKey), writes = app.writes.length, changes = app.account.changes;
+  panel.querySelector('button').click(); await settle();
+  const row = day.querySelector('[data-event-id="transfer-1"]');
+  assert.equal(app.window.location.hash, '#/note/day/3'); assert.equal(day.hidden, false);
+  assert.equal(day.querySelector('.day-card-body').hidden, false);
+  assert.equal(app.document.activeElement, row.querySelector('.event-edit-button'));
+  assert.equal(row.lastScrollIntoView.block, 'center');
+  assert.equal(app.stored.get(storageKey), before); assert.equal(app.writes.length, writes); assert.equal(app.account.changes, changes);
+  await app.clear(); assert.equal(panel.hidden, true); assert.equal(panel.textContent, '');
+});
+
+test('pending links distinguish missing departure and arrival fields and recompute after saves, undo, redo and reload', async () => {
+  const app = runtime({ ...actualPlannerFixture(), withAccount: true }); await settle(); await app.create();
+  const panel = app.$('pending-transfers');
+  assert.match(panel.querySelector('summary').textContent, /3구간/);
+  panel.querySelector('button').click(); await settle();
+  assert.equal(app.document.activeElement, app.document.getElementById('day-origin-0').querySelector('summary'));
+  editEntry(app, 'transfer-0', { duration: 25 }); assert.match(panel.querySelector('summary').textContent, /2구간/);
+  app.$('undo-button').click(); assert.match(panel.querySelector('summary').textContent, /3구간/);
+  app.$('redo-button').click(); assert.match(panel.querySelector('summary').textContent, /2구간/);
+  const reloaded = runtime({ ...actualPlannerFixture(), raw: app.stored.get(storageKey), hash: '#/note' }); await settle();
+  assert.match(reloaded.$('pending-transfers').querySelector('summary').textContent, /2구간/);
+  const fixture = transitPreviewFixture({ arrival: true, duration: 90 });
+  const noArrival = fixture.planner.setDayArrival({ city: fixture.cityData, itinerary: fixture.note, dayIndex: 0, arrival: null });
+  assert.equal(noArrival.ok, true);
+  const arrivalApp = runtime({ ...fixture, raw: savedNote(noArrival.itinerary), hash: '#/note' }); await settle();
+  const arrivalLink = arrivalApp.$('pending-transfers').querySelector('button'); assert.match(arrivalLink.textContent, /도착지 미정/);
+  arrivalLink.click(); await settle();
+  assert.equal(arrivalApp.document.activeElement, arrivalApp.document.getElementById('day-arrival-0').querySelector('summary'));
+});
+
+test('pending moves include added transfers and remain pending during unsaved transit previews', async () => {
+  const fixture = transitPreviewFixture({ arrival: true, duration: 90 }), app = previewRuntime(fixture); await settle();
+  const panel = app.$('pending-transfers'), before = panel.textContent;
+  previewMount(app, 'local-transfer', 'arrival-transfer').options.onPreviewTransitDuration(53);
+  assert.equal(panel.textContent, before);
+  assert.match(panel.querySelector('summary').textContent, /1구간/);
+  const added = currentSchedule(app).options.onAdd({ type: 'transfer', title: '숙소로 이동', duration: 0 });
+  assert.equal(added.ok, true); assert.match(panel.querySelector('summary').textContent, /2구간/);
+  app.$('day-list').querySelector('[data-event-id="extra-1"]').querySelector('.event-remove-button').click();
+  assert.match(panel.querySelector('summary').textContent, /1구간/);
+  editEntry(app, 'arrival-transfer', { duration: 18 });
+  assert.match(panel.querySelector('summary').textContent, /미정 이동 구간 없음/);
+  await app.account.options.onUserChange(undefined);
+  assert.equal(panel.hidden, true); assert.equal(panel.textContent, '');
+});
 
 test('built-in transfer editor saves a memo with pending zero duration and lets a known duration return to pending', async () => {
   const app = runtime(actualPlannerFixture()); await settle(); await app.create();
