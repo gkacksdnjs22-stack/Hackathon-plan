@@ -112,7 +112,7 @@
     };
   }
   function mountEvent(content, row, event, dayIndex, { onTag, onFavorite }) {
-    const controls = node('div', 'event-personal-controls'), label = node('label', '', '색상 태그');
+    const controls = node('div', 'event-personal-controls'), label = node('label');
     const select = node('select', 'event-tag-select'); select.setAttribute('aria-label', `${dayIndex + 1}일차 ${event.place?.name || event.title || '일정'} 색상 태그`);
     for (const [value, caption] of [['', '태그 없음'], ...Object.entries(TAGS)]) { const option = node('option', '', caption); option.value = value; select.append(option); }
     const badge = node('span', 'event-tag-badge'); content.prepend(badge); label.append(select); controls.append(label);
