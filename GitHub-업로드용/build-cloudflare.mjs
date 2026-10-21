@@ -50,7 +50,11 @@ function zip(entries) {
 }
 
 await mkdir(OUTPUT, { recursive: true });
-for (const [filename, bytes] of files) await writeFile(path.join(OUTPUT, filename), bytes);
+for (const [filename, bytes] of files) {
+  const target = path.join(OUTPUT, filename);
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, bytes);
+}
 await writeFile(ARCHIVE, zip(files));
 console.log(`Cloudflare ZIP: ${ARCHIVE}`);
 console.log(`Public files: ${files.size}; API worker bundled; no environment files included.`);

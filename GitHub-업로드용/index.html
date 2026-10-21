@@ -25,6 +25,9 @@
   <script src="./places.js?v=10" defer></script>
   <script src="./note-tools.js?v=2" defer></script>
   <script src="./itinerary-export.js?v=1" defer></script>
+  <link rel="stylesheet" href="./vendor/leaflet/leaflet.css?v=1.9.4">
+  <script src="./vendor/leaflet/leaflet.js?v=1.9.4" defer></script>
+  <script src="./day-map.js?v=2" defer></script>
   <script src="./personalization-ui.js?v=1" defer></script>
   <script src="./planner.js?v=19" defer></script>
   <script src="./tour-data.js?v=11" defer></script>
@@ -43,7 +46,8 @@
   <link rel="stylesheet" href="./travel-atmosphere.css?v=14">
   <link rel="stylesheet" href="./note-tools.css?v=8">
   <link rel="stylesheet" href="./personalization-ui.css?v=1">
-  <script src="./app.js?v=48" defer></script>
+  <link rel="stylesheet" href="./day-map.css?v=1">
+  <script src="./app.js?v=49" defer></script>
   <script src="./backdrop-photos.js?v=2" defer></script>
   <script src="./travel-backdrop.js?v=4" defer></script>
 </head>
@@ -95,6 +99,7 @@
       <div id="note-export" class="note-export" role="group" aria-label="일정 복사와 캘린더 내보내기"></div>
       <section id="personal-tools" class="personal-tools" aria-label="여행 준비물과 관광지 즐겨찾기" hidden></section>
       <div id="capacity-message" class="capacity-message" hidden></div>
+      <details id="day-map" class="day-map" hidden></details>
       <nav id="day-bookmarks" class="day-bookmarks" aria-label="날짜별 일정 바로가기"></nav>
       <div id="day-list" class="day-list"></div>
       <nav id="day-bookmarks-bottom" class="day-bookmarks day-bookmarks-bottom" aria-label="날짜별 일정 바로가기 하단"></nav>
