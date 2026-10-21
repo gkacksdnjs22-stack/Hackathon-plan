@@ -363,13 +363,15 @@
     const day=currentItinerary.days[dayIndex],at=day.events.findIndex(item=>item.id===event.id);
     const before=event.id==='arrival-transfer'?day.arrival:eventLocation(day.events.slice(0,at).reverse().find(visitEvent));
     const after=eventLocation(day.events.slice(at+1).find(visitEvent));
+    const destination=event.type==='departure'?(window.TravelPlanner.requiresArrival(event.departure?.mode)?day.arrival:eventLocation(day.events.find(item=>!['departure','arrival','transfer','finish'].includes(item.type)&&visitEvent(item)))):null;
     const identity=[event.type,event.place?.id||null,event.departure?.id||null,event.travelMode||null,
       event.departure?.mode||null,event.departure?.source||null,event.departure?.service||null,
       event.type==='transfer'?before?.id||null:null,event.type==='transfer'?after?.id||null:null,
-      event.type==='departure'?(day.arrival||day.events.find(item=>item.type==='place')?.place)?.id||null:null];
+      destination?.id||null];
     const restaurantName=event.type==='meal'?mealRestaurantName(event):'';
     if(event.location||restaurantName)identity.push(['location',event.location?.id||null,event.location?.latitude??null,event.location?.longitude??null,restaurantName||event.location?.name||'']);
     if(event.type==='transfer')identity.push(['route',before?.latitude??null,before?.longitude??null,after?.latitude??null,after?.longitude??null]);
+    if(event.type==='departure')identity.push(['route',event.departure?.latitude??null,event.departure?.longitude??null,destination?.latitude??null,destination?.longitude??null]);
     return JSON.stringify(identity);
   }
   function validatedReorders(value){

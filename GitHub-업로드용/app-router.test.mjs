@@ -1633,6 +1633,86 @@ test('changed restaurant coordinates invalidate a transfer draft even when its e
   assert.equal(reopened.querySelectorAll('input').find(input=>input.getAttribute('aria-label')==='이동시간: 분').value,'0');
 });
 
+function firstVisitDraftFixture(type='meal') {
+  const fixture=timedNoteFixture(),place={id:'tour-food-900',name:type==='meal'?'첫 식당':'첫 숙소',address:'광주광역시 남구 첫길 1',latitude:35.12,longitude:126.92,kind:type==='meal'?'meal':'stay'};
+  const added=fixture.planner.addEvent({city:fixture.cityData,itinerary:fixture.note,dayIndex:0,type,title:type==='meal'?`식사 · ${place.name}`:place.name,duration:60,beforeId:'place-0'});
+  assert.equal(added.ok,true,added.reason);
+  const located=fixture.planner.updateEvent({city:fixture.cityData,itinerary:added.itinerary,dayIndex:0,eventId:added.eventId,location:place});
+  assert.equal(located.ok,true,located.reason);
+  return {...fixture,note:located.itinerary,eventId:added.eventId,firstVisit:place};
+}
+function departureEditorMinutes(row) {
+  const inputs=row.querySelector('.event-editor').querySelectorAll('input');
+  return Number(inputs.find(input=>input.getAttribute('aria-label')==='이동시간: 시간').value)*60+Number(inputs.find(input=>input.getAttribute('aria-label')==='이동시간: 분').value);
+}
+function leaveDepartureDraft(app) {
+  const row=editRow(app,'departure'),form=row.querySelector('.event-editor'),inputs=form.querySelectorAll('input');
+  inputs.find(input=>input.getAttribute('aria-label')==='이동시간: 시간').value='1';
+  inputs.find(input=>input.getAttribute('aria-label')==='이동시간: 분').value='35';
+  inputMemo(row,'이 출발 구간에서 작성 중인 메모');form.dispatch('keydown',{key:'Escape'});
+  assert.ok(JSON.parse(app.stored.get(storageKey)).editorDrafts['0:departure']);
+}
+
+test('departure travel drafts follow the first restaurant ID and coordinates before reopening or reloading', async () => {
+  for(const sameId of [false,true]) for(const reload of [false,true]) {
+    const fixture=firstVisitDraftFixture();let app=runtime({...fixture,withAccount:true,hash:'#/note',raw:ownerNote(fixture.note,null)});await settle();
+    leaveDepartureDraft(app);
+    const second={...fixture.firstVisit,id:sameId?fixture.firstVisit.id:'tour-food-901',name:'바뀐 첫 식당',latitude:35.22,longitude:126.95};
+    assert.equal(restaurantMeal(app,fixture.eventId).options.onSelect(second).ok,true);
+    let saved=JSON.parse(app.stored.get(storageKey));
+    assert.equal(saved.editorDrafts['0:departure'],undefined);assert.equal(saved.itinerary.days[0].events[0].duration,0);
+    if(reload){app=runtime({...fixture,withAccount:true,hash:'#/note',raw:app.stored.get(storageKey)});await settle();}
+    const reopened=editRow(app,'departure');assert.equal(departureEditorMinutes(reopened),0);
+    reopened.querySelector('.event-editor').dispatch('submit');saved=JSON.parse(app.stored.get(storageKey));
+    assert.equal(saved.itinerary.days[0].events[0].duration,0);
+    assert.equal(saved.itinerary.days[0].events.find(event=>event.id===fixture.eventId).location.latitude,second.latitude);
+  }
+});
+
+test('moving the first lodging behind a tourist invalidates its former departure travel draft', async () => {
+  const fixture=firstVisitDraftFixture('free'),app=runtime({...fixture,withAccount:true,hash:'#/note',raw:ownerNote(fixture.note,null)});await settle();
+  leaveDepartureDraft(app);
+  app.$('day-list').querySelector(`[data-event-id="${fixture.eventId}"]`).querySelectorAll('.event-move-button')[1].click();
+  const saved=JSON.parse(app.stored.get(storageKey));
+  assert.equal(saved.editorDrafts['0:departure'],undefined);assert.equal(saved.itinerary.days[0].events[1].id,'place-0');
+  const reopened=editRow(app,'departure');assert.equal(departureEditorMinutes(reopened),0);
+  reopened.querySelector('.event-editor').dispatch('submit');
+  assert.equal(JSON.parse(app.stored.get(storageKey)).itinerary.days[0].events[0].duration,0);
+});
+
+test('unchanged first-visit routes retain departure drafts across memo edits, compact view and reload', async () => {
+  const fixture=firstVisitDraftFixture();
+  const known=fixture.planner.updateEvent({city:fixture.cityData,itinerary:fixture.note,dayIndex:0,eventId:'departure',duration:20});assert.equal(known.ok,true);
+  const app=runtime({...fixture,withAccount:true,hash:'#/note',raw:ownerNote(known.itinerary,null)});await settle();leaveDepartureDraft(app);
+  assert.equal(manualMeal(app,fixture.eventId).options.onSave({name:fixture.firstVisit.name,description:'식당 메모만 수정'}).ok,true);
+  editEntry(app,'place-0',{duration:75});
+  const day=app.$('day-list').children[0];day.querySelector('.day-view-toggle').click();day.querySelector('.day-view-toggle').click();
+  const restored=runtime({...fixture,withAccount:true,hash:'#/note',raw:app.stored.get(storageKey)});await settle();
+  const reopened=editRow(restored,'departure');assert.equal(departureEditorMinutes(reopened),95);assert.equal(reopened.querySelector('textarea').value,'이 출발 구간에서 작성 중인 메모');
+  assert.equal(JSON.parse(restored.stored.get(storageKey)).itinerary.days[0].events[0].duration,20);
+  reopened.querySelector('.event-editor').dispatch('submit');
+  assert.equal(JSON.parse(restored.stored.get(storageKey)).itinerary.days[0].events[0].duration,95);
+});
+
+test('a changed origin coordinate invalidates the departure draft even when its stop ID is unchanged', async () => {
+  const fixture=timedNoteFixture(),app=runtime({...fixture,withAccount:true,hash:'#/note',raw:ownerNote(fixture.note,null)});await settle();leaveDepartureDraft(app);
+  const origin=app.mounts.findLast(record=>record.kind==='departure'&&!record.destroyed&&record.host.id==='day-origin-0');
+  origin.options.onChange({...fixture.note.dayDepartures[0],latitude:35.2});
+  const saved=JSON.parse(app.stored.get(storageKey));assert.equal(saved.editorDrafts['0:departure'],undefined);
+  const reopened=editRow(app,'departure');assert.equal(departureEditorMinutes(reopened),saved.itinerary.days[0].events[0].duration);assert.notEqual(departureEditorMinutes(reopened),95);
+});
+
+test('public transport departure drafts follow the arrival stop rather than the first local visit', async () => {
+  const fixture=transitPreviewFixture({arrival:true,duration:90}),app=runtime({...fixture,withAccount:true,hash:'#/note',raw:ownerNote(fixture.note,null)});await settle();leaveDepartureDraft(app);
+  assert.equal(currentSchedule(app).options.onAdd({type:'meal',beforeId:'place-0',title:'식사',duration:60}).ok,true);
+  assert.equal(restaurantMeal(app,'extra-1').options.onSelect({id:'tour-food-900',name:'도착 후 첫 식당',address:'서울 식당길',latitude:37.56,longitude:126.99}).ok,true);
+  let row=editRow(app,'departure');assert.equal(departureEditorMinutes(row),95);row.querySelector('.event-editor').dispatch('keydown',{key:'Escape'});
+  const arrival=app.mounts.findLast(record=>record.kind==='departure'&&!record.destroyed&&record.options.role==='arrival');
+  arrival.options.onChange({...fixture.note.dayArrivals[0],id:'osm-node-3',sourceUrl:'https://www.openstreetmap.org/node/3',latitude:37.58});
+  const saved=JSON.parse(app.stored.get(storageKey));assert.equal(saved.editorDrafts['0:departure'],undefined);assert.equal(saved.itinerary.days[0].events[0].duration,0);
+  row=editRow(app,'departure');assert.equal(departureEditorMinutes(row),0);
+});
+
 test('editing an added entry keeps its position when its original base anchor has been excluded', async () => {
   const fixture = actualPlannerFixture(), app = runtime(fixture); await settle(); await app.create();
   const add = app.mounts.findLast(record => record.kind === 'schedule' && !record.destroyed);

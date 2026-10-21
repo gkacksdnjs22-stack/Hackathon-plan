@@ -858,3 +858,42 @@ test('changing restaurants discards only the former restaurant draft and keeps t
     saved=(await guestNote(page)).eventEdits[0].lunch;expect(saved.title).toBe(selected.title);expect(saved.location).toEqual(selected.location);expect(saved.duration).toBe(70);
   }
 });
+
+test('changing the first restaurant invalidates only its departure travel draft before editing or reload',async({page})=>{
+  await page.route('**/api/restaurants?**',async route=>{
+    const response=await route.fetch();expect(response.status()).toBe(200);
+    const data=await response.json(),first=data.items[0];
+    data.items=[first,{...first,id:'tour-food-901',name:'합성 둘째 식당',address:'서울특별시 종로구 둘째식당길 91',latitude:37.585,longitude:126.995}];
+    await route.fulfill({response,json:data});
+  });
+  for(const reloadBeforeOpen of [false,true]){
+    if(reloadBeforeOpen){await page.evaluate(()=>localStorage.clear());await page.reload();}
+    await createNote(page);
+    await page.locator('#travel-day-0 .schedule-insert-button[aria-label="합성 문화공원 앞에 일정 추가"]').click();
+    const form=page.locator('#travel-day-0 .schedule-insert .schedule-form');
+    await form.locator('.schedule-type-select').selectOption('meal');await form.locator('.schedule-title-input').fill('첫 식당에서 식사');
+    await form.getByRole('button',{name:'일정에 추가',exact:true}).click();
+    const firstMeal=page.locator('#travel-day-0 [data-event-id="extra-1"]'),departure=page.locator('#travel-day-0 [data-event-id="departure"]');
+    const origin=page.locator('#travel-day-0 .day-origin-container');await origin.locator('summary').click();await origin.locator('.departure-mode-select').selectOption(reloadBeforeOpen?'car':'walk');await origin.locator('.origin-query').fill('합성 숙소');await origin.locator('.origin-search').click();await origin.locator('.origin-result').click();
+    async function selectRestaurant(name){
+      await firstMeal.locator('.restaurant-lookup:not(.restaurant-manual) > summary').click();
+      await firstMeal.getByRole('button',{name:`${name} 식사 일정에 담기`,exact:true}).click();
+    }
+    await selectRestaurant('합성 점심 식당');
+    let note=await guestNote(page),firstVisit=note.days[0].events.find(event=>['place','meal'].includes(event.type));
+    expect(firstVisit.id).toBe('extra-1');expect(firstVisit.location.name).toBe('합성 점심 식당');
+    let editor=await openRowEditor(page,departure);
+    await editor.getByLabel('이동시간: 시간',{exact:true}).fill('1');await editor.getByLabel('이동시간: 분',{exact:true}).fill('35');await page.keyboard.press('Escape');
+    note=await guestNote(page);expect(note.days[0].events.find(event=>event.id==='departure').duration).toBe(0);
+    editor=await openRowEditor(page,departure);await expect(editor.getByLabel('이동시간: 시간',{exact:true})).toHaveValue('1');await expect(editor.getByLabel('이동시간: 분',{exact:true})).toHaveValue('35');await page.keyboard.press('Escape');
+    await selectRestaurant('합성 둘째 식당');
+    note=await guestNote(page);const selected=note.days[0].events.find(event=>event.id==='extra-1').location;
+    expect(selected.name).toBe('합성 둘째 식당');expect(selected.latitude).toBe(37.585);expect(note.days[0].events.find(event=>event.id==='departure').duration).toBe(0);
+    if(reloadBeforeOpen){await page.reload();await expect(page.locator('#itinerary-section')).toBeVisible();}
+    editor=await openRowEditor(page,departure);await expect(editor.getByLabel('이동시간: 시간',{exact:true})).toHaveValue('0');await expect(editor.getByLabel('이동시간: 분',{exact:true})).toHaveValue('0');
+    await editor.getByRole('button',{name:'수정 저장',exact:true}).click();
+    note=await guestNote(page);expect(note.days[0].events.find(event=>event.id==='departure').duration).toBe(0);expect(note.days[0].events.find(event=>event.id==='extra-1').location).toEqual(selected);
+    await page.reload();await expect(page.locator('#itinerary-section')).toBeVisible();
+    note=await guestNote(page);expect(note.days[0].events.find(event=>event.id==='departure').duration).toBe(0);expect(note.days[0].events.find(event=>event.id==='extra-1').location).toEqual(selected);
+  }
+});

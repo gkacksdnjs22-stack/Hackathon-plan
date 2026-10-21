@@ -190,6 +190,19 @@ test('hidden recommendations still require distinct daily slots while their unus
   assert.deepEqual(normalizePlanDocument(stored),stored);
 });
 
+test('malformed excluded rows consistently produce plan validation errors before checking selected places', () => {
+  for(const value of [{},1,true,null,'place-0',['departure'],['place-0','place-0']]) {
+    const input=document();input.itinerary.excludedEvents={0:value};
+    assert.throws(()=>normalizePlanDocument(input),error('INVALID_PLAN'));
+  }
+  for(const value of [null,[],1,true]) {
+    const input=document();input.itinerary.excludedEvents=value;
+    assert.throws(()=>normalizePlanDocument(input),error('INVALID_PLAN'));
+  }
+  const valid=document();valid.itinerary.excludedEvents={0:['place-0','lunch']};
+  assert.deepEqual(normalizePlanDocument(valid).itinerary.excludedEvents,valid.itinerary.excludedEvents);
+});
+
 test('only selected official transport summaries and validated connections survive with matching clocks', () => {
   const input=document();Object.assign(input.itinerary,{dayDepartures:{0:stop()},dayArrivals:{0:stop('TO')},dayStarts:{0:'09:00'},eventEdits:{0:{departure:{duration:60}}},dayTransports:{0:trip()}});
   assert.equal(normalizePlanDocument(input).itinerary.dayTransports[0].tripNo,'KTX1');

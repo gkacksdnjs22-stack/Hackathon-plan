@@ -142,9 +142,12 @@ export function normalizePlanDocument(input) {
   const count = source.dayCount, startDate = date(source.startDate), used = new Set();
   if (!Array.isArray(source.dayAreaIds) || source.dayAreaIds.length !== count || new Set(source.dayAreaIds).size !== count
     || source.dayAreaIds.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,120}$/.test(id))) fail();
+  const excludedEvents = dayMap(optionalMap(source.excludedEvents),count, ids => {
+    if (!Array.isArray(ids) || new Set(ids).size !== ids.length || ids.some(id=>!EDITABLE.includes(id))) fail(); return [...ids];
+  });
   const selections = dayMap(source.selections,count, (ids,index) => {
     if (!Array.isArray(ids) || ids.length !== 3 || new Set(ids).size !== 3 || ids.some(id => typeof id !== 'string' || !PLACE.test(id) || used.has(id))) fail();
-    for (const [slot,id] of ids.entries()) { if (used.has(id)) fail(); if(!source.excludedEvents?.[index]?.includes(`place-${slot}`))used.add(id); }
+    for (const [slot,id] of ids.entries()) { if (used.has(id)) fail(); if(!excludedEvents[index]?.includes(`place-${slot}`))used.add(id); }
     return [...ids];
   });
   if (Object.keys(selections).length !== count) fail();
@@ -189,9 +192,6 @@ export function normalizePlanDocument(input) {
       if(Object.hasOwn(entry,'location')){if(['place','transfer'].includes(entry.type))fail();item.location=location(entry.location);}
       return item;
     });
-  });
-  const excludedEvents = dayMap(optionalMap(source.excludedEvents),count, ids => {
-    if (!Array.isArray(ids) || new Set(ids).size !== ids.length || ids.some(id=>!EDITABLE.includes(id))) fail(); return [...ids];
   });
   const eventOrders = dayMap(optionalMap(source.eventOrders),count,(ids,index) => {
     const allowed = [...EDITABLE,...(extraEvents[index]??[]).map(event=>event.id)];
