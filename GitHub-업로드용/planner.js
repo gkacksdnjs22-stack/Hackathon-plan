@@ -671,14 +671,15 @@
     const next=preserveUnchangedTravel(city,current,rebuild(city,current,{excludedEvents}),dayIndex);
     return next.ok?{ok:true,itinerary:next,eventId}:{ok:false,reason:next.reason};
   }
-  function moveEvent({city,itinerary,dayIndex,eventId,direction}={}){
+  function moveEvent({city,itinerary,dayIndex,eventId,direction,toIndex}={}){
     const current=editableItinerary(city,itinerary,dayIndex);
     if(!current.ok)return {ok:false,reason:current.reason};
-    if(direction!==-1&&direction!==1)return {ok:false,reason:'일정을 위 또는 아래로 한 칸 이동해 주세요.'};
+    if(toIndex===undefined&&direction!==-1&&direction!==1)return {ok:false,reason:'일정을 위 또는 아래로 한 칸 이동해 주세요.'};
     const ids=current.days[dayIndex].events.filter(event=>!PROTECTED_IDS.includes(event.id)).map(event=>event.id);
-    const position=ids.indexOf(eventId),destination=position+direction;
-    if(position<0||destination<0||destination>=ids.length)return {ok:false,reason:'출발·도착 이동과 마무리 사이에서만 일정을 이동할 수 있습니다.'};
-    [ids[position],ids[destination]]=[ids[destination],ids[position]];
+    const position=ids.indexOf(eventId),destination=toIndex===undefined?position+direction:toIndex;
+    if(position<0||!Number.isInteger(destination)||destination<0||destination>=ids.length)return {ok:false,reason:'출발·도착 이동과 마무리 사이에서만 일정을 이동할 수 있습니다.'};
+    if(position===destination)return {ok:true,itinerary:current,eventId};
+    ids.splice(position,1);ids.splice(destination,0,eventId);
     const next=preserveUnchangedTravel(city,current,rebuild(city,current,{eventOrders:{...current.eventOrders,[dayIndex]:ids}}),dayIndex);
     return next.ok?{ok:true,itinerary:next,eventId}:{ok:false,reason:next.reason};
   }

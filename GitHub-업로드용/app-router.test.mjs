@@ -11,6 +11,7 @@ const noteToolsCode = readFileSync(new URL('note-tools.js', import.meta.url), 'u
 const exportCode = readFileSync(new URL('itinerary-export.js', import.meta.url), 'utf8');
 const personalCode = readFileSync(new URL('personalization-ui.js', import.meta.url), 'utf8');
 const mapCode = readFileSync(new URL('day-map.js', import.meta.url), 'utf8');
+const dragCode = readFileSync(new URL('timeline-drag.js', import.meta.url), 'utf8');
 const storageKey = 'travel-weave-itinerary-v1';
 const settle = async () => { for (let index = 0; index < 20; index++) await Promise.resolve(); };
 function deferred() {
@@ -80,13 +81,18 @@ class Element {
     this.listeners.get(type).add(listener);
   }
   removeEventListener(type, listener) { this.listeners.get(type)?.delete(listener); }
+  getBoundingClientRect() { return typeof this.rect==='function'?this.rect():this.rect||{left:0,right:600,top:100,bottom:200,width:600,height:100}; }
+  setPointerCapture(id) { this.capturedPointer=id; }
+  hasPointerCapture(id) { return this.capturedPointer===id; }
+  releasePointerCapture() { this.capturedPointer=null; }
   dispatch(type, extra = {}) {
-    const event = { type, target: this, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
+    const event = { type, target: this, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; },
+      stopImmediatePropagation(){this.immediatePropagationStopped=true;this.propagationStopped=true;}, ...extra };
     const bubbles = !['pointerenter', 'pointerleave', 'mouseenter', 'mouseleave', 'focus', 'blur'].includes(type);
     if (bubbles) this.document.dispatch(type, this, event, 'capture');
-    for (let node = this; node; node = bubbles ? node.parentNode : null)
-      for (const listener of node.listeners.get(type) || []) listener(event);
-    if (bubbles) this.document.dispatch(type, this, event, 'bubble');
+    for (let node = this; node&&!event.propagationStopped; node = bubbles ? node.parentNode : null)
+      for (const listener of node.listeners.get(type) || []) { if(event.immediatePropagationStopped)break;listener(event); }
+    if (bubbles&&!event.propagationStopped) this.document.dispatch(type, this, event, 'bubble');
   }
   click() { if (!this.disabled) this.dispatch('click'); }
   select() { this.selected = true; }
@@ -194,9 +200,10 @@ function runtime({ hash = '', search = '', socialReturn = false, raw = null, see
       listeners.get(type)?.delete(listener);
     },
     dispatch(type, target, extra = {}, phase = 'all') {
-      const event = { type, target, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
-      if (phase !== 'bubble') for (const listener of documentCaptureListeners.get(type) || []) listener(event);
-      if (phase !== 'capture') for (const listener of documentListeners.get(type) || []) listener(event);
+      const event = extra.type===type?extra:{ type, target, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; },
+        stopImmediatePropagation(){this.immediatePropagationStopped=true;this.propagationStopped=true;}, ...extra };
+      if (phase !== 'bubble') for (const listener of documentCaptureListeners.get(type) || []) {if(event.immediatePropagationStopped)break;listener(event);}
+      if (phase !== 'capture'&&!event.propagationStopped) for (const listener of documentListeners.get(type) || []) {if(event.immediatePropagationStopped)break;listener(event);}
     }
   };
   document.body = document.createElement('body');
@@ -232,6 +239,7 @@ function runtime({ hash = '', search = '', socialReturn = false, raw = null, see
     dataSource: 'tourapi', areas: [{ id: 'area-a', name: '중구 · 공원', places: [] }] };
   const behavior = { createError: null, confirmClear: true, confirmations: [] };
   const window = {
+    innerHeight:800,scrollY:0,scrollBy(options){this.scrollY+=options.top;scrolls.push(options);},
     crypto,
     URL: { createObjectURL(blob) { const url = `blob:test-${downloads.length}`; downloads.push({ url, blob }); return url; }, revokeObjectURL(url) { revoked.push(url); } },
     location, history: {
@@ -330,6 +338,7 @@ function runtime({ hash = '', search = '', socialReturn = false, raw = null, see
   vm.runInContext(exportCode, context, { filename: 'itinerary-export.js' });
   vm.runInContext(personalCode, context, { filename: 'personalization-ui.js' });
   vm.runInContext(mapCode, context, { filename: 'day-map.js' });
+  vm.runInContext(dragCode, context, { filename: 'timeline-drag.js' });
   vm.runInContext(code, context, { filename: 'app.js' });
   return { $, window, document, stored, writes, removals, creations, behavior, scrolls, clock, mounts, account, downloads, revoked,
     async go(value) { location.hash = value; await settle(); },
@@ -1616,6 +1625,134 @@ test('moving from the dot controls saves the real event order and focuses the ne
   assert.equal(newRow.querySelector('.timeline-move-controls').hidden, false);
   assert.equal(newRow.querySelectorAll('.event-move-button')[0].disabled, false);
   assert.equal(app.writes.length, 2);
+});
+
+function dragGeometry(app,eventId='place-0',dayIndex=0){
+  const card=app.$('day-list').children[dayIndex],timeline=card.querySelector('.timeline');
+  const rows=timeline.querySelectorAll('.timeline-row').filter(row=>row.querySelector('.timeline-dot'));
+  rows.forEach((row,index)=>{row.rect=()=>({left:0,right:600,top:100+index*100-app.window.scrollY,height:80});});
+  const row=rows.find(row=>row.dataset.eventId===eventId),dot=row.querySelector('.timeline-dot');
+  const pointer={pointerId:7,pointerType:'touch',button:0,isPrimary:true,clientX:20,clientY:row.getBoundingClientRect().top+40};
+  return {card,timeline,rows,row,dot,pointer,
+    start(){dot.dispatch('pointerdown',pointer);},
+    move(y,x=20,id=7){dot.dispatch('pointermove',{...pointer,pointerId:id,clientY:y,clientX:x});},
+    drop(y,x=20){dot.dispatch('pointerup',{...pointer,clientY:y,clientX:x});}
+  };
+}
+
+for(const pointerType of ['mouse','touch','pen'])test(`${pointerType} dragging moves several slots with one save and one undo step`,async()=>{
+  const app=runtime({...timedNoteFixture(2),withAccount:true});await settle();app.$('day-count').value='2';await app.create();
+  const before=noteParameters(app),writes=app.writes.length,drag=dragGeometry(app);
+  drag.pointer.pointerType=pointerType;drag.start();drag.move(645);
+  assert.equal(drag.row.dataset.dragging,'true');assert.equal(drag.rows[6].dataset.drop,'before');
+  assert.match(drag.timeline.querySelector('.timeline-drag-status').textContent,/6번째/);
+  assert.equal(app.writes.length,writes);assert.deepEqual(noteParameters(app),before);
+  drag.drop(645);
+  const edited=noteParameters(app),ids=edited.eventOrders[0];
+  assert.equal(ids.indexOf('place-0'),5);assert.equal(new Set(ids).size,ids.length);
+  assert.equal(app.writes.length,writes+1);assert.deepEqual(edited.eventEdits[1],before.eventEdits[1]);
+  assert.equal(app.document.activeElement.closest('.timeline-row').dataset.eventId,'place-0');
+  assert.equal(app.$('day-list').querySelector('[data-event-id="place-0"]').dataset.moved,'true');
+  // Ignore only the synthesized pointer click; a later deliberate tap still opens the panel.
+  app.document.activeElement.dispatch('click',{detail:1});
+  app.$('undo-button').click();assert.deepEqual(noteParameters(app),before);assert.equal(app.$('undo-button').disabled,true);
+  assert.equal(app.$('day-list').querySelector('[data-event-id="place-0"]').dataset.moved,undefined);
+  app.$('redo-button').click();assert.deepEqual(noteParameters(app),edited);
+  assert.equal(app.$('day-list').querySelector('[data-event-id="place-0"]').dataset.moved,'true');
+});
+
+for(const reason of ['same position','outside','Escape','pointercancel','lostcapture','blur','day switch','rerender'])test(`drag cancellation: ${reason} leaves order, storage and history intact`,async()=>{
+  const app=runtime({...timedNoteFixture(2),withAccount:true});await settle();app.$('day-count').value='2';await app.create();
+  const original=noteParameters(app),writes=app.writes.length,drag=dragGeometry(app);drag.start();drag.move(645);
+  if(reason==='same position')drag.drop(140);
+  else if(reason==='outside')drag.drop(645,900);
+  else if(reason==='Escape')app.document.dispatch('keydown',drag.dot,{key:'Escape'});
+  else if(reason==='pointercancel')drag.dot.dispatch('pointercancel',{pointerId:7});
+  else if(reason==='lostcapture')drag.dot.dispatch('lostpointercapture',{pointerId:7});
+  else if(reason==='blur')app.window.dispatch('blur',{});
+  else if(reason==='day switch')await app.go('#/note/day/2');
+  else await app.account.options.loadDocument(app.account.options.getDocument());
+  drag.drop(645);app.clock.advance(1000);
+  assert.deepEqual(noteParameters(app),original);assert.equal(app.$('undo-button').disabled,true);
+  if(reason!=='rerender')assert.equal(app.writes.length,writes);
+  assert.equal(drag.row.dataset.dragging,undefined);assert.equal(drag.timeline.querySelectorAll('[data-drop="after"]').length,0);
+});
+
+test('short taps, non-primary pointers and unrelated pointers do not reorder; edge dragging scrolls and cleans up',async()=>{
+  const app=runtime(actualPlannerFixture());await settle();await app.create();
+  const writes=app.writes.length,drag=dragGeometry(app);
+  drag.start();drag.move(drag.pointer.clientY+3);drag.drop(drag.pointer.clientY+3);drag.dot.click();
+  assert.equal(drag.row.querySelector('.timeline-move-controls').hidden,false);assert.equal(app.writes.length,writes);
+  drag.dot.dispatch('pointerdown',{...drag.pointer,isPrimary:false});drag.move(650);drag.drop(650);
+  assert.equal(app.writes.length,writes);
+  drag.start();drag.move(760,20,99);assert.equal(drag.row.dataset.dragging,undefined);
+  drag.move(760);app.clock.advance(64);assert.ok(app.window.scrollY>0);assert.equal(app.writes.length,writes);
+  drag.dot.dispatch('pointercancel',{pointerId:7});const scrolls=app.scrolls.length;
+  app.clock.advance(1000);assert.equal(app.scrolls.length,scrolls);assert.equal(app.writes.length,writes);
+});
+
+test('a failed drag save preserves the original note, pending markers and undo history',async()=>{
+  const storageError={},app=runtime({...actualPlannerFixture(),withAccount:true,storageError});await settle();await app.create();
+  const before=app.stored.get(storageKey),drag=dragGeometry(app);storageError.set=true;
+  drag.start();drag.move(645);drag.drop(645);
+  assert.equal(app.stored.get(storageKey),before);assert.equal(app.$('undo-button').disabled,true);
+  assert.equal(app.$('day-list').querySelector('[data-event-id="place-0"]').dataset.moved,undefined);
+  assert.match(app.$('app-message').textContent,/저장하지 못했어요/);
+});
+
+test('dragging to either end never crosses departure or finish and preserves an added event',async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  const added=currentSchedule(app).options.onAdd({type:'free',title:'예약 확인',duration:10});assert.equal(added.ok,true);
+  const id=JSON.parse(app.stored.get(storageKey)).itinerary.extraEvents[0][0].id;
+  let drag=dragGeometry(app,id);drag.start();drag.move(30);drag.drop(30);
+  let ids=JSON.parse(app.stored.get(storageKey)).itinerary.days[0].events.map(event=>event.id);
+  assert.deepEqual(ids.slice(0,2),['departure',id]);assert.equal(ids.at(-1),'finish');
+  drag=dragGeometry(app,id);drag.start();drag.move(1800);drag.drop(1800);
+  ids=JSON.parse(app.stored.get(storageKey)).itinerary.days[0].events.map(event=>event.id);
+  assert.equal(ids.at(-2),id);assert.equal(ids.at(-1),'finish');assert.equal(new Set(ids).size,ids.length);
+});
+
+test('real account save failures retain highlights and a successful response clears only its saved order',async()=>{
+  let request=null;
+  const reply=(data,status=200)=>({ok:status===200,status,json:async()=>data});
+  const app=runtime({...actualPlannerFixture(),withAccount:true,accountHandler:async(path,options)=>{
+    if(path==='/api/auth/session')return reply({configured:true,user:{id:'owner-a',username:'alice'}});
+    if(path==='/api/plans'&&options.method==='GET')return reply({plans:[]});
+    if(path==='/api/plans'&&options.method==='POST'){request=deferred();return request.promise;}
+    throw Error('Unexpected request '+path);
+  }});await app.account.controller.ready;await settle();await app.create();
+  const row=()=>app.$('day-list').querySelector('[data-event-id="place-0"]');
+  const move=()=>row().querySelectorAll('.event-move-button')[1].click();
+  const save=()=>{app.$('account-save').querySelector('button').click();app.document.querySelector('.account-dialog form').dispatch('submit');};
+  move();save();request.resolve(reply({error:{code:'NETWORK_ERROR'}},500));await settle();
+  assert.equal(row().dataset.moved,'true');
+  app.document.querySelector('.account-dialog form').dispatch('submit');move();
+  request.resolve(reply({plan:{id:'plan-one',title:'내 계획',cityId:'test-city',startDate:'2026-10-20',dayCount:1,revision:1,
+    createdAt:'2026-10-20T00:00:00Z',updatedAt:'2026-10-20T00:00:00Z'}}));await settle();
+  assert.equal(row().dataset.moved,'true');assert.match(app.$('account-save').textContent,/저장하지 않은 수정/);
+  app.account.options.onSaved(app.account.options.getDocument());assert.equal(row().dataset.moved,undefined);
+  app.account.controller.destroy();
+});
+
+test('moved highlights survive redraw and local reload, compare against the saved snapshot, and reset for another note',async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  const row=()=>app.$('day-list').querySelector('[data-event-id="place-0"]');
+  row().querySelectorAll('.event-move-button')[1].click();
+  assert.equal(row().dataset.moved,'true');assert.match(row().querySelector('.event-moved-status').textContent,/계정 저장 전/);
+  const saved=app.account.options.getDocument();
+  row().querySelectorAll('.event-move-button')[1].click();
+  app.account.options.onSaved(saved);assert.equal(row().dataset.moved,'true','an older response must not clear a later move');
+  const reloaded=runtime({...actualPlannerFixture(),withAccount:true,raw:app.stored.get(storageKey),hash:'#/note'});await settle();
+  assert.equal(reloaded.$('day-list').querySelector('[data-event-id="place-0"]').dataset.moved,'true');
+  const savedNow=app.account.options.getDocument();app.account.options.onSaved(savedNow);
+  assert.equal(row().dataset.moved,undefined);assert.equal(row().querySelector('.event-moved-status'),null);
+  app.$('undo-button').click();assert.equal(row().dataset.moved,'true');
+  app.$('redo-button').click();assert.equal(row().dataset.moved,undefined);
+  row().querySelectorAll('.event-move-button')[1].click();
+  assert.equal(await app.account.options.loadDocument(savedNow),true);
+  assert.equal(row().dataset.moved,undefined);
+  await app.create();assert.equal(row().dataset.moved,undefined);
+  assert.equal(app.account.options.getDocument().itinerary.pendingReorders,undefined);
 });
 
 test('a direct note without a saved itinerary redirects before slower city preparation completes', async () => {

@@ -15,6 +15,7 @@ export const PUBLIC_FILES = new Map([
   ['styles.css', 'text/css; charset=utf-8'],
   ['places.js', 'text/javascript; charset=utf-8'],
   ['planner.js', 'text/javascript; charset=utf-8'],
+  ['timeline-drag.js', 'text/javascript; charset=utf-8'],
   ['app.js', 'text/javascript; charset=utf-8'],
   ['note-tools.js', 'text/javascript; charset=utf-8'],
   ['itinerary-export.js', 'text/javascript; charset=utf-8'],
