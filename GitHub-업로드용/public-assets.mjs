@@ -1,5 +1,14 @@
 // Only these files may be served publicly or included in the deployment archive.
 export const PUBLIC_FILES = new Map([
+  ['backdrop-photos.js', 'text/javascript; charset=utf-8'],
+  ['travel-backdrop-01.jpg', 'image/jpeg'],
+  ['travel-backdrop-02.jpg', 'image/jpeg'],
+  ['travel-backdrop-03.jpg', 'image/jpeg'],
+  ['travel-backdrop-04.jpg', 'image/jpeg'],
+  ['travel-backdrop-05.jpg', 'image/jpeg'],
+  ['travel-backdrop-06.jpg', 'image/jpeg'],
+  ['travel-backdrop-07.jpg', 'image/jpeg'],
+  ['travel-backdrop-08.jpg', 'image/jpeg'],
   ['travel-backdrop.js', 'text/javascript; charset=utf-8'],
   ['travel-atmosphere.css', 'text/css; charset=utf-8'],
   ['index.html', 'text/html; charset=utf-8'],

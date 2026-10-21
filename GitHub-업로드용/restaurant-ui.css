@@ -50,3 +50,24 @@
   .restaurant-actions { flex:1 1 100%; }
 }
 @media print { .meal-restaurants-container,.restaurant-lookup { display: none !important; } }
+
+@media screen {
+  .restaurant-manual { margin-top: 8px; border-color: #d5ddcf; background: #fffef9; }
+  .restaurant-manual .restaurant-heading { color: #3d6255; }
+  .restaurant-manual-body { display: grid; gap: 12px; }
+  .restaurant-manual-label { display: grid; gap: 6px; min-width: 0; color: #52694f; font-size: 11px; line-height: 1.7; }
+  .restaurant-manual-label input, .restaurant-manual-label textarea { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; padding: 9px 11px; border: 1px solid #ccd8cb; border-radius: 9px; background: #fff; color: #304a41; font: inherit; font-size: 12px; }
+  .restaurant-manual-label input[aria-invalid="true"], .restaurant-manual-label textarea[aria-invalid="true"] { border-color: #a1644d; }
+  .restaurant-manual-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .restaurant-manual-actions button { min-height: 44px; padding: 9px 12px; border: 1px solid #ccd8cb; border-radius: 9px; background: #fffdf6; color: #3d6255; font: inherit; font-size: 11px; cursor: pointer; }
+  .restaurant-manual-actions .restaurant-manual-save { color: #fff; background: #355d52; border-color: #355d52; }
+  .restaurant-manual-actions button:disabled { cursor: default; opacity: .6; }
+  .restaurant-manual :focus-visible { outline-color: #658373; }
+  .restaurant-manual .restaurant-message, .restaurant-manual .restaurant-note { margin-top: 0; }
+}
+
+@media screen { .restaurant-manual-label textarea { resize: vertical; line-height: 1.7; } }
+
+@media (max-width: 680px), (pointer: coarse) {
+  .restaurant-manual-label input, .restaurant-manual-label textarea { font-size: 16px; }
+}

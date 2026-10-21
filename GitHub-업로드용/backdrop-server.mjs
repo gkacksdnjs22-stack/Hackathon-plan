@@ -3,9 +3,9 @@
 import { normalizeServiceKey, TourApiError } from './tour-client.mjs';
 
 export const BACKDROP_DESTINATIONS = Object.freeze([
-  Object.freeze({ contentId: '126537', title: '북촌한옥마을' }),
-  Object.freeze({ contentId: '127925', title: '광안리해변 테마거리' }),
-  Object.freeze({ contentId: '228853', title: '용두암' })
+  Object.freeze({ contentId: '2946075', title: '북촌한옥마을 감고당길', description: '한옥과 골목 사이, 천천히 걷는 서울의 길.' }),
+  Object.freeze({ contentId: '126284', title: '돌산도', description: '여수의 바다를 따라 만나는 섬 풍경.' }),
+  Object.freeze({ contentId: '228853', title: '용두암', description: '파도와 바위가 어우러진 제주의 해안 풍경.' })
 ]);
 const PROVIDER = '한국관광공사 TourAPI';
 const SOURCE_URL = 'https://www.data.go.kr/data/15101578/openapi.do';
@@ -60,8 +60,9 @@ export function createBackdropClient({ serviceKey, fetchImpl = globalThis.fetch,
       const items = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? [raw] : [];
       for (const item of items) {
         if (item?.cpyrhtDivCd !== 'Type1' || String(item.contentid) !== destination.contentId) continue;
-        const selectedUrl = imageUrl(item.smallimageurl) || imageUrl(item.originimgurl);
-        if (!selectedUrl || selectedUrl.includes(key) || selectedUrl.includes(encodeURIComponent(key))) continue;
+        const selectedUrl = [item.originimgurl, item.smallimageurl].map(imageUrl)
+          .find(value => value && !value.includes(key) && !value.includes(encodeURIComponent(key)));
+        if (!selectedUrl) continue;
         return { ...destination, imageUrl: selectedUrl, imageName: safeText(item.imgname, key), serialNumber: safeText(item.serialnum, key), cpyrhtDivCd: 'Type1', license: '공공누리 제1유형 (출처표시)', licenseUrl: LICENSE_URL, source: '한국관광공사', sourceUrl: SOURCE_URL,
           ...(safeText(item.author, key) ? { author: safeText(item.author, key) } : {}) };
       }

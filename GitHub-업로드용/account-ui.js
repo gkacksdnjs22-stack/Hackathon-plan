@@ -105,8 +105,13 @@
         if (destroyed || account !== epoch) return;
         if (typeof data?.configured !== 'boolean' || data.user !== null && !validUser(data.user)) return;
         const next = data.configured ? data.user : null;
-        if ((user?.id || null) === (next?.id || null)) return;
-        configured = data.configured; closeDialog(true); await resetAccount(next);
+        const availabilityChanged = configured !== data.configured || sessionFailed;
+        configured = data.configured; sessionFailed = false;
+        if ((user?.id || null) === (next?.id || null)) {
+          if (availabilityChanged) { closeDialog(true); render(); }
+          return;
+        }
+        closeDialog(true); await resetAccount(next);
       } catch (_error) { /* A failed probe does not replace a known session or its working draft. */ }
       finally { probingVisibility = false; }
     }
@@ -182,7 +187,7 @@
           const copy=node('p','account-notice-copy',sessionPending?'계정을 확인하고 있어요.':configured===false?'계정 저장을 준비 중이에요. 이 기기에서는 계속 편집할 수 있어요.':sessionFailed?'계정에 연결하지 못했어요. 잠시 후 다시 확인해 주세요.':'로그인하면 다른 기기에서도 내 계획을 불러올 수 있어요.');
           copy.setAttribute('role','status');
           notice.append(copy);
-          if(!sessionPending&&configured!==false)notice.append(button(sessionFailed?'다시 확인':'로그인',()=>sessionFailed?initialize():authDialog('login'),'account-notice-link'));
+          if(!sessionPending)notice.append(button(sessionFailed||configured===false?'다시 확인':'로그인',()=>sessionFailed||configured===false?initialize():authDialog('login'),'account-notice-link'));
           noticeRoot.append(notice);
           return;
         }
@@ -241,7 +246,21 @@
     }
     function authDialog(mode = 'login', afterLogin = null) {
       const view = openDialog(mode === 'signup' ? '회원가입' : '로그인', '아이디와 비밀번호로 내 여행 계획을 저장해요.'); if (!view) return;
-      if (configured === false) { view.error('계정 저장을 준비 중이에요. 지금은 이 기기에서 계속 편집해 주세요.'); dialog.append(view.message); return; }
+      if (configured === false) {
+        view.error('계정 저장을 준비 중이에요. 지금은 이 기기에서 계속 편집해 주세요.');
+        const actions = node('div', 'account-dialog-actions');
+        view.action(actions, '다시 확인', async () => {
+          if (!view.current() || dialogBusy) return;
+          view.busy(true);
+          await initialize();
+          if (!view.current()) return;
+          if (user) { closeDialog(true); return; }
+          if (sessionFailed) { view.error('계정에 연결하지 못했어요. 잠시 후 다시 확인해 주세요.'); view.busy(false); return; }
+          authDialog(mode, afterLogin);
+        });
+        dialog.append(view.message, actions);
+        return;
+      }
       const tabs = node('div', 'account-dialog-tabs');
       for (const [key, label] of [['login', '로그인'], ['signup', '회원가입']]) {
         const tab = view.action(tabs, label, () => { if (!dialogBusy) authDialog(key, afterLogin); }); tab.setAttribute('aria-pressed', String(mode === key));

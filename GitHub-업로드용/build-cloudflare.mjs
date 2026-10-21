@@ -7,7 +7,7 @@ import { PUBLIC_FILES } from './public-assets.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT = path.join(ROOT, 'cloudflare-upload');
-const ARCHIVE = path.join(ROOT, '..', '길-Cloudflare-계정저장.zip');
+const ARCHIVE = path.join(ROOT, '..', '길-Cloudflare-사진-투명.zip');
 const files = new Map();
 
 // Deliberately copy an explicit public allowlist; never enumerate the project or .env.

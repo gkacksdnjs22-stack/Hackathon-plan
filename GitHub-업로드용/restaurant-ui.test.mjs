@@ -36,6 +36,7 @@ class Element {
     if (!this.listeners.has(type)) this.listeners.set(type, new Set());
     this.listeners.get(type).add(listener);
   }
+  removeEventListener(type, listener) { this.listeners.get(type)?.delete(listener); }
   dispatch(type) { for (const listener of this.listeners.get(type) || []) listener({ type, target: this }); }
 }
 function findAll(root, className) {
@@ -210,4 +211,54 @@ test('district extraction accepts the integrated Gwangju address prefix without 
   assert.equal(app.api.districtFromAddress('새로운특별시 남구 문화로 10'), '');
   assert.equal(app.api.districtFromAddress('전남광주통합특별시 문화로 10'), '');
   assert.equal(app.api.districtFromAddress(null), ''); app.widget.destroy();
+});
+
+function manual(options = {}) {
+  const app = runtime(); app.widget.destroy();
+  app.widget = app.api.mountManual(app.host, options);
+  return app;
+}
+test('manual entry is prepopulated, separately labeled, multiline and never fetches', async () => {
+  const saved = [], app = manual({ name:'동네 식당', description:'주소: 서울\n메모: 창가\t자리', onSave:value=>{saved.push(value);return {ok:true};},onClear:()=>({ok:true}) });
+  assert.equal(app.find('restaurant-manual-name').value,'동네 식당');
+  assert.equal(app.find('restaurant-manual-description').tagName,'textarea');
+  assert.equal(app.all('restaurant-manual-label').length,2);
+  await app.click('restaurant-manual-save');assert.equal(saved.length,1);assert.ok(Object.isFrozen(saved[0]));
+  assert.equal(saved[0].description,'주소: 서울\n메모: 창가\t자리');assert.equal(app.calls.length,0);
+  assert.match(app.find('restaurant-message').textContent,/저장했어요/);app.widget.destroy();
+});
+test('manual validation rejects missing/long names and invalid controls without silently truncating stored fields', async () => {
+  let calls=0;const app=manual({name:'가'.repeat(80),description:'나'.repeat(501),onSave:()=>{calls++;return {ok:true};}});
+  assert.equal(app.find('restaurant-manual-name').value.length,80);assert.equal(app.find('restaurant-manual-description').value.length,501);
+  for(const [name,memo] of [['',''],['   ',''],['가'.repeat(61),''],['이름\n',''],['이름','나'.repeat(501)],['이름','bad\u0000'],['이름','bad\u007f']]) {
+    app.find('restaurant-manual-name').value=name;app.find('restaurant-manual-description').value=memo;
+    await app.click('restaurant-manual-save');assert.equal(calls,0);assert.match(app.find('restaurant-message').className,/is-error/);
+  }
+  app.find('restaurant-manual-name').value='가'.repeat(60);app.find('restaurant-manual-description').value='나'.repeat(500);
+  await app.click('restaurant-manual-save');assert.equal(calls,1);app.widget.destroy();
+});
+test('manual clear uses separate callback and only resets after confirmed success', async () => {
+  let cleared=0,success=false;const app=manual({name:'식당',description:'메모',onClear:()=>{cleared++;return {ok:success};}});
+  assert.equal(app.find('restaurant-manual-save').disabled,true);
+  await app.click('restaurant-manual-clear');assert.equal(app.find('restaurant-manual-name').value,'식당');
+  success=true;await app.click('restaurant-manual-clear');assert.equal(cleared,2);assert.equal(app.find('restaurant-manual-name').value,'');assert.equal(app.find('restaurant-manual-description').value,'');app.widget.destroy();
+});
+test('manual pending operations block duplicates and ignore completion after destroy/replacement', async () => {
+  for(const reject of [false,true]) {
+    const job=deferred();let calls=0;const app=manual({name:'식당',onSave:()=>{calls++;return job.promise;},onClear:()=>{calls++;return {ok:true};}});
+    const save=app.find('restaurant-manual-save'),clear=app.find('restaurant-manual-clear'),message=app.find('restaurant-message');
+    save.dispatch('click');save.dispatch('click');clear.dispatch('click');assert.equal(calls,1);assert.equal(clear.disabled,true);assert.equal(app.find('restaurant-manual-name').disabled,true);
+    const previous=message.textContent;app.widget.destroy();app.host.textContent='새 일정';save.dispatch('click');
+    if(reject)job.reject(Error('private error'));else job.resolve({ok:true});await settle();
+    assert.equal(app.host.textContent,'새 일정');assert.equal(message.textContent,previous);assert.equal(calls,1);
+  }
+});
+test('manual callback failure is safe and retryable; detached controls cannot submit', async () => {
+  let calls=0;const app=manual({name:'식당',onSave:()=>{calls++;throw Error('private diagnostics');}});
+  await app.click('restaurant-manual-save');assert.doesNotMatch(app.host.textContent,/private/);assert.equal(app.find('restaurant-manual-save').disabled,false);
+  const old=app.find('restaurant-manual-save');app.host.replaceChildren(new Element('div'));old.dispatch('click');await settle();assert.equal(calls,1);app.widget.destroy();assert.equal(app.host.children.length,1);
+});
+test('manual successful synchronous parent rerender cannot mutate replacement', async () => {
+  const app=manual({name:'식당',onSave:()=>{app.widget.destroy();app.host.textContent='저장 완료';return {ok:true};}});
+  await app.click('restaurant-manual-save');assert.equal(app.host.textContent,'저장 완료');
 });
