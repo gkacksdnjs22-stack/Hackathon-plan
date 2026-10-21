@@ -187,6 +187,37 @@ test('signup validates confirmation and uses same-origin cookie requests without
   assert.doesNotMatch(app.document.body.textContent, /a-long-password/); app.controller.destroy();
 });
 
+test('password visibility is independent for signup fields, keeps values and resets when the dialog reopens', async () => {
+  const app = runtime(); await app.ready(); await app.click('로그인 · 회원가입'); await app.click('회원가입', app.find('account-dialog-tabs'));
+  const password = app.find('account-password'), confirmation = app.find('account-password-confirm');
+  password.value = 'a-long-password'; confirmation.value = 'confirmation-value';
+  const toggles = app.all('account-password-toggle'); assert.equal(toggles.length, 2);
+  toggles[0].click(); assert.equal(password.type, 'text'); assert.equal(confirmation.type, 'password');
+  assert.equal(toggles[0].getAttribute('aria-pressed'), 'true');
+  assert.equal(password.value, 'a-long-password'); assert.equal(confirmation.value, 'confirmation-value');
+  toggles[1].click(); assert.equal(confirmation.type, 'text');
+  toggles[0].click(); assert.equal(password.type, 'password');
+  await app.click('×'); await app.click('로그인 · 회원가입');
+  assert.equal(app.find('account-password').type, 'password'); assert.equal(app.find('account-password').value, '');
+  app.controller.destroy();
+});
+
+test('saved plans sort locally by updated time or start date and retain the choice through refresh', async () => {
+  const plans = [
+    planFixture({ id: 'later', title: '늦게 출발', startDate: '2026-12-01', updatedAt: '2026-10-21T01:00:00Z' }),
+    planFixture({ id: 'soon', title: '먼저 출발', startDate: '2026-11-01', updatedAt: '2026-10-20T01:00:00Z' }),
+    planFixture({ id: 'middle', title: '중간 출발', startDate: '2026-11-10', updatedAt: '2026-10-21T00:00:00Z' })
+  ];
+  const app = runtime({ user: person, plans }); await app.ready();
+  const titles = () => app.all('account-plan-title').map(node => node.textContent);
+  assert.deepEqual(titles(), ['늦게 출발', '중간 출발', '먼저 출발']);
+  const calls = app.calls.length, sort = app.find('account-sort-select'); sort.value = 'start'; sort.dispatch('change');
+  assert.deepEqual(titles(), ['먼저 출발', '중간 출발', '늦게 출발']); assert.equal(app.calls.length, calls);
+  await app.click('새로고침', app.roots.libraryRoot);
+  assert.equal(app.find('account-sort-select').value, 'start'); assert.deepEqual(titles(), ['먼저 출발', '중간 출발', '늦게 출발']);
+  app.controller.destroy();
+});
+
 test('a failed login renders safe feedback and never exposes upstream diagnostics', async () => {
   const app = runtime({ handler: request => request.path === '/api/auth/login' ? response({ error: { code: 'INVALID_CREDENTIALS', message: 'private key diagnostic' } }, 401) : undefined });
   await app.ready(); await app.click('로그인 · 회원가입'); fillLogin(app); await app.submit();

@@ -69,7 +69,9 @@ function runtime(options = {}) {
   let refreshes = 0;
   const document = { activeElement: null, createElement: name => new Element(name, document) };
   const window = { TravelSelect: { refresh() { refreshes++; } } };
-  vm.runInContext(code, vm.createContext({ window, document, fetch() { throw Error('No API lookup belongs in this form'); } }), { filename: 'schedule-ui.js' });
+  const context = vm.createContext({ window, document, fetch() { throw Error('No API lookup belongs in this form'); } });
+  vm.runInContext(readFileSync(new URL('note-tools.js', import.meta.url), 'utf8'), context);
+  vm.runInContext(code, context, { filename: 'schedule-ui.js' });
   const host = document.createElement('div'), calls = [];
   const widget = window.TravelSchedule.mount(host, { day, dayIndex: 1, city, usedPlaceIds: ['used'],
     onAdd: payload => { calls.push(payload); return { ok: true }; }, ...options });
@@ -272,4 +274,13 @@ test('a callback may synchronously destroy the widget, and closing preserves the
   assert.equal(app.document.activeElement, app.details.children[0]);
   app.details.open = true; assert.equal(app.find('schedule-title-input').value, '숙소 체크인');
   await app.submit(); assert.equal(app.host.textContent, '저장된 일정');
+});
+
+test('memo counts follow input and the restored draft when switching schedule types', async () => {
+  const app = runtime(); app.input('schedule-description-input', '내 일정 메모');
+  assert.equal(app.find('memo-counter').textContent, '7 / 500자');
+  await app.choose('meal'); assert.equal(app.find('memo-counter').textContent, '0 / 500자');
+  app.input('schedule-description-input', '식당 예약');
+  await app.choose('free'); assert.equal(app.find('schedule-description-input').value, '내 일정 메모');
+  assert.equal(app.find('memo-counter').textContent, '7 / 500자'); app.widget.destroy();
 });

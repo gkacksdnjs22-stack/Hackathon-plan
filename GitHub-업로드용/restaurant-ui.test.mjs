@@ -57,11 +57,12 @@ function runtime({ fetchImpl = async () => ok(), ...options } = {}) {
     setTimeout: (callback, delay) => { const id = ++timerId; timers.set(id, { callback, delay }); return id; },
     clearTimeout: id => timers.delete(id), fetch: (...args) => { calls.push(args); return fetchImpl(...args); }
   });
+  vm.runInContext(readFileSync(new URL('note-tools.js', import.meta.url), 'utf8'), context);
   vm.runInContext(code, context, { filename: 'restaurant-ui.js' });
   const host = new Element('div');
   const widget = window.TravelRestaurants.mount(host, { area: '대전', district: '유성구', latitude: 36.355, longitude: 127.344, ...options });
   const details = host.children[0];
-  return { host, widget, details, calls, timers, api: window.TravelRestaurants,
+  return { host, widget, details, calls, timers, window, api: window.TravelRestaurants,
     find: name => findAll(host, name)[0] || null, all: name => findAll(host, name),
     async open() { details.open = true; details.dispatch('toggle'); await settle(); },
     async click(name) { findAll(host, name)[0].dispatch('click'); await settle(); }
@@ -218,6 +219,22 @@ function manual(options = {}) {
   app.widget = app.api.mountManual(app.host, options);
   return app;
 }
+test('restaurant address copy uses the provided address without selecting the restaurant or querying again', async () => {
+  const copied = [], selected = [], app = runtime({ onSelect: value => { selected.push(value); return { ok: true }; } });
+  app.window.navigator = { clipboard: { writeText: async address => { copied.push(address); } } };
+  await app.open(); const queries = app.calls.length;
+  await app.click('address-copy-button');
+  assert.deepEqual(copied, [item().address]); assert.equal(selected.length, 0); assert.equal(app.calls.length, queries);
+  assert.match(app.find('address-copy-status').textContent, /복사했어요/); app.widget.destroy();
+});
+test('manual memo counter includes restored text and resets only after a successful clear', async () => {
+  const app = manual({ name: '식당', description: '예약 메모', onClear: () => ({ ok: true }) });
+  assert.equal(app.find('memo-counter').textContent, '5 / 500자');
+  const memo = app.find('restaurant-manual-description'); memo.value = '변경'; memo.dispatch('input');
+  assert.equal(app.find('memo-counter').textContent, '2 / 500자');
+  await app.click('restaurant-manual-clear'); assert.equal(app.find('memo-counter').textContent, '0 / 500자');
+  app.widget.destroy();
+});
 test('manual entry is prepopulated, separately labeled, multiline and never fetches', async () => {
   const saved = [], app = manual({ name:'동네 식당', description:'주소: 서울\n메모: 창가\t자리', onSave:value=>{saved.push(value);return {ok:true};},onClear:()=>({ok:true}) });
   assert.equal(app.find('restaurant-manual-name').value,'동네 식당');

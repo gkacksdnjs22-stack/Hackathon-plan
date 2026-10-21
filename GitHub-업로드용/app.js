@@ -4,6 +4,7 @@
   const $=id=>document.getElementById(id);
   const country=$('country-select'),citySelect=$('city-select'),dateInput=$('start-date'),duration=$('day-count');
   let currentItinerary=null;
+  const collapsedDays=new Set();
   const EDIT_HISTORY_LIMIT=20;
   const editHistory={undo:[],redo:[]};
   const editingKeys=['cityId','startDate','dayCount','dayAreaIds','selections','dayStarts','eventEdits','extraEvents','excludedEvents','eventOrders','departure','dayDepartures','dayArrivals','dayTransports'];
@@ -218,11 +219,13 @@
     destroyDepartureWidgets();
     departureDraftModes={};
     currentItinerary=null;
+    collapsedDays.clear();
     resetEditHistory();
     account?.detach();
     $('itinerary-section').hidden=true;
     $('empty-state').hidden=false;
     $('day-list').replaceChildren();
+    $('day-bookmarks')?.replaceChildren();
     $('note-timing-notice').hidden=true;
     $('note-timing-notice').textContent='';
     syncScreen();
@@ -257,6 +260,7 @@
     result.dataSource=city.dataSource||'bundled';
     departureDraftModes={};
     currentItinerary=result;
+    collapsedDays.clear();
     resetEditHistory();
     account?.detach();
     renderItinerary();
@@ -334,6 +338,7 @@
     keepHistoryStep(editHistory[action==='undo'?'redo':'undo'],before);
     departureDraftModes={};
     currentItinerary=restored;
+    collapsedDays.clear();
     renderItinerary();
     showMessage(action==='undo'?'직전 편집을 되돌리고 일정 시각을 다시 계산했어요.':'되돌린 편집을 다시 실행하고 일정 시각을 다시 계산했어요.','success');
   }
@@ -486,6 +491,9 @@
     const city=window.TRAVEL_DATA.cities[currentItinerary.cityId];
     if(!city)return;
     $('trip-summary').textContent=`${currentItinerary.countryName} ${currentItinerary.cityName} · ${currentItinerary.startDate}부터 ${currentItinerary.dayCount}일 · 현지 시간 ${city.timezone}`;
+    const countdown=document.createElement('span');countdown.className='trip-countdown';
+    countdown.textContent=window.TravelNoteTools.countdown(currentItinerary.startDate,currentItinerary.dayCount,city.timezone);
+    $('trip-summary').append(countdown);
     const timingNotice=$('note-timing-notice');
     const provisional=currentItinerary.days.some(day=>day.timesProvisional);
     const timingMessage=provisional?'출발지와 미정인 이동시간을 먼저 정해 주세요. 미정은 실제 이동 0분이 아니며, 도착·식사 시각은 달라질 수 있어요.':'';
@@ -496,20 +504,49 @@
     destroyDepartureWidgets();
     list.replaceChildren();
     currentItinerary.days.forEach((day,index)=>list.append(renderDay(day,index,city)));
+    const bookmarks=$('day-bookmarks');
+    if(bookmarks){
+      bookmarks.replaceChildren();
+      currentItinerary.days.forEach((day,index)=>{
+        const button=document.createElement('button');button.type='button';button.className='day-bookmark';
+        button.textContent=`Day ${String(day.index).padStart(2,'0')}`;
+        button.setAttribute('aria-label',`${day.index}일차 ${day.date} 일정으로 이동`);
+        button.setAttribute('aria-controls',`travel-day-${index}`);
+        button.addEventListener('click',()=>{
+          const card=document.getElementById(`travel-day-${index}`);
+          if(collapsedDays.has(index))card.querySelector('.day-collapse').click();
+          card.focus({preventScroll:true});
+          card.scrollIntoView({block:'start',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
+        });
+        bookmarks.append(button);
+      });
+    }
     window.TravelSelect?.refresh();
     window.TravelTimePicker?.refresh();
     syncScreen();
   }
+  function refreshCountdown(){
+    if(!currentItinerary)return;
+    const badge=$('trip-summary').querySelector('.trip-countdown');
+    const city=window.TRAVEL_DATA.cities[currentItinerary.cityId];
+    if(badge&&city)badge.textContent=window.TravelNoteTools.countdown(currentItinerary.startDate,currentItinerary.dayCount,city.timezone);
+  }
   function renderDay(day,index,city){
     const article=document.createElement('article');
     article.className='day-card';
+    article.id=`travel-day-${index}`;article.tabIndex=-1;
     article.dataset.dayIndex=String(index);
     article.setAttribute('aria-label',`${day.index}일차 ${day.date} 일정`);
     const head=document.createElement('div');
     head.className='day-card-header';
     const title=document.createElement('div');
     title.className='day-title';
-    title.innerHTML=`<strong>DAY ${String(day.index).padStart(2,'0')}</strong><span>${esc(day.date)}</span>`;
+    const date=document.createElement('strong');date.textContent=day.date;title.append(date);
+    const headingCopy=document.createElement('div');headingCopy.className='day-heading-copy';
+    const summary=document.createElement('p');summary.className='day-summary';
+    const totals=window.TravelNoteTools.daySummary(day);
+    summary.textContent=`관광지 ${totals.places}곳 · 체류 ${formatDuration(totals.stay)} · 입력된 이동 ${formatDuration(totals.travel)}${totals.pending?` · 미정 ${totals.pending}구간 별도`:''}`;
+    headingCopy.append(title,summary);
     const controls=document.createElement('div');
     controls.className='day-area-controls';
     const select=document.createElement('select');
@@ -530,15 +567,26 @@
     apply.textContent='변경 적용';
     apply.addEventListener('click',()=>applyAreaChange(index,select.value,city));
     controls.append(select,apply);
-    head.append(title,controls);
+    const body=document.createElement('div');body.className='day-card-body';body.id=`travel-day-body-${index}`;
+    const toggle=document.createElement('button');toggle.type='button';toggle.className='day-collapse';
+    toggle.setAttribute('aria-controls',body.id);toggle.setAttribute('aria-label',`${day.index}일차 일정 접기·펼치기`);
+    function syncCollapse(){
+      body.hidden=collapsedDays.has(index);toggle.textContent=body.hidden?'일정 펼치기':'일정 접기';
+      article.classList.toggle('is-collapsed',body.hidden);
+      toggle.setAttribute('aria-expanded',String(!body.hidden));
+    }
+    toggle.addEventListener('click',()=>{if(collapsedDays.has(index))collapsedDays.delete(index);else collapsedDays.add(index);syncCollapse();});
+    syncCollapse();
+    const headerActions=document.createElement('div');headerActions.className='day-header-actions';headerActions.append(controls,toggle);
+    head.append(headingCopy,headerActions);
     article.append(head);
     const timeline=document.createElement('div');
     timeline.className='timeline';
     day.events.forEach(event=>timeline.append(renderEvent(event,index,city)));
-    article.append(timeline);
+    body.append(timeline);
     if(window.TravelSchedule&&window.TravelPlanner.addEvent){
       const addHost=document.createElement('div');addHost.className='schedule-add-container';
-      article.append(addHost);
+      body.append(addHost);
       departureWidgets.push(window.TravelSchedule.mount(addHost,{day,dayIndex:index,city,
         usedPlaceIds:[...Object.values(currentItinerary.selections||{}).flat(),...currentItinerary.days.flatMap(item=>item.events.filter(event=>event.type==='place').map(event=>event.place.id))],
         onAdd:input=>{
@@ -567,12 +615,12 @@
         });
         choices.append(restore);
       }
-      hidden.append(summary,choices);article.append(hidden);
+      hidden.append(summary,choices);body.append(hidden);
     }
     const foot=document.createElement('div');
     foot.className='day-footnote';
     foot.textContent=`${formatTime(day.start)} 출발 · ${formatTime(day.end)} 마무리${day.timesProvisional?'':' · 입력한 소요시간 기준이에요.'}`;
-    article.append(foot);
+    body.append(foot);article.append(body);
     return article;
   }
   function applyAreaChange(dayIndex,areaId,city){
@@ -861,6 +909,7 @@
       desc.className='event-description';
       desc.textContent=event.place.address||event.place.intro||'';
       content.append(desc);
+      if(event.place.address)content.append(window.TravelNoteTools.addressCopy(event.place.address,event.place.name));
       if(event.description&&event.description!==event.place.intro&&event.description!==event.place.address){
         const memo=document.createElement('p');memo.className='event-description event-user-memo';memo.textContent=event.description;content.append(memo);
       }
@@ -1024,6 +1073,7 @@
     description.rows=2;description.maxLength=500;
     description.value=event.description??event.label??(event.type==='place'?event.place.intro:'');
     field('설명·메모',description,true);
+    window.TravelNoteTools.memoCounter(description);
     const help=document.createElement('p');help.className='editor-help';help.textContent=event.type==='departure'?(currentItinerary.days[dayIndex].arrival?'선택한 도착역·터미널 등에 내릴 때까지의 시간을 입력해 주세요. 대기·환승도 포함하고, 도착 후 관광지까지 이동은 다음 항목에서 정해요. 미정이면 0시간 0분으로 두세요.':'교통편과 대기시간을 포함해 직접 입력해 주세요. 미정이면 0시간 0분으로 두면 돼요.'):event.id==='arrival-transfer'?'도착한 곳에서 첫 관광지까지 걸리는 시간을 입력해 주세요. 미정이면 0시간 0분으로 두세요.':event.type==='transfer'?'이 구간의 예상 이동시간을 입력해 주세요. 0시간 0분은 미정이며, 뒤 시각도 임시 계획으로 표시돼요.':event.type==='finish'?'숙소 복귀나 귀가 시간을 입력하면 종료 시각에 더해져요. 마무리 표시만 남기려면 0시간 0분으로 두세요.':event.type==='place'?'관광지명은 공공정보 기준이에요. 체류시간을 바꾸면 뒤 일정도 함께 이동해요.':'소요시간을 바꾸면 뒤 일정도 함께 이동해요.';
     const actions=document.createElement('div');actions.className='editor-actions';
     const save=document.createElement('button');save.className='editor-save';save.type='submit';save.textContent='수정 저장';
@@ -1116,6 +1166,8 @@
   });
 
   window.addEventListener('hashchange',()=>syncScreen());
+  window.addEventListener('focus',refreshCountdown);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshCountdown();});
   document.addEventListener('input',dismissMessageForInput);
   document.addEventListener('change',dismissMessageForInput);
   document.addEventListener('pointerdown',event=>{

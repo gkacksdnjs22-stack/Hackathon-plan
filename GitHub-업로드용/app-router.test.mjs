@@ -6,6 +6,7 @@ import vm from 'node:vm';
 const code = readFileSync(new URL('app.js', import.meta.url), 'utf8');
 const plannerCode = readFileSync(new URL('planner.js', import.meta.url), 'utf8');
 const accountCode = readFileSync(new URL('account-ui.js', import.meta.url), 'utf8');
+const noteToolsCode = readFileSync(new URL('note-tools.js', import.meta.url), 'utf8');
 const storageKey = 'travel-weave-itinerary-v1';
 const settle = async () => { for (let index = 0; index < 20; index++) await Promise.resolve(); };
 function deferred() {
@@ -84,6 +85,7 @@ class Element {
     if (bubbles) this.document.dispatch(type, this, event, 'bubble');
   }
   click() { if (!this.disabled) this.dispatch('click'); }
+  scrollIntoView(options) { this.lastScrollIntoView = options; }
   focus() {
     if (this.disabled || this.document.activeElement === this) return;
     const previous = this.document.activeElement;
@@ -195,7 +197,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   document.body = document.createElement('body');
   const ids = ['country-select', 'city-select', 'start-date', 'day-count', 'trip-form', 'destinations-retry',
     'city-note', 'duration-note', 'data-status', 'app-message', 'date-trigger', 'itinerary-section',
-    'empty-state', 'day-list', 'trip-summary', 'note-timing-notice', 'capacity-message', 'print-button', 'clear-button', 'undo-button', 'redo-button',
+    'empty-state', 'day-list', 'day-bookmarks', 'trip-summary', 'note-timing-notice', 'capacity-message', 'print-button', 'clear-button', 'undo-button', 'redo-button',
     'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'account-notice', 'saved-plans', 'account-save'];
   for (const id of ids) {
     const tag = ['city-select', 'day-count'].includes(id) ? 'select' : id === 'trip-form' ? 'form' : ['print-button','clear-button','undo-button','redo-button'].includes(id) ? 'button' : 'div';
@@ -303,6 +305,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
       return account.controller;
     };
   }
+  vm.runInContext(noteToolsCode, context, { filename: 'note-tools.js' });
   vm.runInContext(code, context, { filename: 'app.js' });
   return { $, window, document, stored, writes, removals, creations, behavior, scrolls, clock, mounts, account,
     async go(value) { location.hash = value; await settle(); },
@@ -445,6 +448,62 @@ test('a failed cross-tab account check still hides the former owners real note a
   assert.equal(app.account.options.getDocument(), null);
   assert.equal(app.stored.get(`${storageKey}:owner-a`), saved);
   app.account.controller.destroy();
+});
+
+test('bookmarks reopen and focus the target day while collapse survives another days edit without saving presentation state', async () => {
+  const app = runtime({ ...timedNoteFixture(2), withAccount: true }); await settle();
+  app.$('day-count').value = '2'; await app.create();
+  let first = app.$('day-list').children[0];
+  assert.equal(first.querySelector('.day-title strong').textContent, '10월 20일 (화)');
+  assert.deepEqual(app.$('day-bookmarks').children.map(button => button.textContent), ['Day 01', 'Day 02']);
+  const saved = app.stored.get(storageKey), writes = app.writes.length;
+  first.querySelector('.day-collapse').click();
+  assert.equal(first.querySelector('.day-card-body').hidden, true);
+  assert.equal(first.querySelector('.day-collapse').getAttribute('aria-expanded'), 'false');
+  assert.equal(app.stored.get(storageKey), saved); assert.equal(app.writes.length, writes);
+  manualMeal(app).options.onSave({ name: '둘째 날 식당', description: '' });
+  first = app.$('day-list').children[0]; assert.equal(first.querySelector('.day-card-body').hidden, true);
+  const beforeJump = app.writes.length;
+  app.$('day-bookmarks').children[0].click();
+  assert.equal(first.querySelector('.day-card-body').hidden, false);
+  assert.equal(app.document.activeElement, first); assert.equal(first.lastScrollIntoView.block, 'start');
+  assert.equal(app.window.location.hash, '#/note'); assert.equal(app.writes.length, beforeJump);
+  assert.equal(app.$('day-list').children[1].querySelector('.day-card-body').hidden, false);
+});
+
+test('daily summaries update after editing and note countdown reflects the actual trip start', async () => {
+  const app = runtime({ ...actualPlannerFixture(), withAccount: true }); await settle(); await app.create();
+  assert.match(app.$('trip-summary').textContent, /오늘 출발/);
+  assert.match(app.$('day-list').querySelector('.day-summary').textContent, /관광지 3곳.*체류 3시간.*미정 3구간 별도/);
+  currentSchedule(app).options.onAdd({ type: 'transfer', title: '숙소 이동', duration: 45 });
+  assert.match(app.$('day-list').querySelector('.day-summary').textContent, /입력된 이동 45분.*미정 3구간 별도/);
+  app.$('undo-button').click();
+  assert.match(app.$('day-list').querySelector('.day-summary').textContent, /입력된 이동 0분/);
+  app.clock.setDate('2026-10-21T12:00:00'); app.window.dispatch('focus', {});
+  assert.match(app.$('trip-summary').textContent, /지난 여행/);
+});
+
+test('place address copy prevents duplicate requests and reports success, denial and unavailable clipboard safely', async () => {
+  const app = runtime({ ...actualPlannerFixture(), withAccount: true }); await settle(); await app.create();
+  const pending = deferred(), copied = [];
+  app.window.navigator = { clipboard: { writeText(value) { copied.push(value); return pending.promise; } } };
+  const button = app.$('day-list').querySelector('.address-copy-button'), status = app.$('day-list').querySelector('.address-copy-status');
+  button.click(); button.click(); assert.equal(copied.length, 1); assert.equal(button.disabled, true);
+  assert.equal(copied[0], '광주광역시 남구 문화로 10');
+  pending.resolve(); await settle(); assert.equal(button.disabled, false); assert.match(status.textContent, /복사했어요/);
+  app.window.navigator.clipboard.writeText = async () => { throw Error('private browser error'); };
+  button.click(); await settle(); assert.match(status.textContent, /직접 선택/); assert.doesNotMatch(status.textContent, /private/);
+  delete app.window.navigator.clipboard; button.click(); await settle(); assert.match(status.textContent, /직접 선택/);
+});
+
+test('memo counts show restored text and update during input without saving or changing the note', async () => {
+  const app = runtime({ ...actualPlannerFixture(), withAccount: true }); await settle(); await app.create();
+  const saved = app.stored.get(storageKey), row = app.$('day-list').querySelector('[data-event-id="place-0"]');
+  row.querySelector('.event-edit-button').click();
+  const memo = row.querySelector('textarea'), count = row.querySelector('.memo-counter');
+  assert.equal(count.textContent, `${memo.value.length} / 500자`);
+  memo.value = '한글 메모'; memo.dispatch('input'); assert.equal(count.textContent, '5 / 500자');
+  assert.equal(memo.getAttribute('aria-describedby'), count.id); assert.equal(app.stored.get(storageKey), saved);
 });
 
 test('creating a note refuses a past start date without replacing the current note and permits today',async()=>{
