@@ -14,7 +14,7 @@
             :event.type==='arrival'?(includeDeparture?event.title||event.arrival?.name:'도착')
             :sensitive&&!includeDeparture?(arrivalTransfer?'첫 관광지로 이동':'이동'):event.title||event.meal||'일정';
           return {type:event.type,title:clean(title,240),start:event.start,end:event.end,
-            address:clean(sensitive&&!includeDeparture?'':event.place?.address||event.departure?.address||event.arrival?.address,500),
+            address:clean(sensitive&&!includeDeparture?'':event.place?.address||event.location?.address||event.restaurantRef?.address||event.departure?.address||event.arrival?.address,500),
             memo:clean(includeMemos&&(!sensitive||includeDeparture)?event.description:'',500)};
         })}))};
   }

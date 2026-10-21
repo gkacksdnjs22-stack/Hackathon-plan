@@ -78,7 +78,7 @@
       category:String(item.contentTypeId)==='14'?'문화시설':'관광지',
       stayMinutes:String(item.contentTypeId)==='14'?75:60,
       intro:address||'방문 전 시설의 운영시간과 예약 정보를 확인해 주세요.',
-      address,latitude:item.latitude,longitude:item.longitude,
+      address,latitude:item.latitude,longitude:item.longitude,imageUrl:typeof item.imageUrl==='string'?item.imageUrl:'',
       mapQuery:`${item.latitude},${item.longitude}`,source:'한국관광공사 TourAPI',sourceUrl:SOURCE_URL,
       stayBasis:'앱 추천 체류시간',hoursNotice:'방문 전 운영시간 확인',distanceToCenter:distance(item,area),
       contentTypeId:String(item.contentTypeId),...(theme?{theme}:{}),...(classification?{classification}:{})

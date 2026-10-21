@@ -115,6 +115,7 @@
         map.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${name.textContent} ${item.address}`)}`;
         map.textContent = '지도 보기 ↗'; map.setAttribute('aria-label', `${name.textContent} 지도 보기 (새 창)`);
         copy.append(name, meta, address);
+        const food=document.createElement('p');food.className='restaurant-food';food.textContent=[typeof item.firstMenu==='string'&&item.firstMenu?`대표 메뉴: ${item.firstMenu}`:'',typeof item.menu==='string'&&item.menu?`메뉴: ${item.menu}`:''].filter(Boolean).join(' · ')||'메뉴 정보 미제공';copy.append(food);
         if (window.TravelNoteTools) copy.append(window.TravelNoteTools.addressCopy(item.address, name.textContent));
         if (canSelect) {
           const actions = document.createElement('div'); actions.className = 'restaurant-actions';

@@ -19,7 +19,7 @@
     if (event.type === 'departure') return event.departure ? `${event.departure.name}에서 출발` : '출발지 미정';
     return event.title || event.meal || '일정';
   }
-  function address(event) { return event.place?.address || event.departure?.address || event.arrival?.address || ''; }
+  function address(event) { return event.place?.address || event.location?.address || event.restaurantRef?.address || event.departure?.address || event.arrival?.address || ''; }
   function memo(event) {
     const text = event.description || '';
     return text === address(event) || text === event.place?.intro ? '' : text;

@@ -2,7 +2,8 @@ import { createAppServer } from '../server.mjs';
 import { createAccountHandler } from '../auth-store.mjs';
 import { createLocalDatabase } from '../local-db.mjs';
 
-const origin = 'http://localhost:4179';
+const port=Number(process.env.GIL_E2E_PORT||4179);
+const origin = `http://localhost:${port}`;
 const db = createLocalDatabase({ filename: ':memory:' });
 const items = [
   [101, '합성 문화공원', 37.57, 126.98],
@@ -49,6 +50,7 @@ const server = createAppServer({
   client: {
     getAreas: async () => ({ items: [{ code: '1', name: '서울' }] }),
     getPlaces: async () => ({ areaCode: '1', items, fetchedAt: new Date().toISOString() }),
+    getPlaceDetail: async ({contentId,contentTypeId}) => ({contentId,contentTypeId,title:items.find(item=>item.contentId===contentId)?.title||'합성 관광지',overview:'제공기관에서 확인한 합성 장소 소개입니다.',imageUrl:'',sourceUrl:'https://www.data.go.kr/data/15101578/openapi.do'}),
     getPlaceDetails: async ({ contentId, contentTypeId }) => ({
       provider: '한국관광공사 TourAPI', contentId, contentTypeId,
       fetchedAt: new Date().toISOString(), sourceUrl: 'https://www.data.go.kr/data/15101578/openapi.do',
@@ -63,7 +65,7 @@ const server = createAppServer({
     latitude: 37.56, longitude: 126.98, source: 'OpenStreetMap', sourceUrl: 'https://www.openstreetmap.org/node/990001'
   }] }) },
   transportClient: { searchStops: async () => ({ items: [] }), getTrips: unavailable },
-  restaurantClient: { search: async () => ({ items: [] }) },
+  restaurantClient: { search: async () => ({ items: [{id:'tour-food-900',name:'합성 점심 식당',branch:'',updatedAt:'',category:'한식',firstMenu:'합성 정식',menu:'합성 정식 · 합성 국수',address:'서울특별시 종로구 식당길 90',latitude:37.575,longitude:126.985,source:'한국관광공사 TourAPI',sourceUrl:'https://www.data.go.kr/data/15101578/openapi.do'}] }) },
   carRoutingClient: { getRoute: async ({ originLatitude, originLongitude, destinationLatitude, destinationLongitude }) => {
     const origin = { latitude: Number(originLatitude), longitude: Number(originLongitude) };
     const destination = { latitude: Number(destinationLatitude), longitude: Number(destinationLongitude) };
@@ -75,5 +77,5 @@ const server = createAppServer({
   } },
   transitRoutingClient: { getRoutes: unavailable }
 });
-server.listen(4179, '127.0.0.1', () => console.log('Isolated browser fixture ready on port 4179'));
+server.listen(port, '127.0.0.1', () => console.log('Isolated browser fixture ready on port 4179'));
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => server.close(() => { db.close(); process.exit(0); }));

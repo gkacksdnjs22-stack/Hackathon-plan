@@ -18,7 +18,35 @@
   const LOCAL_TRANSFER_IDS=['arrival-transfer',...TRANSFER_IDS];
   const TRANSFER_MODES=['walk','local-bus','subway','car'];
   const EXTRA_TYPES=['free','meal','rest','place','transfer'];
-  const EXTRA_FIELDS=['id','beforeId','type','title','description','duration','placeId','travelMode'];
+  const EXTRA_FIELDS=['id','beforeId','type','title','description','duration','placeId','travelMode','location','restaurantRef'];
+  function normalizeLocation(value){
+    if(value===null)return null;
+    if(!record(value)||Object.keys(value).some(key=>!['id','name','address','latitude','longitude','kind'].includes(key))
+      ||typeof value.id!=='string'||!value.id||value.id.length>160||typeof value.name!=='string'||!value.name.trim()||value.name.length>160
+      ||typeof value.address!=='string'||value.address.length>500||!['meal','stay','other'].includes(value.kind)
+      ||!Number.isFinite(value.latitude)||value.latitude<33||value.latitude>39.5||!Number.isFinite(value.longitude)||value.longitude<124||value.longitude>132)return undefined;
+    return {...value,name:value.name.trim(),address:value.address.trim()};
+  }
+  function normalizeRestaurantRef(value){
+    if(value===null)return null;
+    if(!record(value)||Object.keys(value).some(key=>!['id','name','address'].includes(key))
+      ||['id','name','address'].some(key=>typeof value[key]!=='string'||value[key].includes('\0')
+        ||value[key].length>(key==='address'?500:160)||key!=='address'&&!value[key].trim()))return undefined;
+    return {id:value.id.trim(),name:value.name.trim(),address:value.address.trim()};
+  }
+  const eventLocation=event=>event?.place||event?.location||event?.departure||event?.arrival||null;
+  const visitEvent=event=>Boolean(event?.type!=='transfer'&&(event?.type==='place'||event?.location||event?.restaurantRef||event?.type==='meal'&&event.title?.includes(' · ')||/^extra-/.test(event?.id)&&['free','rest','meal'].includes(event.type)||event?.departure||event?.arrival));
+  function visitName(event){
+    const title=typeof event?.title==='string'?event.title.trim():'';
+    return event?.type==='meal'&&title.includes(' · ')?title.slice(title.indexOf(' · ')+3).trim():title;
+  }
+  function visitIdentity(event){
+    if(!event)return null;
+    const place=eventLocation(event);
+    if(event.restaurantRef){const reference=event.restaurantRef;return ['restaurant',reference.id,reference.name,reference.address,place?.latitude??null,place?.longitude??null];}
+    if(place)return [place.id,place.latitude??null,place.longitude??null];
+    return ['unlocated',event.type,event.id,visitName(event)];
+  }
   const extraId=id=>typeof id==='string'&&/^extra-[1-9]\d{0,8}$/.test(id);
   const canonicalTravelMode=mode=>mode==='rental-car'||mode==='taxi'?'car':mode;
   const vehicleMode=mode=>canonicalTravelMode(mode)==='car';
@@ -273,7 +301,7 @@
       const normalized={};
       for(const id of Object.keys(eventEdits[key])){
         const edit=eventEdits[key][id];
-        if(!EVENT_IDS.includes(id)||!record(edit)||Object.keys(edit).some(field=>!['title','description','duration','travelMode'].includes(field)))
+        if(!EVENT_IDS.includes(id)||!record(edit)||Object.keys(edit).some(field=>!['title','description','duration','travelMode','location','restaurantRef'].includes(field)))
           return {ok:false,reason:'수정할 일정의 ID 또는 항목 형식이 올바르지 않습니다.'};
         const patch={};
         if(Object.hasOwn(edit,'title')){
@@ -294,6 +322,16 @@
           const mode=canonicalTravelMode(edit.travelMode);
           if(!LOCAL_TRANSFER_IDS.includes(id)||!TRANSFER_MODES.includes(mode))return {ok:false,reason:'관광지까지 이동수단을 목록에서 선택해 주세요.'};
           patch.travelMode=mode;
+        }
+        if(Object.hasOwn(edit,'location')){
+          const location=normalizeLocation(edit.location);
+          if(location===undefined||!['free-0','free-1','rest','lunch','dinner'].includes(id))return {ok:false,reason:'직접 입력한 장소의 국내 좌표와 이름을 확인해 주세요.'};
+          patch.location=location;
+        }
+        if(Object.hasOwn(edit,'restaurantRef')){
+          const reference=normalizeRestaurantRef(edit.restaurantRef);
+          if(reference===undefined||!['lunch','dinner'].includes(id))return {ok:false,reason:'선택한 식당의 식별 정보와 이름·주소를 확인해 주세요.'};
+          patch.restaurantRef=reference;
         }
         if(Object.keys(patch).length)normalized[id]=patch;
       }
@@ -336,6 +374,16 @@
           if(mode!==null&&!TRANSFER_MODES.includes(mode))return {ok:false,reason:'추가 이동수단을 목록에서 선택해 주세요.'};
           item.travelMode=mode;
         }else if(Object.hasOwn(entry,'travelMode'))return {ok:false,reason:'이동 일정에만 이동수단을 지정할 수 있습니다.'};
+        if(Object.hasOwn(entry,'location')){
+          const location=normalizeLocation(entry.location);
+          if(location===undefined||['place','transfer'].includes(entry.type))return {ok:false,reason:'장소의 국내 좌표와 이름을 확인해 주세요.'};
+          item.location=location;
+        }
+        if(Object.hasOwn(entry,'restaurantRef')){
+          const reference=normalizeRestaurantRef(entry.restaurantRef);
+          if(reference===undefined||entry.type!=='meal')return {ok:false,reason:'식사 일정의 식당 식별 정보와 이름·주소를 확인해 주세요.'};
+          item.restaurantRef=reference;
+        }
         ids.add(entry.id);items.push(item);
       }
       if(items.length)normalized[key]=items;
@@ -394,7 +442,7 @@
     const active=merged.filter(event=>!excluded.includes(event.id));
     const combined=order?[...active.filter(event=>PROTECTED_IDS.includes(event.id)&&event.id!=='finish'),
       ...order.map(id=>active.find(event=>event.id===id)),active.find(event=>event.id==='finish')].filter(Boolean):active;
-    const firstPlace=combined.find(event=>event.type==='place')?.place;
+    const firstPlace=eventLocation(combined.map(event=>({...event,...edits[event.id]})).find(event=>!['departure','arrival','transfer','finish'].includes(event.type)&&visitEvent(event)));
     let clock=startMinutes(startTime);
     for(const base of combined){
       let defaults=base;
@@ -406,13 +454,16 @@
         defaults={...base,meal,title:meal,description:`${area.name}에서 ${meal} · 식당을 특정하지 않음`};
       }
       const event={...defaults,...edits[base.id]};
-      events.push({...event,start:clock,end:clock+event.duration,startLabel:formatTime(clock),endLabel:formatTime(clock+event.duration)});
+      const previousAt=events.findLastIndex(visitEvent),previous=events[previousAt];
+      const routePending=Boolean(visitEvent(event)&&!['departure','arrival'].includes(event.type)&&previous&&previous.type!=='departure'&&!events.slice(previousAt+1).some(item=>item.type==='transfer'));
+      events.push({...event,start:clock,end:clock+event.duration,startLabel:formatTime(clock),endLabel:formatTime(clock+event.duration),
+        ...(routePending?{routePending:true}:{})});
       clock+=event.duration;
     }
     const travelDuration=events[0].duration;
     const arrivalTransfer=arrival?events.find(event=>event.id==='arrival-transfer').duration:null;
     const needsTravelTime=Boolean(departure&&(travelDuration===0||(publicTransport(departure)&&(!arrival||arrivalTransfer===0))));
-    const needsLocalTravelTime=events.some(event=>event.type==='transfer'&&event.duration===0);
+    const needsLocalTravelTime=events.some(event=>event.type==='transfer'&&event.duration===0||event.routePending);
     return {ok:true,area,events,hiddenEvents,start:startMinutes(startTime),end:clock,
       needsTravelTime:needsTravelTime||needsLocalTravelTime,timesProvisional:!departure||needsTravelTime||needsLocalTravelTime};
   }
@@ -554,11 +605,11 @@
         return {ok:false,reason:`${area.name}의 일정에는 서로 다른 장소 3곳이 필요합니다.`,days,maxDays:index};
       const places=ids.map(id=>allById.get(id));
       if(places.some(place=>!place||place.areaId!==area.id))return {ok:false,reason:`${area.name}에서 고른 장소가 이 권역의 장소 데이터와 일치하지 않습니다.`,days,maxDays};
-      if(places.some(place=>used.has(place.id)))return {ok:false,reason:'여행 전체에서 같은 장소를 중복 방문하도록 선택할 수 없습니다.',days,maxDays};
+      if(places.some((place,slot)=>!layout.excludedEvents[index]?.includes(`place-${slot}`)&&used.has(place.id)))return {ok:false,reason:'여행 전체에서 같은 장소를 중복 방문하도록 선택할 수 없습니다.',days,maxDays};
       const extraFlow=(extras.extraEvents[index]??[]).map(event=>event.type==='place'?{...event,place:allById.get(event.placeId)}:{...event});
       const result=scheduleDay(area,places,options.dayStarts[index],options.eventEdits[index],origins.dayDepartures[index],arrivals.dayArrivals[index],extraFlow,layout.excludedEvents[index],layout.eventOrders[index]);
       if(!result.ok)return {ok:false,reason:`${area.name}의 일정 장소를 확인할 수 없습니다.`,days,maxDays};
-      places.forEach(place=>used.add(place.id));
+      places.forEach((place,slot)=>{if(!layout.excludedEvents[index]?.includes(`place-${slot}`))used.add(place.id);});
       recommended[index]=[...ids];
       days.push({index:index+1,date:fmtDate(startDate,index),area:area.name,areaId:area.id,departure:origins.dayDepartures[index],arrival:arrivals.dayArrivals[index],transport:transports.dayTransports[index],events:result.events,hiddenEvents:result.hiddenEvents,start:result.start,end:result.end,needsTravelTime:result.needsTravelTime,timesProvisional:result.timesProvisional});
     }
@@ -612,17 +663,16 @@
   }
   function localTravelLegs(day){
     const events=day.events,legs=new Map();
-    const point=place=>place?[place.id,place.latitude??null,place.longitude??null]:null;
-    const first=events.find(event=>event.type==='place')?.place;
-    if(!requiresArrival(day.departure?.mode))legs.set('departure',JSON.stringify([point(day.departure),point(first)]));
+    const first=events.find(event=>!['departure','arrival','transfer','finish'].includes(event.type)&&visitEvent(event)) ;
+    if(!requiresArrival(day.departure?.mode))legs.set('departure',JSON.stringify([visitIdentity(day.departure?{departure:day.departure}:null),visitIdentity(first)]));
     for(let index=0;index<events.length;index++){
       const event=events[index];
       if(event.type!=='transfer')continue;
-      const origin=event.id==='arrival-transfer'?day.arrival:events.slice(0,index).reverse().find(item=>item.type==='place')?.place;
-      const destination=events.slice(index+1).find(item=>item.type==='place')?.place;
+      const origin=event.id==='arrival-transfer'?(day.arrival?{arrival:day.arrival}:null):events.slice(0,index).reverse().find(item=>!['transfer','finish'].includes(item.type)&&visitEvent(item));
+      const destination=events.slice(index+1).find(item=>!['transfer','finish'].includes(item.type)&&visitEvent(item));
       // Use the same visible neighbours as the route lookup. Slot numbers and
       // intervening meals/rests do not identify a journey after manual moves.
-      legs.set(event.id,JSON.stringify([point(origin),point(destination)]));
+      legs.set(event.id,JSON.stringify([visitIdentity(origin),visitIdentity(destination)]));
     }
     return legs;
   }
@@ -644,7 +694,7 @@
     if(!changed.size)return next;
     const eventEdits={...next.eventEdits},edits={...eventEdits[dayIndex]};
     for(const id of changed){
-      if(!edits[id])continue;
+      if(!edits[id]||edits[id].duration===0)continue;
       const patch={...edits[id]};delete patch.duration;
       if(Object.keys(patch).length)edits[id]=patch;else delete edits[id];
     }
@@ -656,19 +706,23 @@
   function addEvent({city,itinerary,dayIndex,type='free',title,description,duration,placeId,beforeId='finish',travelMode,reservedEventIds=[]}={}){
     const current=editableItinerary(city,itinerary,dayIndex);
     if(!current.ok)return {ok:false,reason:current.reason};
+    if(type==='place'&&Object.values(current.selections).flat().includes(placeId))return {ok:false,reason:'이미 추천한 관광지는 뺀 일정 다시 담기를 이용해 주세요.'};
     const entries=current.extraEvents[dayIndex]??[];
     if(!Array.isArray(reservedEventIds)||reservedEventIds.some(id=>!extraId(id)))return {ok:false,reason:'추가 일정의 이전 항목 정보를 확인해 주세요.'};
     if(!current.days[dayIndex].events.some(event=>event.id===beforeId&&!PROTECTED_IDS.includes(event.id)||event.id===beforeId&&event.id==='finish'))
       return {ok:false,reason:'추가 일정을 놓을 위치를 화면에 있는 일정에서 선택해 주세요.'};
     // UI history and move highlights can still reference deleted extras.
-    const number=[...entries.map(event=>event.id),...reservedEventIds].reduce((maximum,id)=>Math.max(maximum,Number(id.slice(6))),0)+1;
+    const number=[...Object.values(current.extraEvents).flat().map(event=>event.id),...reservedEventIds].reduce((maximum,id)=>Math.max(maximum,Number(id.slice(6))),0)+1;
     const id=`extra-${number}`,place=type==='place'?validationPlace(city,placeId):null;
-    const entry={id,type,beforeId,duration:duration===undefined?(place?.stayMinutes??({free:60,meal:60,rest:30,transfer:0})[type]):duration};
+    const anchor=extraId(beforeId)?'finish':beforeId;
+    const entry={id,type,beforeId:anchor,duration:duration===undefined?(place?.stayMinutes??({free:60,meal:60,rest:30,transfer:0})[type]):duration};
     if(title!==undefined)entry.title=title;
     if(description!==undefined)entry.description=description;
     if(type==='place'||placeId!==undefined)entry.placeId=placeId;
     if(travelMode!==undefined)entry.travelMode=travelMode;
-    const changes={extraEvents:{...current.extraEvents,[dayIndex]:[...entries,entry]}};
+    const order=current.days[dayIndex].events.filter(event=>!PROTECTED_IDS.includes(event.id)).map(event=>event.id);
+    const at=beforeId==='finish'?order.length:order.indexOf(beforeId);order.splice(at,0,id);
+    const changes={extraEvents:{...current.extraEvents,[dayIndex]:[...entries,entry]},eventOrders:{...current.eventOrders,[dayIndex]:order}};
     const validated=rebuild(city,current,changes);
     if(!validated.ok)return {ok:false,reason:validated.reason};
     const next=preserveUnchangedTravel(city,current,validated,dayIndex);
@@ -756,13 +810,16 @@
     }
     return {ok:true,changed:afterCost<beforeCost-epsilon,itinerary:best,beforeIds:[...beforeIds],afterIds,beforeCost,afterCost,unit:mode==='car'?'minutes':'meters'};
   }
-  function updateEvent({city,itinerary,dayIndex,eventId,title,description,duration,beforeId,placeId,resetTitle=false}={}){
+  function updateEvent({city,itinerary,dayIndex,eventId,title,description,duration,beforeId,placeId,resetTitle=false,location,restaurantRef}={}){
     const current=editableItinerary(city,itinerary,dayIndex);
     if(!current.ok)return {ok:false,reason:current.reason};
     if(extraId(eventId)){
       const entries=current.extraEvents[dayIndex]??[],selected=entries.find(event=>event.id===eventId);
       if(!selected)return {ok:false,reason:'수정할 추가 일정을 찾지 못했습니다.'};
       const patch={...selected};
+      if(restaurantRef!==undefined)patch.restaurantRef=restaurantRef;
+      else if(selected.type==='meal'&&selected.restaurantRef&&(resetTitle||title!==undefined&&visitName({...selected,title})!==visitName(selected)))patch.restaurantRef=null;
+      if(location!==undefined)patch.location=location;
       if(title!==undefined)patch.title=title;
       if(description!==undefined)patch.description=description;
       if(duration!==undefined)patch.duration=duration;
@@ -788,6 +845,12 @@
     if(placeId!==undefined)return {ok:false,reason:'기본 관광지는 장소 변경 목록에서 교체해 주세요.'};
     if(!EVENT_IDS.includes(eventId))return {ok:false,reason:'수정할 일정의 ID를 확인할 수 없습니다.'};
     const patch={...current.eventEdits[dayIndex]?.[eventId]};
+    if(restaurantRef!==undefined)patch.restaurantRef=restaurantRef;
+    else if(['lunch','dinner'].includes(eventId)&&patch.restaurantRef){
+      const selected=[...current.days[dayIndex].events,...current.days[dayIndex].hiddenEvents].find(event=>event.id===eventId);
+      if(resetTitle||title!==undefined&&visitName({...selected,title})!==visitName(selected))patch.restaurantRef=null;
+    }
+    if(location!==undefined)patch.location=location;
     if(title!==undefined)patch.title=title;
     if(resetTitle===true)delete patch.title;
     if(description!==undefined)patch.description=description;
@@ -795,7 +858,7 @@
     const eventEdits={...current.eventEdits,[dayIndex]:{...current.eventEdits[dayIndex],[eventId]:patch}};
     const dayTransports={...current.dayTransports};
     if(eventId==='departure'&&duration!==undefined&&duration!==current.days[dayIndex].events[0].duration)dayTransports[dayIndex]=null;
-    const next=rebuild(city,current,{eventEdits,dayTransports});
+    const next=preserveUnchangedTravel(city,current,rebuild(city,current,{eventEdits,dayTransports}),dayIndex);
     return next.ok?{ok:true,itinerary:next}:{ok:false,reason:next.reason};
   }
   function setTransferMode({city,itinerary,dayIndex,eventId,mode}={}){
@@ -1034,5 +1097,5 @@
     const next=rebuild(city,itinerary,{budget});
     return next.ok?{ok:true,itinerary:next}:{ok:false,reason:next.reason};
   }
-  window.TravelPlanner={createItinerary,proposeVisitOrder,getAlternatives,replacePlace,replaceTouristEvent,changeDayArea,addEvent,removeEvent,restoreEvent,moveEvent,updateEvent,updatePersonalization,updateBudget,setTransferMode,getTransferSuggestion,setDayStart,setDeparture,setDayDeparture,setDayArrival,setDayTransport,setDayConnection,buildConnection,requiresArrival,validateCity,allPlaces,formatTime,areaIdsFromItinerary};
+  window.TravelPlanner={eventLocation,visitEvent,visitIdentity,localTravelLegs,createItinerary,proposeVisitOrder,getAlternatives,replacePlace,replaceTouristEvent,changeDayArea,addEvent,removeEvent,restoreEvent,moveEvent,updateEvent,updatePersonalization,updateBudget,setTransferMode,getTransferSuggestion,setDayStart,setDeparture,setDayDeparture,setDayArrival,setDayTransport,setDayConnection,buildConnection,requiresArrival,validateCity,allPlaces,formatTime,areaIdsFromItinerary};
 })();

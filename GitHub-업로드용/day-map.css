@@ -28,3 +28,5 @@
 .day-map .leaflet-control-attribution { max-width:100%; font-size:10px; white-space:normal; }
 @media (max-width:760px) { .day-map-body { padding-right:10px; padding-left:10px; } .day-map-canvas { height:290px; } }
 @media print { .day-map { display:none!important; } }
+.day-map-pin { min-width:58px; }
+.day-map-pin span { width:100%; min-width:58px; white-space:nowrap; font-size:13px; }

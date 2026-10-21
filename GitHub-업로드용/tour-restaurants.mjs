@@ -172,7 +172,8 @@ function normalizeItem(raw, areaCode) {
       && clean(raw.sigungucode, 10) !== MERGED_DISTRICTS.get(areaCode)?.get(districts[0])) return null;
   }
   const location = point(raw.mapy, raw.mapx);
-  return { id: `tour-food-${id}`, name, branch: '', category: '음식점', address,
+  return { id: `tour-food-${id}`, name, branch: '', category: clean(raw.category, 80) || '음식점', address,
+    firstMenu: clean(raw.firstmenu, 200), menu: clean(raw.treatmenu, 300),
     latitude: location?.latitude ?? null, longitude: location?.longitude ?? null,
     updatedAt: clean(raw.modifiedtime, 40), source: PROVIDER, sourceUrl: SOURCE_URL };
 }
