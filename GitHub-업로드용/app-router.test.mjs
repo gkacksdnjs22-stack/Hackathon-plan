@@ -471,6 +471,40 @@ test('bookmarks reopen and focus the target day while collapse survives another 
   assert.equal(app.$('day-list').children[1].querySelector('.day-card-body').hidden, false);
 });
 
+test('undo and redo preserve each days current collapsed or expanded state', async () => {
+  for (const collapsed of [[true, false], [false, true], [true, true]]) {
+    const app = runtime({ ...timedNoteFixture(2), withAccount: true }); await settle();
+    app.$('day-count').value = '2'; await app.create();
+    const original = noteParameters(app);
+    assert.equal(currentSchedule(app).options.onAdd({ type: 'free', title: '둘째 날 메모', duration: 30 }).ok, true);
+    const edited = noteParameters(app);
+    collapsed.forEach((hidden, index) => { if (hidden) app.$('day-list').children[index].querySelector('.day-collapse').click(); });
+    for (const [action, expected] of [['undo', original], ['redo', edited]]) {
+      app.$(`${action}-button`).click();
+      assert.deepEqual(noteParameters(app), expected);
+      assert.deepEqual(app.$('day-list').children.map(day => day.querySelector('.day-card-body').hidden), collapsed);
+      assert.deepEqual(app.$('day-list').children.map(day => day.querySelector('.day-collapse').getAttribute('aria-expanded')),
+        collapsed.map(hidden => String(!hidden)));
+      assert.equal(app.account.options.getDocument().itinerary.collapsedDays, undefined);
+    }
+  }
+});
+
+test('collapse resets when loading another note or creating a new one, while a failed load preserves it', async () => {
+  const app = runtime({ ...timedNoteFixture(2), withAccount: true }); await settle();
+  app.$('day-count').value = '2'; await app.create();
+  const saved = app.account.options.getDocument();
+  app.$('day-list').children[0].querySelector('.day-collapse').click();
+  const invalid = { ...saved, itinerary: { ...saved.itinerary, dayAreaIds: [] } };
+  assert.equal(await app.account.options.loadDocument(invalid), false);
+  assert.equal(app.$('day-list').children[0].querySelector('.day-card-body').hidden, true);
+  assert.equal(await app.account.options.loadDocument(saved), true);
+  assert.ok(app.$('day-list').children.every(day => !day.querySelector('.day-card-body').hidden));
+  app.$('day-list').children[1].querySelector('.day-collapse').click();
+  await app.create();
+  assert.ok(app.$('day-list').children.every(day => !day.querySelector('.day-card-body').hidden));
+});
+
 test('daily summaries update after editing and note countdown reflects the actual trip start', async () => {
   const app = runtime({ ...actualPlannerFixture(), withAccount: true }); await settle(); await app.create();
   assert.match(app.$('trip-summary').textContent, /오늘 출발/);
