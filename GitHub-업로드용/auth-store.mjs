@@ -68,10 +68,13 @@ const PLAN_COLUMNS='id,title,city_id,start_date,day_count,revision,created_at,up
  * rather than accepting the incoming browser's header.
  */
 export function createAccountHandler({db,secret,cryptoImpl=globalThis.crypto,now=Date.now}={}){
-  const configured=Boolean(db?.prepare&&db?.batch&&typeof secret==='string'&&ENCODER.encode(secret).byteLength>=32
-    &&ENCODER.encode(secret).byteLength<=512&&!/[\u0000-\u001f\u007f]/.test(secret)&&cryptoImpl?.subtle&&cryptoImpl?.getRandomValues);
+  // Copying a one-line secret file can include its final line ending. Do not
+  // trim spaces or any other content, which would change an existing key.
+  const signingSecret=typeof secret==='string'?secret.replace(/\r?\n$/,''):secret;
+  const configured=Boolean(db?.prepare&&db?.batch&&typeof signingSecret==='string'&&ENCODER.encode(signingSecret).byteLength>=32
+    &&ENCODER.encode(signingSecret).byteLength<=512&&!/[\u0000-\u001f\u007f]/.test(signingSecret)&&cryptoImpl?.subtle&&cryptoImpl?.getRandomValues);
   let pepper;
-  const key=()=>pepper??=(cryptoImpl.subtle.importKey('raw',ENCODER.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign','verify']));
+  const key=()=>pepper??=(cryptoImpl.subtle.importKey('raw',ENCODER.encode(signingSecret),{name:'HMAC',hash:'SHA-256'},false,['sign','verify']));
   const random=size=>cryptoImpl.getRandomValues(new Uint8Array(size));
   const hash=async value=>b64(new Uint8Array(await cryptoImpl.subtle.digest('SHA-256',ENCODER.encode(value))));
   const hmac=async value=>b64(new Uint8Array(await cryptoImpl.subtle.sign('HMAC',await key(),ENCODER.encode(value))));

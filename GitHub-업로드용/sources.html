@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#fff9f0">
+  <meta name="theme-color" content="#eef4ff">
   <meta name="description" content="길 여행 플래너가 사용하는 관광지, 맛집, 교통편, 주소 검색 데이터의 출처와 이용 안내입니다.">
   <title>데이터 출처 안내 — 길</title>
   <link rel="stylesheet" href="./styles.css?v=11">
   <link rel="stylesheet" href="./free-theme.css?v=1">
-  <link rel="stylesheet" href="./sources.css?v=2">
+  <link rel="stylesheet" href="./sources.css?v=3">
   <link rel="icon" type="image/png" href="./travel-sticker-v1.png">
 </head>
 <body class="sources-page">
@@ -69,6 +69,19 @@
         <div class="source-links"><a href="https://developers.kakao.com/docs/ko/kakaomap/rest-api" target="_blank" rel="noopener noreferrer">카카오맵 API 안내 <span aria-hidden="true">↗</span></a><a href="https://devtalk.kakao.com/t/api-api/151980" target="_blank" rel="noopener noreferrer">응답 저장 정책 <span aria-hidden="true">↗</span></a></div>
       </section>
 
+      <section id="geocoding" class="source-card source-card-geocoding" aria-labelledby="geocoding-title">
+        <div class="source-card-heading"><span class="source-icon" aria-hidden="true">🧭</span><div><p class="source-category">주소 · 주변 장소 검색</p><h2 id="geocoding-title">Photon / OpenStreetMap</h2></div></div>
+        <p class="source-description">숙소·주소·주변 장소의 이름과 위치를 검색할 때 OpenStreetMap 데이터를 바탕으로 한 Photon 검색을 사용합니다. 교통편을 선택할 때의 역·터미널·공항·항구 목록은 위의 TAGO에서 제공합니다.</p>
+        <div class="source-attribution">
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>
+          <a href="https://github.com/komoot/photon" target="_blank" rel="noopener noreferrer">Photon by komoot</a>
+        </div>
+        <div class="source-links">
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap 저작권·이용 안내 <span aria-hidden="true">↗</span></a>
+          <a href="https://github.com/komoot/photon#demo-server" target="_blank" rel="noopener noreferrer">Photon 서비스 안내 <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+
       <section id="photos" class="source-card" aria-labelledby="photos-title">
         <div class="source-card-heading"><div><p class="source-category">여행 배경 사진</p><h2 id="photos-title">사진 이용 안내</h2></div></div>
         <p class="source-description">첫 화면은 Wikimedia Commons에 공개된 국내 풍경 8장을 보여드립니다. 사진별 저작자와 이용조건은 아래에서 확인할 수 있으며, 선택한 여행 지역과는 관계없습니다.</p>
@@ -83,19 +96,6 @@
           <li><strong>통영 이순신공원</strong><span>작품명: View from the Yi Sun-shin Park.jpg · 사진: VaneTrz20</span><span>Wikimedia Commons · <a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noopener noreferrer">CC0 1.0</a> · 크기·용량 조정</span><a href="https://commons.wikimedia.org/wiki/File:View_from_the_Yi_Sun-shin_Park.jpg" target="_blank" rel="noopener noreferrer">원본·저작자·이용조건 ↗</a><a href="./travel-backdrop-08.jpg" target="_blank" rel="noopener noreferrer">사용 사진 보기 ↗</a></li>
         </ul>
         <p class="source-note">이용조건 확인: 2026년 10월 21일. 웹 표시를 위해 크기·용량만 조정했으며, 배경은 화면 비율에 맞춰 일부가 잘릴 수 있습니다. 풍경 내용을 생성하거나 바꾸지 않았습니다. CC BY-SA 사진의 조정본도 각 원본과 같은 라이선스로 제공합니다. 첫 화면에서만 15초마다 사진과 짧은 소개가 바뀌고, 계획 노트에는 사진을 표시하지 않습니다.</p>
-      </section>
-
-      <section id="geocoding" class="source-card source-card-geocoding" aria-labelledby="geocoding-title">
-        <div class="source-card-heading"><span class="source-icon" aria-hidden="true">🧭</span><div><p class="source-category">주소 · 주변 장소 검색</p><h2 id="geocoding-title">Photon / OpenStreetMap</h2></div></div>
-        <p class="source-description">숙소·주소·주변 장소의 이름과 위치를 검색할 때 OpenStreetMap 데이터를 바탕으로 한 Photon 검색을 사용합니다. 교통편을 선택할 때의 역·터미널·공항·항구 목록은 위의 TAGO에서 제공합니다.</p>
-        <div class="source-attribution">
-          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>
-          <a href="https://github.com/komoot/photon" target="_blank" rel="noopener noreferrer">Photon by komoot</a>
-        </div>
-        <div class="source-links">
-          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap 저작권·이용 안내 <span aria-hidden="true">↗</span></a>
-          <a href="https://github.com/komoot/photon#demo-server" target="_blank" rel="noopener noreferrer">Photon 서비스 안내 <span aria-hidden="true">↗</span></a>
-        </div>
       </section>
     </div>
 
