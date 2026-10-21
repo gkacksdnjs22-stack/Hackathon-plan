@@ -76,6 +76,7 @@
     const description = document.createElement('textarea'); description.className = 'schedule-description-input';
     description.rows = 2; description.maxLength = 500; description.placeholder = '예약 정보나 하고 싶은 일을 적어보세요.';
     const memoField = field('내 메모', description);
+    const updateMemoCount = window.TravelNoteTools?.memoCounter(description);
     grid.replaceChildren(typeField.label, titleField.label, placeField, placeHint, duration, memoField.label);
     const actions = document.createElement('div'); actions.className = 'schedule-actions';
     const save = document.createElement('button'); save.type = 'submit'; save.className = 'schedule-save'; save.textContent = '일정에 추가';
@@ -109,6 +110,7 @@
       currentType = next;
       const draft = drafts.get(next) || defaultDraft(next);
       title.value = draft.title; description.value = draft.description; hours.value = draft.hours; minutes.value = draft.minutes;
+      updateMemoCount?.();
       if (!drafts.has(next)) {
         const total = Number(draft.minutes); hours.value = String(Math.floor(total / 60)); minutes.value = String(total % 60);
       }

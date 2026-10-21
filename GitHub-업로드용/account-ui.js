@@ -40,6 +40,7 @@
     let destroyed = false, configured = null, sessionPending = true, sessionFailed = false, user = null;
     let epoch = 0, listVersion = 0, operation = 0, attachment = 0, draftVersion = 0, dirty = true;
     let currentPlan = null, plans = [], listPending = false, listError = '', savePending = false, initialReported = false;
+    let planSort = 'updated';
     let dialogVersion = 0, dialogBusy = false, dialogControls = [], returnFocus = null;
     let verifying = false, verifyAgain = false, probingVisibility = false, signalVersion = 0;
     const sessionSignalKey = 'gil-account-session-change';
@@ -123,7 +124,7 @@
       epoch++; operation++; attachment++; listVersion++; abortRequests();
       const transition = epoch;
       user = next ? { id: next.id, username: next.username } : null;
-      currentPlan = null; plans = []; dirty = true; savePending = false; listPending = false; listError = ''; sessionPending = true;
+      currentPlan = null; plans = []; planSort = 'updated'; dirty = true; savePending = false; listPending = false; listError = ''; sessionPending = true;
       render();
       try { await onUserChange(known ? user : undefined, { initial, previousUser }); }
       catch (_error) { if (!destroyed && transition === epoch) notify('이 기기 노트를 준비하지 못했어요. 새로고침 후 다시 확인해 주세요.', 'error'); }
@@ -154,8 +155,21 @@
         busy(value) { if (version === dialogVersion) { dialogBusy = value; dialogControls.forEach(control => { control.disabled = value; }); dialog.setAttribute('aria-busy', String(value)); } },
         current() { return !destroyed && version === dialogVersion; },
         input(form, caption, className, type = 'text') {
-          const label = node('label', 'account-dialog-field'), input = node('input', className); input.type = type;
-          label.append(node('span', '', caption), input); form.append(label); dialogControls.push(input); return input;
+          const label = node(type === 'password' ? 'div' : 'label', 'account-dialog-field'), input = node('input', className); input.type = type;
+          if (type === 'password') {
+            input.id = `${id}-${className}`;
+            const captionLabel = node('label', '', caption); captionLabel.setAttribute('for', input.id);
+            const control = node('div', 'account-password-control');
+            const toggle = button('보기', () => {
+              const showing = input.type === 'password'; input.type = showing ? 'text' : 'password';
+              toggle.textContent = showing ? '숨기기' : '보기';
+              toggle.setAttribute('aria-label', `${caption} ${showing ? '숨기기' : '보기'}`);
+              toggle.setAttribute('aria-pressed', String(showing));
+            }, 'account-password-toggle');
+            toggle.setAttribute('aria-label', `${caption} 보기`); toggle.setAttribute('aria-pressed', 'false'); toggle.setAttribute('aria-controls', input.id);
+            control.append(input, toggle); label.append(captionLabel, control); dialogControls.push(toggle);
+          } else label.append(node('span', '', caption), input);
+          form.append(label); dialogControls.push(input); return input;
         },
         action(host, text, callback, className = '') { const result = button(text, callback, className); host.append(result); dialogControls.push(result); return result; }
       };
@@ -202,8 +216,21 @@
           : listPending ? '저장한 계획을 불러오고 있어요.' : listError || (!plans.length ? '아직 계정에 저장한 계획이 없어요.' : '');
       library.append(message);
       if (!user) return;
+      const sortLabel = node('label', 'account-sort', '계획 정렬');
+      const sort = node('select', 'account-sort-select'); sort.setAttribute('aria-label', '저장한 계획 정렬');
+      for (const [value, label] of [['updated', '최근 수정순'], ['start', '여행 시작일 빠른순']]) {
+        const option = node('option', '', label); option.value = value; sort.append(option);
+      }
+      sort.value = planSort;
+      sort.addEventListener('change', () => {
+        planSort = sort.value === 'start' ? 'start' : 'updated'; renderLibrary();
+        library.querySelector('.account-sort-select')?.focus({ preventScroll: true });
+      });
+      sortLabel.append(sort); library.append(sortLabel);
       const list = node('ul', 'account-plan-list'); list.setAttribute('aria-label', '계정에 저장한 여행 계획');
-      for (const plan of plans) {
+      const ordered = [...plans].sort((a, b) => (planSort === 'start' ? a.startDate.localeCompare(b.startDate) : 0)
+        || Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || a.id.localeCompare(b.id));
+      for (const plan of ordered) {
         const card = node('li', 'account-plan-card'), copy = node('div', 'account-plan-copy'), actions = node('div', 'account-plan-actions');
         const cityName = window.TRAVEL_DATA?.cities?.[plan.cityId]?.name || '국내 여행';
         copy.append(node('strong', 'account-plan-title', plan.title), node('span', 'account-plan-meta', `${cityName} · ${plan.startDate}부터 ${plan.dayCount}일 · 수정 ${new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(plan.updatedAt))}`));

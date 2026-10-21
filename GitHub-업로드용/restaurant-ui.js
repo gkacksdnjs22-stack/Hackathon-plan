@@ -115,6 +115,7 @@
         map.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${name.textContent} ${item.address}`)}`;
         map.textContent = '지도 보기 ↗'; map.setAttribute('aria-label', `${name.textContent} 지도 보기 (새 창)`);
         copy.append(name, meta, address);
+        if (window.TravelNoteTools) copy.append(window.TravelNoteTools.addressCopy(item.address, name.textContent));
         if (canSelect) {
           const actions = document.createElement('div'); actions.className = 'restaurant-actions';
           const select = document.createElement('button'); select.type = 'button'; select.className = 'restaurant-select';
@@ -184,6 +185,7 @@
     const nameInput = document.createElement('input'); nameInput.type = 'text'; nameInput.className = 'restaurant-manual-name'; nameInput.maxLength = 60; nameInput.required = true; nameInput.autocomplete = 'off'; nameInput.value = typeof name === 'string' ? name : ''; nameLabel.append(nameInput);
     const memoLabel = document.createElement('label'); memoLabel.className = 'restaurant-manual-label'; memoLabel.textContent = '주소·메모 (선택, 최대 500자)';
     const memoInput = document.createElement('textarea'); memoInput.rows = 3; memoInput.className = 'restaurant-manual-description'; memoInput.maxLength = 500; memoInput.autocomplete = 'off'; memoInput.value = typeof description === 'string' ? description : ''; memoLabel.append(memoInput);
+    const updateMemoCount = window.TravelNoteTools?.memoCounter(memoInput);
     const actions = document.createElement('div'); actions.className = 'restaurant-manual-actions';
     const save = document.createElement('button'); save.type = 'button'; save.className = 'restaurant-manual-save'; save.textContent = '식사 일정에 저장'; save.disabled = typeof onSave !== 'function';
     const clear = document.createElement('button'); clear.type = 'button'; clear.className = 'restaurant-manual-clear'; clear.textContent = '식당 정보 지우기'; clear.disabled = typeof onClear !== 'function'; actions.append(save, clear);
@@ -211,7 +213,7 @@
         const outcome = await (clearing ? onClear() : onSave(value));
         if (!current() || operation !== version) return;
         if (outcome?.ok === true) {
-          if (clearing) { nameInput.value = ''; memoInput.value = ''; nameInput.setAttribute('aria-invalid', 'false'); memoInput.setAttribute('aria-invalid', 'false'); }
+          if (clearing) { nameInput.value = ''; memoInput.value = ''; updateMemoCount?.(); nameInput.setAttribute('aria-invalid', 'false'); memoInput.setAttribute('aria-invalid', 'false'); }
           preview.textContent = clearing ? '가고 싶은 식당을 적어 주세요' : value.name;
           show(clearing ? '입력한 식당을 지웠어요.' : '식사 일정에 저장했어요. 식당까지 오가는 이동시간은 직접 확인해 주세요.');
         } else show(text(outcome?.reason, 500) ? outcome.reason : '변경 내용을 저장하지 못했어요. 다시 시도해 주세요.', true);
