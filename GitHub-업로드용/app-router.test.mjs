@@ -1591,6 +1591,29 @@ function previewRuntime(fixture) {
     raw: JSON.stringify({ version: 8, itinerary: fixture.note }) });
 }
 
+for(const kind of ['checklist','favorite','tag'])test(`personal ${kind} saves preserve transit preview replacement, clearing and later queries without rebuilding the note`,async()=>{
+  for(const alreadyPreviewed of [false,true]){
+    const app=previewRuntime(transitPreviewFixture({duration:30}));await settle();
+    const lookup=previewMount(app,'transit','departure'),day=app.$('day-list').children[0];
+    previewRow(app,'lunch').querySelector('.event-edit-button').click();
+    const memo=previewRow(app,'lunch').querySelector('textarea');memo.value='입력 중 메모 유지';
+    if(alreadyPreviewed){lookup.options.onPreviewDuration(53);assert.match(previewClock(app,'place-0'),/09:53/);}
+    if(kind==='checklist')addPersonalItem(app,'휴대용 충전기');
+    else if(kind==='favorite')previewRow(app,'place-0').querySelector('.event-favorite-button').click();
+    else{const select=previewRow(app,'place-0').querySelector('.event-tag-select');select.value='must';select.dispatch('change');}
+    assert.equal(app.$('day-list').children[0],day);assert.equal(lookup.destroyed,false);assert.equal(memo.value,'입력 중 메모 유지');
+    const raw=app.stored.get(storageKey),writes=app.writes.length,changes=app.account.changes;
+    lookup.options.onPreviewDuration(70);assert.match(previewClock(app,'place-0'),/10:10/);
+    lookup.options.onPreviewDuration(null);assert.match(previewClock(app,'place-0'),/09:30/);
+    lookup.options.onPreviewDuration(80);assert.match(previewClock(app,'place-0'),/10:20/);
+    assert.equal(app.stored.get(storageKey),raw);assert.equal(app.writes.length,writes);assert.equal(app.account.changes,changes);
+    assert.equal(JSON.parse(raw).itinerary.eventEdits[0].departure.duration,30);
+    await app.account.options.onUserChange(undefined);
+    lookup.options.onPreviewDuration(90);lookup.options.onPreviewDuration(null);
+    assert.equal(app.$('day-list').children.length,0,'former account callbacks remain invalid');
+  }
+});
+
 test('a live arrival transfer moves the first visit from a 09:00 station arrival to 09:53 without saving API values', async () => {
   const fixture = transitPreviewFixture({ arrival: true, startTime: '07:30', duration: 90 });
   const app = previewRuntime(fixture); await settle();

@@ -634,7 +634,9 @@
     const result=window.TravelPlanner.updatePersonalization({city,itinerary:currentItinerary,personalization});
     if(!result.ok)return result;
     if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'변경 내용을 저장하지 못했어요. 기존 노트는 유지했어요.'};
-    currentItinerary=result.itinerary;
+    // Only metadata changed. Keep the rendered schedule's identity so its
+    // existing transit widgets can still update and clear their live preview.
+    currentItinerary.personalization=result.itinerary.personalization;
     renderPersonalization();
     return {ok:true};
   }
