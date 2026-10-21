@@ -7,7 +7,13 @@
 .day-bookmarks { display:flex; gap:7px; overflow-x:auto; padding:8px 3px 0; margin-bottom:-1px; scrollbar-width:thin; }
 .day-bookmark { flex:0 0 auto; min-height:48px; padding:10px 19px 16px; border:1px solid #b9cdeb; border-bottom:0; border-radius:10px 10px 0 0; background:#e2edff; color:#2d4c77; font:inherit; font-size:12px; font-weight:800; letter-spacing:.025em; cursor:pointer; clip-path:polygon(0 0,100% 0,100% 100%,50% 88%,0 100%); }
 .day-bookmark:hover,.day-bookmark:focus-visible { background:#cdddff; }
+.day-bookmark[aria-current="page"] { border-color:#3e67ad; background:#3e67ad; color:#fff; }
+.day-bookmark[aria-current="page"]:focus-visible { background:#284b83; }
+.day-bookmarks-bottom { margin-top:16px; margin-bottom:0; padding-top:0; padding-bottom:8px; }
+.day-bookmarks-bottom .day-bookmark { border-bottom:1px solid #b9cdeb; }
+.day-title .day-index-label { font-size:12px; font-weight:700; letter-spacing:.025em; white-space:nowrap; }
 .day-card { scroll-margin-top:20px; }
+.day-card[hidden] { display:none!important; }
 .day-heading-copy { flex:1; min-width:0; }
 .day-header-actions { display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:10px; min-width:0; }
 .day-summary { margin:7px 0 0; color:#586c89; font-size:11px; line-height:1.8; overflow-wrap:anywhere; }
@@ -28,6 +34,7 @@ body[data-screen="note"] .day-card.is-collapsed .day-card-header { border-bottom
 }
 @media print {
   .day-bookmarks,.day-collapse,.address-copy,.memo-counter { display:none!important; }
+  .day-card[hidden] { display:block!important; }
   .day-card-body[hidden] { display:block!important; }
   body[data-screen="note"] .day-card.is-collapsed .day-card-header { border-bottom:1px solid #ccc; border-radius:12px 12px 0 0; }
   .day-summary { font-size:8pt; }

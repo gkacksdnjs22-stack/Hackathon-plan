@@ -197,7 +197,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   document.body = document.createElement('body');
   const ids = ['country-select', 'city-select', 'start-date', 'day-count', 'trip-form', 'destinations-retry',
     'city-note', 'duration-note', 'data-status', 'app-message', 'date-trigger', 'itinerary-section',
-    'empty-state', 'day-list', 'day-bookmarks', 'trip-summary', 'note-timing-notice', 'capacity-message', 'print-button', 'clear-button', 'undo-button', 'redo-button',
+    'empty-state', 'day-list', 'day-bookmarks', 'day-bookmarks-bottom', 'trip-summary', 'note-timing-notice', 'capacity-message', 'print-button', 'clear-button', 'undo-button', 'redo-button',
     'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'account-notice', 'saved-plans', 'account-save'];
   for (const id of ids) {
     const tag = ['city-select', 'day-count'].includes(id) ? 'select' : id === 'trip-form' ? 'form' : ['print-button','clear-button','undo-button','redo-button'].includes(id) ? 'button' : 'div';
@@ -466,9 +466,77 @@ test('bookmarks reopen and focus the target day while collapse survives another 
   const beforeJump = app.writes.length;
   app.$('day-bookmarks').children[0].click();
   assert.equal(first.querySelector('.day-card-body').hidden, false);
-  assert.equal(app.document.activeElement, first); assert.equal(first.lastScrollIntoView.block, 'start');
+  assert.equal(app.document.activeElement, first); assert.equal(app.$('day-bookmarks').lastScrollIntoView.block, 'start');
   assert.equal(app.window.location.hash, '#/note'); assert.equal(app.writes.length, beforeJump);
   assert.equal(app.$('day-list').children[1].querySelector('.day-card-body').hidden, false);
+});
+
+test('top and bottom bookmarks show one day at a time without saving or discarding an unfinished memo', async () => {
+  const app = runtime({ ...timedNoteFixture(3), withAccount: true }); await settle();
+  app.$('day-count').value = '3'; await app.create();
+  const cards = [...app.$('day-list').children], saved = app.stored.get(storageKey), writes = app.writes.length;
+  const visible = () => app.$('day-list').children.filter(day => !day.hidden).map(day => day.dataset.dayIndex);
+  const current = id => app.$(id).children.filter(button => button.getAttribute('aria-current') === 'page').map(button => button.textContent);
+  assert.deepEqual(visible(), ['0']);
+  assert.equal(cards[0].querySelector('.day-index-label').textContent, 'Day 01');
+  app.$('day-bookmarks').children[1].click();
+  assert.deepEqual(visible(), ['1']);
+  const row = cards[1].querySelector('[data-event-id="place-0"]'); row.querySelector('.event-edit-button').click();
+  const memo = row.querySelector('textarea'); memo.value = '저장하기 전 둘째 날 메모'; memo.dispatch('input');
+  const details = app.document.createElement('details'); details.open = true; cards[1].append(details);
+  app.$('day-bookmarks-bottom').children[2].click();
+  assert.deepEqual(visible(), ['2']); assert.equal(details.open, false);
+  assert.deepEqual(current('day-bookmarks'), ['Day 03']); assert.deepEqual(current('day-bookmarks-bottom'), ['Day 03']);
+  assert.equal(app.document.activeElement, cards[2]); assert.equal(app.$('day-bookmarks').lastScrollIntoView.behavior, 'instant');
+  app.$('day-bookmarks-bottom').children[1].click();
+  assert.deepEqual(visible(), ['1']); assert.equal(row.querySelector('textarea'), memo);
+  assert.equal(memo.value, '저장하기 전 둘째 날 메모');
+  assert.deepEqual(app.$('day-list').children, cards); assert.equal(app.writes.length, writes); assert.equal(app.stored.get(storageKey), saved);
+  assert.equal(app.window.location.hash, '#/note');
+});
+
+test('the selected page and collapsed day remain selected through editing, undo and redo', async () => {
+  const app = runtime({ ...timedNoteFixture(2), withAccount: true }); await settle();
+  app.$('day-count').value = '2'; await app.create();
+  app.$('day-bookmarks-bottom').children[1].click();
+  const original = noteParameters(app);
+  assert.equal(currentSchedule(app).options.onAdd({ type: 'free', title: '둘째 날 일정', duration: 30 }).ok, true);
+  const edited = noteParameters(app);
+  app.$('day-list').children[1].querySelector('.day-collapse').click();
+  for (const [action, expected] of [['undo', original], ['redo', edited]]) {
+    app.$(`${action}-button`).click();
+    assert.deepEqual(noteParameters(app), expected);
+    assert.deepEqual(app.$('day-list').children.map(day => day.hidden), [true, false]);
+    assert.equal(app.$('day-list').children[1].querySelector('.day-card-body').hidden, true);
+    assert.equal(app.$('day-bookmarks-bottom').children[1].getAttribute('aria-current'), 'page');
+    assert.equal(app.account.options.getDocument().itinerary.activeDayIndex, undefined);
+  }
+});
+
+test('page selection resets for a new or successfully loaded note and survives a failed load', async () => {
+  const app = runtime({ ...timedNoteFixture(2), withAccount: true }); await settle();
+  app.$('day-count').value = '2'; await app.create();
+  const saved = app.account.options.getDocument();
+  app.$('day-bookmarks').children[1].click();
+  const invalid = { ...saved, itinerary: { ...saved.itinerary, dayAreaIds: [] } };
+  assert.equal(await app.account.options.loadDocument(invalid), false);
+  assert.deepEqual(app.$('day-list').children.map(day => day.hidden), [true, false]);
+  assert.equal(await app.account.options.loadDocument(saved), true);
+  assert.deepEqual(app.$('day-list').children.map(day => day.hidden), [false, true]);
+  app.$('day-bookmarks-bottom').children[1].click(); await app.create();
+  assert.deepEqual(app.$('day-list').children.map(day => day.hidden), [false, true]);
+});
+
+test('a seven-day trip retains every day while paging exposes exactly one at either end', async () => {
+  const app = runtime({ ...timedNoteFixture(7), withAccount: true }); await settle();
+  app.$('day-count').value = '7'; await app.create();
+  assert.equal(app.$('day-list').children.length, 7);
+  assert.equal(app.$('day-bookmarks').children.length, 7); assert.equal(app.$('day-bookmarks-bottom').children.length, 7);
+  app.$('day-bookmarks-bottom').children[6].click();
+  assert.deepEqual(app.$('day-list').children.filter(day => !day.hidden).map(day => day.dataset.dayIndex), ['6']);
+  assert.equal(app.account.options.getDocument().itinerary.dayCount, 7);
+  app.$('day-bookmarks').children[0].click();
+  assert.deepEqual(app.$('day-list').children.filter(day => !day.hidden).map(day => day.dataset.dayIndex), ['0']);
 });
 
 test('undo and redo preserve each days current collapsed or expanded state', async () => {
