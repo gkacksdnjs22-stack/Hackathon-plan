@@ -897,3 +897,29 @@ test('changing the first restaurant invalidates only its departure travel draft 
     note=await guestNote(page);expect(note.days[0].events.find(event=>event.id==='departure').duration).toBe(0);expect(note.days[0].events.find(event=>event.id==='extra-1').location).toEqual(selected);
   }
 });
+
+test('renaming a restaurant without coordinates clears its saved travel time and draft while same-name memo edits preserve them',async({page})=>{
+  for(const reloadBeforeOpen of [false,true]){
+    if(reloadBeforeOpen){await page.evaluate(()=>localStorage.clear());await page.reload();}
+    await createNote(page);
+    const lunch=page.locator('#travel-day-0 [data-event-id="lunch"]'),travel=page.locator('#travel-day-0 [data-event-id="transfer-0"]');
+    async function saveTravelTime(eventId,minutes){
+      const editor=await openRowEditor(page,page.locator(`#travel-day-0 [data-event-id="${eventId}"]`));
+      await editor.getByLabel('이동시간: 시간',{exact:true}).fill('0');await editor.getByLabel('이동시간: 분',{exact:true}).fill(String(minutes));await editor.getByRole('button',{name:'수정 저장',exact:true}).click();
+    }
+    await lunch.locator('.restaurant-manual > summary').click();await lunch.locator('.restaurant-manual-name').fill('직접 입력 식당 A');await lunch.locator('.restaurant-manual-description').fill('직접 확인한 예약 메모');await lunch.locator('.restaurant-manual-save').click();
+    let note=await guestNote(page);expect(note.eventEdits[0].lunch.location).toBeNull();expect(note.eventEdits[0].lunch.title).toContain('직접 입력 식당 A');
+    await saveTravelTime('transfer-0',25);await saveTravelTime('transfer-1',35);
+    let editor=await openRowEditor(page,travel);await editor.getByLabel('이동시간: 분',{exact:true}).fill('45');await page.keyboard.press('Escape');
+    await lunch.locator('.restaurant-manual > summary').click();await expect(lunch.locator('.restaurant-manual-name')).toHaveValue('직접 입력 식당 A');await lunch.locator('.restaurant-manual-description').fill('직접 확인한 예약 메모\n같은 식당의 메모만 수정');await lunch.locator('.restaurant-manual-save').click();
+    note=await guestNote(page);expect(note.eventEdits[0].lunch.location).toBeNull();expect(note.days[0].events.find(event=>event.id==='transfer-0').duration).toBe(25);expect(note.days[0].events.find(event=>event.id==='transfer-1').duration).toBe(35);
+    editor=await openRowEditor(page,travel);await expect(editor.getByLabel('이동시간: 시간',{exact:true})).toHaveValue('0');await expect(editor.getByLabel('이동시간: 분',{exact:true})).toHaveValue('45');await page.keyboard.press('Escape');
+    await lunch.locator('.restaurant-manual > summary').click();await lunch.locator('.restaurant-manual-name').fill('직접 입력 식당 B');await lunch.locator('.restaurant-manual-save').click();
+    note=await guestNote(page);expect(note.eventEdits[0].lunch.title).toContain('직접 입력 식당 B');expect(note.eventEdits[0].lunch.location).toBeNull();expect(note.days[0].events.find(event=>event.id==='transfer-0').duration).toBe(0);expect(note.days[0].events.find(event=>event.id==='transfer-1').duration).toBe(35);
+    if(reloadBeforeOpen){await page.reload();await expect(page.locator('#itinerary-section')).toBeVisible();}
+    editor=await openRowEditor(page,travel);await expect(editor.getByLabel('이동시간: 시간',{exact:true})).toHaveValue('0');await expect(editor.getByLabel('이동시간: 분',{exact:true})).toHaveValue('0');await editor.getByRole('button',{name:'수정 저장',exact:true}).click();
+    note=await guestNote(page);expect(note.eventEdits[0].lunch.title).toContain('직접 입력 식당 B');expect(note.eventEdits[0].lunch.location).toBeNull();expect(note.days[0].events.find(event=>event.id==='transfer-0').duration).toBe(0);expect(note.days[0].events.find(event=>event.id==='transfer-1').duration).toBe(35);
+    await page.reload();await expect(page.locator('#itinerary-section')).toBeVisible();
+    note=await guestNote(page);expect(note.eventEdits[0].lunch.title).toContain('직접 입력 식당 B');expect(note.eventEdits[0].lunch.location).toBeNull();expect(note.days[0].events.find(event=>event.id==='transfer-0').duration).toBe(0);
+  }
+});

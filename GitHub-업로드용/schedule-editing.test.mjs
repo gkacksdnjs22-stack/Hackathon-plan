@@ -74,3 +74,39 @@ test('a missing leg after a chosen restaurant keeps the timetable provisional ev
  note=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId:'transfer-0',duration:10}).itinerary;
  const nextVisit=note.days[0].events.find(e=>e.id==='place-1');assert.equal(nextVisit.routePending,true);assert.equal(note.days[0].timesProvisional,true);
 });
+
+test('renaming an unlocated restaurant resets both adjacent legs but memo and meal-label changes retain them',()=>{
+ const {city,planner,create}=runtime();let note=create();
+ note=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId:'lunch',title:'점심 식사 · 식당 A',description:'기존 메모',location:null}).itinerary;
+ const added=planner.addEvent({city,itinerary:note,dayIndex:0,type:'transfer',beforeId:'place-1',duration:35});assert.equal(added.ok,true,added.reason);note=added.itinerary;
+ for(const [eventId,duration]of [['transfer-0',25],['transfer-1',40]])note=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId,duration}).itinerary;
+ const duration=(value,id)=>value.days[0].events.find(event=>event.id===id).duration;
+ const same=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId:'lunch',title:'저녁 식사 · 식당 A',description:'메모만 수정',duration:70});assert.equal(same.ok,true,same.reason);
+ assert.equal(duration(same.itinerary,'transfer-0'),25);assert.equal(duration(same.itinerary,added.eventId),35);
+ const changed=planner.updateEvent({city,itinerary:same.itinerary,dayIndex:0,eventId:'lunch',title:'저녁 식사 · 식당 B',location:null});assert.equal(changed.ok,true,changed.reason);
+ assert.equal(duration(changed.itinerary,'transfer-0'),0);assert.equal(duration(changed.itinerary,added.eventId),0);assert.equal(duration(changed.itinerary,'transfer-1'),40);
+ assert.equal(changed.itinerary.days[0].events.find(event=>event.id==='lunch').location,null);
+ const restored=planner.createItinerary({city,...normalizePlanDocument({version:8,itinerary:plain(changed.itinerary)}).itinerary});assert.equal(restored.ok,true,restored.reason);assert.deepEqual(plain(restored.days),plain(changed.itinerary.days));
+});
+
+test('an unlocated first meal invalidates departure and extra-transfer times when renamed',()=>{
+ const {city,planner,create}=runtime();
+ const departure={mode:'walk',id:'osm-node-1',name:'출발',address:'서울',latitude:37.55,longitude:126.9,source:'OpenStreetMap',sourceUrl:'https://www.openstreetmap.org/node/1'};
+ let note=create({departure});
+ const meal=planner.addEvent({city,itinerary:note,dayIndex:0,type:'meal',title:'식사 · 식당 A',beforeId:'place-0',duration:60});assert.equal(meal.ok,true,meal.reason);note=meal.itinerary;
+ const leg=planner.addEvent({city,itinerary:note,dayIndex:0,type:'transfer',beforeId:'place-0',duration:35});assert.equal(leg.ok,true,leg.reason);note=leg.itinerary;
+ note=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId:'departure',duration:25}).itinerary;
+ const changed=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId:meal.eventId,title:'식사 · 식당 B'});assert.equal(changed.ok,true,changed.reason);
+ assert.equal(changed.itinerary.days[0].events.find(event=>event.id==='departure').duration,0);assert.equal(changed.itinerary.days[0].events.find(event=>event.id===leg.eventId).duration,0);
+ assert.equal(planner.visitIdentity(null),null);assert.equal(planner.visitIdentity(undefined),null);
+});
+
+test('renaming an unlocated restaurant clears hidden travel times before the leg is restored',()=>{
+ const {city,planner,create}=runtime();let note=create();
+ note=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId:'lunch',title:'점심 식사 · 식당 A',location:null}).itinerary;
+ note=planner.updateEvent({city,itinerary:note,dayIndex:0,eventId:'transfer-0',duration:25,description:'보존할 이동 메모'}).itinerary;
+ const hidden=planner.removeEvent({city,itinerary:note,dayIndex:0,eventId:'transfer-0'});assert.equal(hidden.ok,true,hidden.reason);
+ const changed=planner.updateEvent({city,itinerary:hidden.itinerary,dayIndex:0,eventId:'lunch',title:'점심 식사 · 식당 B'});assert.equal(changed.ok,true,changed.reason);
+ const restored=planner.restoreEvent({city,itinerary:changed.itinerary,dayIndex:0,eventId:'transfer-0'});assert.equal(restored.ok,true,restored.reason);
+ const event=restored.itinerary.days[0].events.find(event=>event.id==='transfer-0');assert.equal(event.duration,0);assert.equal(event.description,'보존할 이동 메모');
+});

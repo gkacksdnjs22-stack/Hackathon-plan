@@ -29,6 +29,14 @@
   }
   const eventLocation=event=>event?.place||event?.location||event?.departure||event?.arrival||null;
   const visitEvent=event=>Boolean(event?.type!=='transfer'&&(event?.type==='place'||event?.location||event?.type==='meal'&&event.title?.includes(' · ')||/^extra-/.test(event?.id)&&['free','rest','meal'].includes(event.type)||event?.departure||event?.arrival));
+  function visitIdentity(event){
+    if(!event)return null;
+    const place=eventLocation(event);
+    if(place)return [place.id,place.latitude??null,place.longitude??null];
+    const title=typeof event.title==='string'?event.title.trim():'';
+    const name=event.type==='meal'&&title.includes(' · ')?title.slice(title.indexOf(' · ')+3).trim():title;
+    return ['unlocated',event.type,event.id,name];
+  }
   const extraId=id=>typeof id==='string'&&/^extra-[1-9]\d{0,8}$/.test(id);
   const canonicalTravelMode=mode=>mode==='rental-car'||mode==='taxi'?'car':mode;
   const vehicleMode=mode=>canonicalTravelMode(mode)==='car';
@@ -635,17 +643,16 @@
   }
   function localTravelLegs(day){
     const events=day.events,legs=new Map();
-    const point=place=>place?[place.id,place.latitude??null,place.longitude??null]:null;
     const first=events.find(event=>!['departure','arrival','transfer','finish'].includes(event.type)&&visitEvent(event)) ;
-    if(!requiresArrival(day.departure?.mode))legs.set('departure',JSON.stringify([point(day.departure),point(eventLocation(first))]));
+    if(!requiresArrival(day.departure?.mode))legs.set('departure',JSON.stringify([visitIdentity(day.departure?{departure:day.departure}:null),visitIdentity(first)]));
     for(let index=0;index<events.length;index++){
       const event=events[index];
       if(event.type!=='transfer')continue;
-      const origin=event.id==='arrival-transfer'?day.arrival:eventLocation(events.slice(0,index).reverse().find(item=>!['transfer','finish'].includes(item.type)&&visitEvent(item)));
-      const destination=eventLocation(events.slice(index+1).find(item=>!['transfer','finish'].includes(item.type)&&visitEvent(item)));
+      const origin=event.id==='arrival-transfer'?(day.arrival?{arrival:day.arrival}:null):events.slice(0,index).reverse().find(item=>!['transfer','finish'].includes(item.type)&&visitEvent(item));
+      const destination=events.slice(index+1).find(item=>!['transfer','finish'].includes(item.type)&&visitEvent(item));
       // Use the same visible neighbours as the route lookup. Slot numbers and
       // intervening meals/rests do not identify a journey after manual moves.
-      legs.set(event.id,JSON.stringify([point(origin),point(destination)]));
+      legs.set(event.id,JSON.stringify([visitIdentity(origin),visitIdentity(destination)]));
     }
     return legs;
   }
@@ -1063,5 +1070,5 @@
     const next=rebuild(city,itinerary,{budget});
     return next.ok?{ok:true,itinerary:next}:{ok:false,reason:next.reason};
   }
-  window.TravelPlanner={eventLocation,visitEvent,localTravelLegs,createItinerary,proposeVisitOrder,getAlternatives,replacePlace,replaceTouristEvent,changeDayArea,addEvent,removeEvent,restoreEvent,moveEvent,updateEvent,updatePersonalization,updateBudget,setTransferMode,getTransferSuggestion,setDayStart,setDeparture,setDayDeparture,setDayArrival,setDayTransport,setDayConnection,buildConnection,requiresArrival,validateCity,allPlaces,formatTime,areaIdsFromItinerary};
+  window.TravelPlanner={eventLocation,visitEvent,visitIdentity,localTravelLegs,createItinerary,proposeVisitOrder,getAlternatives,replacePlace,replaceTouristEvent,changeDayArea,addEvent,removeEvent,restoreEvent,moveEvent,updateEvent,updatePersonalization,updateBudget,setTransferMode,getTransferSuggestion,setDayStart,setDeparture,setDayDeparture,setDayArrival,setDayTransport,setDayConnection,buildConnection,requiresArrival,validateCity,allPlaces,formatTime,areaIdsFromItinerary};
 })();

@@ -1713,6 +1713,69 @@ test('public transport departure drafts follow the arrival stop rather than the 
   row=editRow(app,'departure');assert.equal(departureEditorMinutes(row),0);
 });
 
+function leaveTravelTimeDraft(app,eventId) {
+  const row=editRow(app,eventId),form=row.querySelector('.event-editor'),inputs=form.querySelectorAll('input');
+  inputs.find(input=>input.getAttribute('aria-label')==='이동시간: 시간').value='0';
+  inputs.find(input=>input.getAttribute('aria-label')==='이동시간: 분').value='45';
+  inputMemo(row,'이 장소까지 이동하는 미저장 메모');form.dispatch('keydown',{key:'Escape'});
+}
+
+test('unlocated restaurant renames clear saved and draft times on both sides while memo-only edits preserve them', async () => {
+  for(const extra of [false,true]) for(const reload of [false,true]) {
+    const fixture=timedNoteFixture();let app=runtime({...fixture,withAccount:true,hash:'#/note',raw:ownerNote(fixture.note,null)});await settle();
+    if(extra)assert.equal(currentSchedule(app).options.onAdd({type:'meal',beforeId:'place-1',title:'식사',duration:60}).ok,true);
+    const mealId=extra?'extra-1':'lunch';
+    assert.equal(manualMeal(app,mealId).options.onSave({name:'직접 입력 식당 A',description:'A의 메모'}).ok,true);
+    assert.equal(currentSchedule(app).options.onAdd({type:'transfer',beforeId:'place-1',title:'식당에서 다음 장소로 이동',duration:25}).ok,true);
+    const outgoing=JSON.parse(app.stored.get(storageKey)).itinerary.extraEvents[0].find(event=>event.type==='transfer').id;
+    editEntry(app,'transfer-0',{duration:25});
+    for(const id of ['transfer-0',outgoing])leaveTravelTimeDraft(app,id);
+    assert.equal(manualMeal(app,mealId).options.onSave({name:'직접 입력 식당 A',description:'A의 메모만 변경'}).ok,true);
+    let saved=JSON.parse(app.stored.get(storageKey));
+    for(const id of ['transfer-0',outgoing]) {
+      assert.equal(saved.itinerary.days[0].events.find(event=>event.id===id).duration,25);assert.ok(saved.editorDrafts[`0:${id}`]);
+      const reopened=editRow(app,id);assert.equal(departureEditorMinutes(reopened),45);reopened.querySelector('.event-editor').dispatch('keydown',{key:'Escape'});
+    }
+    assert.equal(manualMeal(app,mealId).options.onSave({name:'직접 입력 식당 B',description:'B의 메모'}).ok,true);
+    saved=JSON.parse(app.stored.get(storageKey));assert.equal(saved.itinerary.days[0].events.find(event=>event.id===mealId).location,null);
+    for(const id of ['transfer-0',outgoing]){assert.equal(saved.itinerary.days[0].events.find(event=>event.id===id).duration,0);assert.equal(saved.editorDrafts[`0:${id}`],undefined);}
+    assert.equal(saved.itinerary.days[0].events.find(event=>event.id==='transfer-1').duration,15);
+    if(reload){app=runtime({...fixture,withAccount:true,hash:'#/note',raw:app.stored.get(storageKey)});await settle();}
+    for(const id of ['transfer-0',outgoing]) {
+      const reopened=editRow(app,id);assert.equal(departureEditorMinutes(reopened),0);reopened.querySelector('.event-editor').dispatch('submit');
+      assert.equal(JSON.parse(app.stored.get(storageKey)).itinerary.days[0].events.find(event=>event.id===id).duration,0);
+    }
+  }
+});
+
+test('departure drafts distinguish the first restaurant name even without coordinates', async () => {
+  for(const reload of [false,true]) {
+    const fixture=timedNoteFixture();let app=runtime({...fixture,withAccount:true,hash:'#/note',raw:ownerNote(fixture.note,null)});await settle();
+    assert.equal(currentSchedule(app).options.onAdd({type:'meal',beforeId:'place-0',title:'식사',duration:60}).ok,true);
+    assert.equal(manualMeal(app,'extra-1').options.onSave({name:'첫 식당 A',description:''}).ok,true);
+    editEntry(app,'departure',{duration:25});leaveTravelTimeDraft(app,'departure');
+    assert.equal(manualMeal(app,'extra-1').options.onSave({name:'첫 식당 A',description:'동일 식당 메모'}).ok,true);
+    let saved=JSON.parse(app.stored.get(storageKey));assert.equal(saved.itinerary.days[0].events[0].duration,25);assert.ok(saved.editorDrafts['0:departure']);
+    assert.equal(manualMeal(app,'extra-1').options.onSave({name:'첫 식당 B',description:''}).ok,true);
+    saved=JSON.parse(app.stored.get(storageKey));assert.equal(saved.itinerary.days[0].events[0].duration,0);assert.equal(saved.editorDrafts['0:departure'],undefined);
+    if(reload){app=runtime({...fixture,withAccount:true,hash:'#/note',raw:app.stored.get(storageKey)});await settle();}
+    const reopened=editRow(app,'departure');assert.equal(departureEditorMinutes(reopened),0);reopened.querySelector('.event-editor').dispatch('submit');
+    saved=JSON.parse(app.stored.get(storageKey));assert.equal(saved.itinerary.days[0].events[0].duration,0);assert.match(saved.itinerary.days[0].events[1].title,/첫 식당 B/);
+  }
+});
+
+test('arrival-transfer drafts distinguish an unlocated first restaurant without clearing the public departure draft', async () => {
+  const fixture=transitPreviewFixture({arrival:true,duration:90}),app=runtime({...fixture,withAccount:true,hash:'#/note',raw:ownerNote(fixture.note,null)});await settle();
+  assert.equal(currentSchedule(app).options.onAdd({type:'meal',beforeId:'place-0',title:'식사',duration:60}).ok,true);
+  assert.equal(manualMeal(app,'extra-1').options.onSave({name:'도착 후 식당 A',description:''}).ok,true);
+  editEntry(app,'arrival-transfer',{duration:25});leaveTravelTimeDraft(app,'departure');leaveTravelTimeDraft(app,'arrival-transfer');
+  assert.equal(manualMeal(app,'extra-1').options.onSave({name:'도착 후 식당 B',description:''}).ok,true);
+  const saved=JSON.parse(app.stored.get(storageKey));assert.equal(saved.itinerary.days[0].events[0].duration,90);assert.ok(saved.editorDrafts['0:departure']);
+  assert.equal(saved.itinerary.days[0].events.find(event=>event.id==='arrival-transfer').duration,0);assert.equal(saved.editorDrafts['0:arrival-transfer'],undefined);
+  let reopened=editRow(app,'arrival-transfer');assert.equal(departureEditorMinutes(reopened),0);reopened.querySelector('.event-editor').dispatch('submit');
+  reopened=editRow(app,'departure');assert.equal(departureEditorMinutes(reopened),45);
+});
+
 test('editing an added entry keeps its position when its original base anchor has been excluded', async () => {
   const fixture = actualPlannerFixture(), app = runtime(fixture); await settle(); await app.create();
   const add = app.mounts.findLast(record => record.kind === 'schedule' && !record.destroyed);
