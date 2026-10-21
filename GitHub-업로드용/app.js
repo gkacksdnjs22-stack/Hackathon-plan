@@ -45,8 +45,8 @@
     status.textContent=state==='saving'?'기기 자동저장 중…':state==='error'?'기기 자동저장 실패 · 현재 화면과 입력을 유지했어요. 저장 공간을 확인하고 다시 시도해 주세요.':state==='restored'?'기기 저장본을 불러왔어요.':`기기에 저장했어요${clock?` · ${clock}`:''}${Object.keys(editorDrafts).length?' · 작성 중 입력은 임시 보관 중이며 수정 저장을 누르면 일정에 반영돼요.':''}`;
   }
   const eventLocation=event=>event?.place||event?.location||event?.departure||event?.arrival||null;
-  const visitEvent=event=>Boolean(event?.type!=='transfer'&&(event?.type==='place'||event?.location||event?.type==='meal'&&event.title?.includes(' · ')||/^extra-/.test(event?.id)&&['free','rest','meal'].includes(event.type)||event?.departure||event?.arrival));
-  const mealRestaurantName=event=>event?.title?.includes(' · ')?event.title.slice(event.title.indexOf(' · ')+3).trim():event?.title&&event.title!==(event.meal||'식사')?event.title.trim():'';
+  const visitEvent=event=>Boolean(event?.type!=='transfer'&&(event?.type==='place'||event?.location||event?.restaurantRef||event?.type==='meal'&&event.title?.includes(' · ')||/^extra-/.test(event?.id)&&['free','rest','meal'].includes(event.type)||event?.departure||event?.arrival));
+  const mealRestaurantName=event=>event?.title?.includes(' · ')?event.title.slice(event.title.indexOf(' · ')+3).trim():event?.title&&event.title!==(event.meal||'식사')?event.title.trim():event?.restaurantRef?.name||'';
   const compactDays=new Set();
   let activeReorder=null;
   function closeReorderControls(restoreFocus=false){
@@ -352,7 +352,7 @@
     if(!value||typeof value!=='object'||Array.isArray(value))return result;
     for(const [key,item] of Object.entries(value).slice(0,256)){
       if(!/^[0-6]:(?:departure|arrival-transfer|place-[0-2]|transfer-[01]|free-[01]|lunch|dinner|rest|finish|extra-[1-9]\d{0,8})$/.test(key)||!item||typeof item!=='object')continue;
-      if(typeof item.base!=='string'||item.base.length>2000||typeof item.title!=='string'||item.title.length>200
+      if(typeof item.base!=='string'||item.base.length>16384||typeof item.title!=='string'||item.title.length>200
         ||typeof item.description!=='string'||item.description.length>500||typeof item.minutes!=='string'||item.minutes.length>16
         ||!(item.hours===null||typeof item.hours==='string'&&item.hours.length<=16))continue;
       result[key]={base:item.base,title:item.title,description:item.description,minutes:item.minutes,hours:item.hours,...Object.fromEntries(['locationName','locationAddress','latitude','longitude','locationKind'].filter(k=>typeof item[k]==='boolean'||typeof item[k]==='string'&&item[k].length<=500).map(k=>[k,item[k]]))};
@@ -370,6 +370,7 @@
       eventLocation(destination)?.id||null];
     const restaurantName=event.type==='meal'?mealRestaurantName(event):'';
     if(event.location||restaurantName)identity.push(['location',event.location?.id||null,event.location?.latitude??null,event.location?.longitude??null,restaurantName||event.location?.name||'']);
+    if(event.restaurantRef)identity.push(['restaurant',event.restaurantRef.id,event.restaurantRef.name,event.restaurantRef.address]);
     if(event.type==='transfer')identity.push(['route',window.TravelPlanner.visitIdentity(before),window.TravelPlanner.visitIdentity(after)]);
     if(event.type==='departure')identity.push(['route',window.TravelPlanner.visitIdentity(event.departure?event:null),window.TravelPlanner.visitIdentity(destination)]);
     return JSON.stringify(identity);
@@ -1527,8 +1528,9 @@
         const name=typeof value?.name==='string'?value.name.trim():'';
         const description=typeof value?.description==='string'?value.description.trim():'';
         if(!clear&&(!name||name.length>60||/[\u0000-\u001f\u007f]/.test(name)||description.length>500||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(description)))return {ok:false,reason:'식당 이름은 1~60자, 주소·메모는 500자 이내로 입력해 주세요.'};
-        const location=!clear&&name===mealRestaurantName(selected)?selected.location||null:null;
-        const result=window.TravelPlanner.updateEvent({city,itinerary:currentItinerary,dayIndex,eventId:event.id,title:clear?(extra?'식사':undefined):`${selected.meal||'식사'} · ${name}`,resetTitle:clear&&!extra,description:clear?'':description,location});
+        const sameRestaurant=!clear&&name===mealRestaurantName(selected);
+        const location=sameRestaurant?selected.location||null:null,restaurantRef=sameRestaurant?selected.restaurantRef||null:null;
+        const result=window.TravelPlanner.updateEvent({city,itinerary:currentItinerary,dayIndex,eventId:event.id,title:clear?(extra?'식사':undefined):`${selected.meal||'식사'} · ${name}`,resetTitle:clear&&!extra,description:clear?'':description,location,restaurantRef});
         if(!result.ok)return result;
         if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'식당 정보를 저장하지 못했어요. 기존 노트는 유지했어요.'};
         currentItinerary=result.itinerary;renderItinerary();focusEvent(dayIndex,event.id);
@@ -1547,7 +1549,8 @@
           const memo=previous.replace(/^식당 주소: [^\n]*(?:\n|$)/,'');
           const description=`식당 주소: ${item.address}${memo?`\n${memo}`:''}`;
           if(description.length>500)return {ok:false,reason:'식당 주소와 메모를 함께 담으려면 기존 식사 메모를 조금 줄여 주세요.'};
-          const result=window.TravelPlanner.updateEvent({city,itinerary:currentItinerary,dayIndex,eventId:event.id,title:`${selected.meal||'식사'} · ${item.name}`.slice(0,80),description,location:Number.isFinite(item.latitude)&&Number.isFinite(item.longitude)?{id:item.id,name:item.name,address:item.address,latitude:item.latitude,longitude:item.longitude,kind:'meal'}:null});
+          const restaurantRef=typeof item.id==='string'&&item.id.trim()?{id:item.id,name:item.name,address:item.address}:null;
+          const result=window.TravelPlanner.updateEvent({city,itinerary:currentItinerary,dayIndex,eventId:event.id,title:`${selected.meal||'식사'} · ${item.name}`.slice(0,80),description,location:Number.isFinite(item.latitude)&&Number.isFinite(item.longitude)?{id:item.id,name:item.name,address:item.address,latitude:item.latitude,longitude:item.longitude,kind:'meal'}:null,restaurantRef});
           if(!result.ok)return result;
           if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'선택한 식당을 저장하지 못했어요. 기존 노트는 유지했어요.'};
           currentItinerary=result.itinerary;renderItinerary();focusEvent(dayIndex,event.id);

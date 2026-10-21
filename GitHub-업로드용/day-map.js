@@ -4,12 +4,12 @@
     const element = document.createElement(tag); element.className = className; element.textContent = text; return element;
   };
   function placesForDay(day) {
-    return (day?.events || []).filter(event => event.type!=='transfer' && (event.type === 'place' || event.type === 'meal' && event.title?.includes(' · ') || /^extra-/.test(event.id) && ['meal','free','rest'].includes(event.type) || event.location || event.departure || event.arrival)).map((event, index) => {
+    return (day?.events || []).filter(event => event.type!=='transfer' && (event.type === 'place' || event.type === 'meal' && event.title?.includes(' · ') || /^extra-/.test(event.id) && ['meal','free','rest'].includes(event.type) || event.location || event.restaurantRef || event.departure || event.arrival)).map((event, index) => {
       const place = event.place || event.location || event.departure || event.arrival || {}, latitude = place.latitude, longitude = place.longitude;
       const kind = event.type === 'departure' ? 'departure' : event.type === 'arrival' ? 'arrival' : event.location?.kind || event.type;
       const icon = ({departure:'🚩',arrival:'🏁',meal:'🍽',stay:'🛏',place:'📍'})[kind] || '◇';
       const mapped = Number.isFinite(latitude) && Number.isFinite(longitude) && latitude >= 33 && latitude <= 39.5 && longitude >= 124 && longitude <= 132;
-      return { number: index + 1, eventId: event.id, kind, icon, name: place.name || event.title || '이름 없는 관광지', address: place.address || '', latitude, longitude, mapped };
+      return { number: index + 1, eventId: event.id, kind, icon, name: place.name || event.restaurantRef?.name || event.title || '이름 없는 관광지', address: place.address || event.restaurantRef?.address || '', latitude, longitude, mapped };
     });
   }
 

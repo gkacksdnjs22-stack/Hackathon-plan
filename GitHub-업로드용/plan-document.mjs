@@ -35,6 +35,11 @@ function location(value) {
   if(!Number.isFinite(value.latitude)||value.latitude<33||value.latitude>39.5||!Number.isFinite(value.longitude)||value.longitude<124||value.longitude>132||!['meal','stay','other'].includes(value.kind))fail();
   return {id:string(value.id,160,1),name:string(value.name,160,1),address:string(value.address,500),latitude:value.latitude,longitude:value.longitude,kind:value.kind};
 }
+function restaurantRef(value) {
+  if(value===null)return null;
+  keys(value,['id','name','address'],['id','name','address']);
+  return {id:string(value.id,160,1),name:string(value.name,160,1),address:string(value.address,500)};
+}
 function date(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) fail();
   const [year,month,day] = value.split('-').map(Number), parsed = new Date(Date.UTC(year,month-1,day));
@@ -158,13 +163,14 @@ export function normalizePlanDocument(input) {
   const eventEdits = dayMap(optionalMap(source.eventEdits),count, entries => {
     keys(entries,BASE);
     return Object.fromEntries(Object.entries(entries).map(([id,edit]) => {
-      keys(edit,['title','description','duration','travelMode','location']);
+      keys(edit,['title','description','duration','travelMode','location','restaurantRef']);
       const patch = {};
       if (Object.hasOwn(edit,'title')) patch.title=string(edit.title,80,1);
       if (Object.hasOwn(edit,'description')) patch.description=string(edit.description,500);
       if (Object.hasOwn(edit,'duration')) { if (!integer(edit.duration,['departure','arrival-transfer','finish','transfer-0','transfer-1'].includes(id)?0:1,id==='departure'?4320:720)) fail(); patch.duration=edit.duration; }
       if (Object.hasOwn(edit,'travelMode')) { if (!['arrival-transfer','transfer-0','transfer-1'].includes(id) || !MODES.includes(mode(edit.travelMode))) fail(); patch.travelMode=mode(edit.travelMode); }
       if(Object.hasOwn(edit,'location')){if(!['free-0','free-1','rest','lunch','dinner'].includes(id))fail();patch.location=location(edit.location);}
+      if(Object.hasOwn(edit,'restaurantRef')){if(!['lunch','dinner'].includes(id))fail();patch.restaurantRef=restaurantRef(edit.restaurantRef);}
       return [id,patch];
     }));
   });
@@ -172,7 +178,7 @@ export function normalizePlanDocument(input) {
     if (!Array.isArray(entries) || entries.length > 20) fail();
     const ids = new Set();
     return entries.map(entry => {
-      keys(entry,['id','beforeId','type','title','description','duration','placeId','travelMode','location'],['id','type','duration']);
+      keys(entry,['id','beforeId','type','title','description','duration','placeId','travelMode','location','restaurantRef'],['id','type','duration']);
       if (typeof entry.id !== 'string' || !EXTRA.test(entry.id) || ids.has(entry.id) || !['free','meal','rest','place','transfer'].includes(entry.type)
         || !integer(entry.duration,entry.type==='transfer'?0:1,720)) fail();
       ids.add(entry.id);
@@ -190,6 +196,7 @@ export function normalizePlanDocument(input) {
         item.travelMode=entry.travelMode==null?null:mode(entry.travelMode);
       } else if (Object.hasOwn(entry,'travelMode')) fail();
       if(Object.hasOwn(entry,'location')){if(['place','transfer'].includes(entry.type))fail();item.location=location(entry.location);}
+      if(Object.hasOwn(entry,'restaurantRef')){if(entry.type!=='meal')fail();item.restaurantRef=restaurantRef(entry.restaurantRef);}
       return item;
     });
   });

@@ -65,6 +65,40 @@ test('personalization survives account save, update and load without leaking thr
   const list=await f.call('/api/plans',{cookie:owner.cookie});assert.equal(JSON.stringify(list.data).includes('예약 확인서'),false);
 });
 
+test('account create, update and load preserve coordinate-free restaurant identities and reject invalid references without overwriting the plan', async t=>{
+  const f=fixture();t.after(()=>f.db.close());const owner=await f.socialLogin('restaurant-ref');
+  const first={id:'tour-food-1',name:'동명 식당',address:'첫 지점 주소'},second={id:'tour-food-2',name:'동명 식당',address:'둘째 지점 주소'};
+  const document=doc();document.itinerary.eventEdits={0:{lunch:{description:'기존 예약 메모',duration:75,restaurantRef:first}}};
+  document.itinerary.extraEvents={0:[{id:'extra-1',type:'meal',duration:45,description:'추가 일정 메모',restaurantRef:second}]};
+  document.itinerary.personalization={eventTags:{0:{lunch:'booked','extra-1':'must'}}};
+  const created=await f.call('/api/plans',{method:'POST',cookie:owner.cookie,body:{title:'식당 선택 보존',document}});
+  assert.equal(created.status,201);const id=created.data.plan.id;
+  let loaded=await f.call(`/api/plans/${id}`,{cookie:owner.cookie});assert.equal(loaded.status,200);
+  assert.deepEqual(loaded.data.plan.document.itinerary.eventEdits[0].lunch.restaurantRef,first);
+  assert.deepEqual(loaded.data.plan.document.itinerary.extraEvents[0][0].restaurantRef,second);
+  document.itinerary.eventEdits[0].lunch.restaurantRef=second;document.itinerary.extraEvents[0][0].restaurantRef=first;
+  const updated=await f.call(`/api/plans/${id}`,{method:'PUT',cookie:owner.cookie,body:{title:'식당 선택 보존',document,revision:1}});assert.equal(updated.status,200);
+  loaded=await f.call(`/api/plans/${id}`,{cookie:owner.cookie});const preserved=loaded.data.plan.document;
+  assert.deepEqual(preserved.itinerary.eventEdits[0].lunch,{description:'기존 예약 메모',duration:75,restaurantRef:second});
+  assert.deepEqual(preserved.itinerary.extraEvents[0][0].restaurantRef,first);
+  assert.deepEqual(preserved.itinerary.personalization.eventTags,document.itinerary.personalization.eventTags);
+  for(const meal of [preserved.itinerary.eventEdits[0].lunch,preserved.itinerary.extraEvents[0][0]])assert.equal(Object.hasOwn(meal,'location'),false);
+  const invalidRefs=[{...first,latitude:37.5},{...first,id:''},{...first,name:'n'.repeat(161)},{...first,address:'a'.repeat(501)}];
+  const invalidDocuments=invalidRefs.map(restaurantRef=>{const value=JSON.parse(JSON.stringify(preserved));value.itinerary.eventEdits[0].lunch.restaurantRef=restaurantRef;return value;});
+  const nonMeal=JSON.parse(JSON.stringify(preserved));nonMeal.itinerary.eventEdits[0]['place-0']={restaurantRef:first};invalidDocuments.push(nonMeal);
+  const extraNonMeal=JSON.parse(JSON.stringify(preserved));extraNonMeal.itinerary.extraEvents[0][0].type='free';invalidDocuments.push(extraNonMeal);
+  for(const invalid of invalidDocuments)for(const method of ['POST','PUT']){
+    const response=await f.call(method==='POST'?'/api/plans':`/api/plans/${id}`,{method,cookie:owner.cookie,body:{title:'덮어쓰면 안 됨',document:invalid,...(method==='PUT'?{revision:2}:{})}});
+    assert.equal(response.status,400);assert.equal(response.data.error.code,'INVALID_PLAN');
+  }
+  loaded=await f.call(`/api/plans/${id}`,{cookie:owner.cookie});assert.equal(loaded.data.plan.revision,2);assert.equal(loaded.data.plan.title,'식당 선택 보존');assert.deepEqual(loaded.data.plan.document,preserved);
+  assert.equal((await f.call('/api/plans',{cookie:owner.cookie})).data.plans.length,1);
+  document.itinerary.eventEdits[0].lunch.restaurantRef=null;document.itinerary.extraEvents[0][0].restaurantRef=null;
+  assert.equal((await f.call(`/api/plans/${id}`,{method:'PUT',cookie:owner.cookie,body:{title:'식당 선택 보존',document,revision:2}})).status,200);
+  loaded=await f.call(`/api/plans/${id}`,{cookie:owner.cookie});assert.equal(loaded.data.plan.revision,3);
+  assert.equal(loaded.data.plan.document.itinerary.eventEdits[0].lunch.restaurantRef,null);assert.equal(loaded.data.plan.document.itinerary.extraEvents[0][0].restaurantRef,null);
+});
+
 test('retired signup and password login return 410 for every method without reading credentials or querying the database', async()=>{
   let reads=0;const handle=createAccountHandler({secret:SECRET,db:{prepare(){reads++;throw Error('must not query');},batch(){reads++;}}});
   for(const endpoint of ['/api/auth/signup','/api/auth/login'])for(const method of ['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS']){

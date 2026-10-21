@@ -40,6 +40,51 @@ test('plan documents retain only canonical inputs and detach all nested user con
   assert.deepEqual(normalizePlanDocument(saved),saved);
 });
 
+test('coordinate-free restaurant references retain distinct search identities, detach content and clear without changing old documents', () => {
+  const first={id:' tour-food-1 ',name:' 같은 이름 식당 ',address:' 첫 지점 주소 '};
+  const second={id:'tour-food-2',name:'같은 이름 식당',address:'다른 지점 주소'};
+  const input=document();input.itinerary.eventEdits={0:{lunch:{description:'예약 메모',restaurantRef:first},dinner:{restaurantRef:null}}};
+  input.itinerary.extraEvents={0:[{id:'extra-1',type:'meal',duration:45,restaurantRef:second}]};
+  const stored=normalizePlanDocument(input);
+  assert.deepEqual(stored.itinerary.eventEdits[0].lunch,{description:'예약 메모',restaurantRef:{id:'tour-food-1',name:'같은 이름 식당',address:'첫 지점 주소'}});
+  assert.deepEqual(stored.itinerary.extraEvents[0][0].restaurantRef,second);
+  assert.equal(stored.itinerary.eventEdits[0].dinner.restaurantRef,null);
+  for(const meal of [stored.itinerary.eventEdits[0].lunch,stored.itinerary.extraEvents[0][0]])assert.equal(Object.hasOwn(meal,'location'),false);
+  first.id='외부 변경';second.address='외부 변경';
+  assert.equal(stored.itinerary.eventEdits[0].lunch.restaurantRef.id,'tour-food-1');assert.equal(stored.itinerary.extraEvents[0][0].restaurantRef.address,'다른 지점 주소');
+  assert.deepEqual(normalizePlanDocument(stored),stored);
+  const cleared=clone(stored);cleared.itinerary.eventEdits[0].lunch.restaurantRef=null;cleared.itinerary.extraEvents[0][0].restaurantRef=null;
+  assert.equal(normalizePlanDocument(cleared).itinerary.eventEdits[0].lunch.restaurantRef,null);
+  assert.equal(normalizePlanDocument(cleared).itinerary.extraEvents[0][0].restaurantRef,null);
+  assert.deepEqual(normalizePlanDocument(document()).itinerary.eventEdits,{});
+  const boundary=document();boundary.itinerary.eventEdits={0:{lunch:{restaurantRef:{id:'i'.repeat(160),name:'n'.repeat(160),address:'a'.repeat(500)}}}};
+  assert.equal(normalizePlanDocument(boundary).itinerary.eventEdits[0].lunch.restaurantRef.address.length,500);
+});
+
+test('restaurant reference validation rejects extra data, malformed values and non-meal targets', () => {
+  const valid={id:'tour-food-1',name:'식당',address:''};
+  const invalid=[undefined,[],true,'식당',{},...['id','name','address'].map(key=>{const item={...valid};delete item[key];return item;}),
+    {...valid,id:''},{...valid,id:' '},{...valid,id:1},{...valid,id:'i'.repeat(161)},
+    {...valid,name:''},{...valid,name:' '},{...valid,name:null},{...valid,name:'n'.repeat(161)},
+    {...valid,address:null},{...valid,address:'a'.repeat(501)},{...valid,id:'bad\0id'},
+    {...valid,latitude:37.5},{...valid,longitude:127},{...valid,privateProviderData:'PRIVATE'}];
+  for(const restaurantRef of invalid)for(const extra of [false,true]){
+    const input=document();
+    if(extra)input.itinerary.extraEvents={0:[{id:'extra-1',type:'meal',duration:60,restaurantRef}]};
+    else input.itinerary.eventEdits={0:{lunch:{restaurantRef}}};
+    assert.throws(()=>normalizePlanDocument(input),error('INVALID_PLAN'));
+  }
+  for(const restaurantRef of [valid,null]){
+    for(const id of ['departure','arrival-transfer','place-0','transfer-0','free-0','rest','free-1','finish']){
+      const input=document();input.itinerary.eventEdits={0:{[id]:{restaurantRef}}};assert.throws(()=>normalizePlanDocument(input),error('INVALID_PLAN'));
+    }
+    for(const type of ['free','rest','place','transfer']){
+      const input=document();input.itinerary.extraEvents={0:[{id:'extra-1',type,duration:60,...(type==='place'?{placeId:'tourapi-200'}:{}),restaurantRef}]};
+      assert.throws(()=>normalizePlanDocument(input),error('INVALID_PLAN'));
+    }
+  }
+});
+
 test('real planner output with hidden recommendations, a whole-catalog tourist and a pending transfer round-trips', async () => {
   const context=vm.createContext({window:{},location:{protocol:'http:'},AbortSignal,Intl,fetch:async()=>({ok:true,json:async()=>({areaCode:'1',items:
     Array.from({length:5},(_,index)=>({contentId:String(100+index),contentTypeId:'12',areaCode:'1',title:`관광지 ${index}`,address:`서울 여행로 ${index}`,
