@@ -586,19 +586,48 @@
       return {ok:false,reason:'수정할 여행 일정 날짜를 확인할 수 없습니다.'};
     return rebuild(city,itinerary);
   }
-  function resetTouristTravel(itinerary,dayIndex){
-    const eventEdits={...itinerary.eventEdits},extraEvents={...itinerary.extraEvents};
-    const edits={...eventEdits[dayIndex]};
-    const clearDuration=id=>{
-      if(!edits[id])return;
+  function localTravelLegs(day){
+    const events=day.events,legs=new Map();
+    const point=place=>place?[place.id,place.latitude??null,place.longitude??null]:null;
+    const first=events.find(event=>event.type==='place')?.place;
+    if(!requiresArrival(day.departure?.mode))legs.set('departure',JSON.stringify([point(day.departure),point(first)]));
+    for(let index=0;index<events.length;index++){
+      const event=events[index];
+      if(event.type!=='transfer')continue;
+      const origin=event.id==='arrival-transfer'?day.arrival:events.slice(0,index).reverse().find(item=>item.type==='place')?.place;
+      const destination=events.slice(index+1).find(item=>item.type==='place')?.place;
+      // Use the same visible neighbours as the route lookup. Slot numbers and
+      // intervening meals/rests do not identify a journey after manual moves.
+      legs.set(event.id,JSON.stringify([point(origin),point(destination)]));
+    }
+    return legs;
+  }
+  function preserveUnchangedTravel(city,current,next,dayIndex){
+    if(!next.ok)return next;
+    const legsFor=itinerary=>{
+      const day=itinerary.days[dayIndex],legs=localTravelLegs(day);
+      // A hidden transfer still owns a manual edit. Compare the journey it
+      // would have when restored so hiding it cannot revive a stale duration.
+      for(const event of day.hiddenEvents.filter(item=>item.type==='transfer')){
+        const excludedEvents={...itinerary.excludedEvents,[dayIndex]:itinerary.excludedEvents[dayIndex].filter(id=>id!==event.id)};
+        const restored=rebuild(city,itinerary,{excludedEvents});
+        if(restored.ok)legs.set(event.id,localTravelLegs(restored.days[dayIndex]).get(event.id));
+      }
+      return legs;
+    };
+    const previous=legsFor(current),following=legsFor(next);
+    const changed=new Set([...following].filter(([id,leg])=>previous.has(id)&&previous.get(id)!==leg).map(([id])=>id));
+    if(!changed.size)return next;
+    const eventEdits={...next.eventEdits},edits={...eventEdits[dayIndex]};
+    for(const id of changed){
+      if(!edits[id])continue;
       const patch={...edits[id]};delete patch.duration;
       if(Object.keys(patch).length)edits[id]=patch;else delete edits[id];
-    };
-    if(!requiresArrival(itinerary.dayDepartures[dayIndex]?.mode))clearDuration('departure');
-    for(const id of ['arrival-transfer',...TRANSFER_IDS])clearDuration(id);
+    }
     if(Object.keys(edits).length)eventEdits[dayIndex]=edits;else delete eventEdits[dayIndex];
-    if(extraEvents[dayIndex])extraEvents[dayIndex]=extraEvents[dayIndex].map(event=>event.type==='transfer'?{...event,duration:0}:{...event});
-    return {eventEdits,extraEvents};
+    const extraEvents={...next.extraEvents};
+    if(extraEvents[dayIndex])extraEvents[dayIndex]=extraEvents[dayIndex].map(event=>changed.has(event.id)&&event.type==='transfer'?{...event,duration:0}:event);
+    return rebuild(city,next,{eventEdits,extraEvents});
   }
   function addEvent({city,itinerary,dayIndex,type='free',title,description,duration,placeId,beforeId='finish',travelMode}={}){
     const current=editableItinerary(city,itinerary,dayIndex);
@@ -616,7 +645,7 @@
     const changes={extraEvents:{...current.extraEvents,[dayIndex]:[...entries,entry]}};
     const validated=rebuild(city,current,changes);
     if(!validated.ok)return {ok:false,reason:validated.reason};
-    const next=type==='place'?rebuild(city,validated,resetTouristTravel(validated,dayIndex)):validated;
+    const next=preserveUnchangedTravel(city,current,validated,dayIndex);
     return next.ok?{ok:true,itinerary:next,eventId:id}:{ok:false,reason:next.reason};
   }
   function removeEvent({city,itinerary,dayIndex,eventId}={}){
@@ -627,12 +656,11 @@
       if(!EDITABLE_IDS.includes(eventId)||!current.days[dayIndex].events.some(event=>event.id===eventId))
         return {ok:false,reason:'화면에 있는 관광지·식사·휴식·이동 일정만 뺄 수 있습니다.'};
       const excludedEvents={...current.excludedEvents,[dayIndex]:[...(current.excludedEvents[dayIndex]??[]),eventId]};
-      const next=rebuild(city,current,{excludedEvents,...resetTouristTravel(current,dayIndex)});
+      const next=preserveUnchangedTravel(city,current,rebuild(city,current,{excludedEvents}),dayIndex);
       return next.ok?{ok:true,itinerary:next}:{ok:false,reason:next.reason};
     }
     const extraEvents={...current.extraEvents,[dayIndex]:entries.filter(event=>event.id!==eventId)};
-    const changes=selected.type==='place'?resetTouristTravel({...current,extraEvents},dayIndex):{extraEvents};
-    const next=rebuild(city,current,changes);
+    const next=preserveUnchangedTravel(city,current,rebuild(city,current,{extraEvents}),dayIndex);
     return next.ok?{ok:true,itinerary:next}:{ok:false,reason:next.reason};
   }
   function restoreEvent({city,itinerary,dayIndex,eventId}={}){
@@ -640,7 +668,7 @@
     if(!current.ok)return {ok:false,reason:current.reason};
     if(!EDITABLE_IDS.includes(eventId)||!current.excludedEvents[dayIndex]?.includes(eventId))return {ok:false,reason:'뺀 기본 일정에서 다시 담을 항목을 골라 주세요.'};
     const excludedEvents={...current.excludedEvents,[dayIndex]:current.excludedEvents[dayIndex].filter(id=>id!==eventId)};
-    const next=rebuild(city,current,{excludedEvents,...resetTouristTravel(current,dayIndex)});
+    const next=preserveUnchangedTravel(city,current,rebuild(city,current,{excludedEvents}),dayIndex);
     return next.ok?{ok:true,itinerary:next,eventId}:{ok:false,reason:next.reason};
   }
   function moveEvent({city,itinerary,dayIndex,eventId,direction}={}){
@@ -651,7 +679,7 @@
     const position=ids.indexOf(eventId),destination=position+direction;
     if(position<0||destination<0||destination>=ids.length)return {ok:false,reason:'출발·도착 이동과 마무리 사이에서만 일정을 이동할 수 있습니다.'};
     [ids[position],ids[destination]]=[ids[destination],ids[position]];
-    const next=rebuild(city,current,{eventOrders:{...current.eventOrders,[dayIndex]:ids},...resetTouristTravel(current,dayIndex)});
+    const next=preserveUnchangedTravel(city,current,rebuild(city,current,{eventOrders:{...current.eventOrders,[dayIndex]:ids}}),dayIndex);
     return next.ok?{ok:true,itinerary:next,eventId}:{ok:false,reason:next.reason};
   }
   function updateEvent({city,itinerary,dayIndex,eventId,title,description,duration,beforeId,placeId,resetTitle=false}={}){
@@ -676,11 +704,10 @@
         patch.beforeId=beforeId;
       }
       const moved=beforeId!==undefined;
-      if(moved&&patch.type==='transfer')patch.duration=0;
       const extraEvents={...current.extraEvents,[dayIndex]:entries.map(event=>event.id===eventId?patch:event)};
-      const changes=(moved||patch.placeId!==selected.placeId)&&patch.type==='place'?resetTouristTravel({...current,extraEvents},dayIndex):{extraEvents};
+      const changes={extraEvents};
       if(moved)changes.eventOrders={...current.eventOrders,[dayIndex]:current.eventOrders[dayIndex].filter(id=>id!==eventId)};
-      const next=rebuild(city,current,changes);
+      const next=preserveUnchangedTravel(city,current,rebuild(city,current,changes),dayIndex);
       return next.ok?{ok:true,itinerary:next}:{ok:false,reason:next.reason};
     }
     if(beforeId!==undefined)return {ok:false,reason:'직접 추가한 일정의 위치만 바꿀 수 있습니다.'};
@@ -841,31 +868,17 @@
     if(!replacement)return {ok:false,reason:'중복되거나 현재 권역에 없는 장소라 교체할 수 없습니다.'};
     const options=normalizeOptions(itinerary.dayStarts===undefined?{}:itinerary.dayStarts,itinerary.eventEdits===undefined?{}:itinerary.eventEdits,Number(itinerary.dayCount));
     if(!options.ok)return {ok:false,reason:options.reason};
+    const current=rebuild(city,itinerary);
+    if(!current.ok)return {ok:false,reason:current.reason};
     const selections=selectionsFromItinerary(itinerary);
     const dayPlaces=selections[dayIndex],placeIndex=dayPlaces?.indexOf(placeId)??-1;
     if(placeIndex<0)return {ok:false,reason:'교체할 장소를 찾지 못했습니다.'};
     dayPlaces[placeIndex]=replacementId;
     if(options.eventEdits[dayIndex]){
       delete options.eventEdits[dayIndex][`place-${placeIndex}`];
-      const clearDuration=id=>{
-        const patch=options.eventEdits[dayIndex][id];
-        if(!patch)return;
-        delete patch.duration;
-        if(!Object.keys(patch).length)delete options.eventEdits[dayIndex][id];
-      };
-      if(placeIndex===0){
-        delete options.eventEdits[dayIndex]['arrival-transfer'];
-        if(!requiresArrival(itinerary.days[dayIndex].departure?.mode))clearDuration('departure');
-      }
-      if(placeIndex===0||placeIndex===1)clearDuration('transfer-0');
-      if(placeIndex===1||placeIndex===2)clearDuration('transfer-1');
       if(!Object.keys(options.eventEdits[dayIndex]).length)delete options.eventEdits[dayIndex];
     }
-    const context={...itinerary,eventEdits:options.eventEdits};
-    const customLayout=Boolean(itinerary.extraEvents?.[dayIndex]?.length||itinerary.excludedEvents?.[dayIndex]?.length
-      ||JSON.stringify(itinerary.eventOrders?.[dayIndex]??EDITABLE_IDS)!==JSON.stringify(EDITABLE_IDS));
-    const travelChanges=customLayout?resetTouristTravel(context,dayIndex):{};
-    const next=rebuild(city,itinerary,{dayAreaIds,selections,dayStarts:options.dayStarts,eventEdits:options.eventEdits,...travelChanges});
+    const next=preserveUnchangedTravel(city,current,rebuild(city,itinerary,{dayAreaIds,selections,dayStarts:options.dayStarts,eventEdits:options.eventEdits}),dayIndex);
     if(!next.ok)return {ok:false,reason:next.reason};
     const ids=next.days.flatMap(day=>placeEvents(day).map(event=>event.place.id));
     if(new Set(ids).size!==ids.length)return {ok:false,reason:'교체 후 일정의 장소 중복을 확인하지 못했습니다.'};
@@ -928,10 +941,8 @@
       if(mainTravel)options.eventEdits[affected]={departure:mainTravel};
       else delete options.eventEdits[affected];
     }
-    const extraEvents={...itinerary.extraEvents};
-    for(const affected of otherIndex>=0?[dayIndex,otherIndex]:[dayIndex])if(extraEvents[affected])
-      extraEvents[affected]=extraEvents[affected].map(event=>event.type==='transfer'?{...event,duration:0}:{...event});
-    const next=rebuild(city,itinerary,{dayAreaIds:nextAreaIds,selections,dayStarts:options.dayStarts,eventEdits:options.eventEdits,extraEvents});
+    let next=rebuild(city,itinerary,{dayAreaIds:nextAreaIds,selections,dayStarts:options.dayStarts,eventEdits:options.eventEdits});
+    for(const affected of otherIndex>=0?[dayIndex,otherIndex]:[dayIndex])next=preserveUnchangedTravel(city,current,next,affected);
     if(!next.ok)return {ok:false,reason:next.reason};
     const ids=next.days.flatMap(day=>placeEvents(day).map(event=>event.place.id));
     if(new Set(ids).size!==ids.length)return {ok:false,reason:'권역 변경 후 장소 중복을 확인하지 못했습니다.'};

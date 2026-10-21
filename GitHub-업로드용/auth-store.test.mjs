@@ -92,6 +92,52 @@ test('revisions reject stale updates and deletes while preserving the newest sav
   assert.equal((await f.call(`/api/plans/${id}`,{cookie:owner.cookie})).status,404);
 });
 
+test('expected owner guards stale tab reads and writes with another accounts current cookie', async t=>{
+  const f=fixture();t.after(()=>f.db.close());
+  const alice=await f.signup('alice'),bob=await f.signup('bob','192.0.2.2');
+  const make=(owner,title)=>f.call('/api/plans',{method:'POST',cookie:owner.cookie,headers:{'X-Gil-Expected-User':owner.data.user.id},body:{title,document:doc()}});
+  const alicePlan=await make(alice,'Alice private note'),bobPlan=await make(bob,'Bob private note');
+  assert.equal(alicePlan.status,201);assert.equal(bobPlan.status,201);
+  const stale={'X-Gil-Expected-User':alice.data.user.id};
+  for(const path of ['/api/plans',`/api/plans/${bobPlan.data.plan.id}`]){
+    for(const method of ['GET','HEAD']){
+      const denied=await f.call(path,{method,cookie:bob.cookie,headers:stale});
+      assert.equal(denied.status,409);
+      if(method==='GET'){
+        assert.equal(denied.data.error.code,'SESSION_CHANGED');
+        assert.equal(JSON.stringify(denied.data).includes('Bob private note'),false);
+        assert.equal(JSON.stringify(denied.data).includes('selections'),false);
+      }else assert.equal(denied.data,null);
+      const actualBob=await f.call(path,{method,cookie:bob.cookie,headers:{'X-Gil-Expected-User':bob.data.user.id}});
+      assert.equal(actualBob.status,200);
+      if(method==='GET')assert.equal(path==='/api/plans'?actualBob.data.plans[0].title:actualBob.data.plan.title,'Bob private note');
+      else assert.equal(actualBob.data,null);
+    }
+  }
+  for(const [path,method,body]of [
+    ['/api/plans','POST',{title:'Alice content must not be copied into Bob',document:doc()}],
+    [`/api/plans/${bobPlan.data.plan.id}`,'PUT',{title:'stale overwrite',document:doc(),revision:1}],
+    [`/api/plans/${bobPlan.data.plan.id}`,'DELETE',{revision:1}]
+  ]){
+    const result=await f.call(path,{method,cookie:bob.cookie,headers:stale,body});
+    assert.equal(result.status,409);assert.equal(result.data.error.code,'SESSION_CHANGED');
+  }
+  const list=await f.call('/api/plans',{cookie:bob.cookie});
+  assert.deepEqual(list.data.plans.map(plan=>[plan.title,plan.revision]),[['Bob private note',1]]);
+  const unauthenticated=await f.call('/api/plans',{method:'POST',headers:stale,body:{title:'no cookie',document:doc()}});
+  assert.equal(unauthenticated.status,401,'an owner header never authenticates a request');
+  assert.equal((await f.call('/api/plans',{headers:stale})).status,401,'read headers cannot authenticate a request either');
+  const forged=await f.call(`/api/plans/${alicePlan.data.plan.id}`,{method:'PUT',cookie:bob.cookie,headers:{'X-Gil-Expected-User':bob.data.user.id},body:{title:'forged access',document:doc(),revision:1}});
+  assert.equal(forged.status,404,'matching a cookie owner cannot bypass SQL plan ownership');
+  for(const value of ['',`${bob.data.user.id},${alice.data.user.id}`]){
+    assert.equal((await f.call('/api/plans',{method:'POST',cookie:bob.cookie,headers:{'X-Gil-Expected-User':value},body:{title:'invalid expected owner',document:doc()}})).data.error.code,'SESSION_CHANGED');
+  }
+  const updated=await f.call(`/api/plans/${bobPlan.data.plan.id}`,{method:'PUT',cookie:bob.cookie,headers:{'X-Gil-Expected-User':bob.data.user.id},body:{title:'Bob updated',document:doc(),revision:1}});
+  assert.equal(updated.status,200);assert.equal(updated.data.plan.revision,2);
+  const removed=await f.call(`/api/plans/${bobPlan.data.plan.id}`,{method:'DELETE',cookie:bob.cookie,headers:{'X-Gil-Expected-User':bob.data.user.id},body:{revision:2}});
+  assert.equal(removed.status,200);
+});
+
 test('same-origin JSON checks protect signup, login, logout and all plan mutations', async t=>{
   const f=fixture();t.after(()=>f.db.close());const owner=await f.signup('owner');
   for(const endpoint of ['/api/auth/signup','/api/auth/login','/api/auth/logout','/api/plans']){

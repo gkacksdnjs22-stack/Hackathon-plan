@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { normalizePlanDocument, normalizePlanTitle, PlanDocumentError } from './plan-document.mjs';
+import { createAccountHandler } from './auth-store.mjs';
+import { createLocalDatabase } from './local-db.mjs';
 
 const clone = value => JSON.parse(JSON.stringify(value));
 const document = () => ({ version:8,itinerary:{ cityId:'seoul',startDate:'2026-10-20',dayCount:1,
@@ -57,6 +59,54 @@ test('real planner output with hidden recommendations, a whole-catalog tourist a
   assert.deepEqual(clone(cleared.itinerary.personalization),clone(current.personalization));
   const clearSaved=normalizePlanDocument({version:8,itinerary:clone(cleared.itinerary)});
   assert.equal(planner.createItinerary({city,...clearSaved.itinerary}).days[0].events.find(item=>item.id==='lunch').description,'');
+});
+
+test('a real first local transfer mode and manual duration save to the account DB and rebuild unchanged', async t => {
+  const context=vm.createContext({window:{},location:{protocol:'http:'},AbortSignal,Intl,fetch:async()=>({ok:true,json:async()=>({areaCode:'1',items:
+    Array.from({length:3},(_,index)=>({contentId:String(100+index),contentTypeId:'12',areaCode:'1',title:`관광지 ${index}`,address:`서울 여행로 ${index}`,
+      latitude:37.5+index*0.0001,longitude:127+index*0.0001}))})})});
+  for(const name of ['places.js','planner.js','tour-data.js'])vm.runInContext(readFileSync(new URL(name,import.meta.url),'utf8'),context);
+  const city=await context.window.TourData.ensureCity('seoul'),planner=context.window.TravelPlanner;
+  const db=createLocalDatabase();t.after(()=>db.close());
+  const handle=createAccountHandler({db,secret:'synthetic-plan-roundtrip-account-secret-2026'}),origin='https://plan.example';
+  const send=(path,method='GET',body,cookie)=>handle(new Request(origin+path,{method,headers:{Origin:origin,
+    ...(body?{'Content-Type':'application/json'}:{}),...(cookie?{Cookie:cookie}:{})},...(body?{body:JSON.stringify(body)}:{})}));
+  const signup=await send('/api/auth/signup','POST',{username:'first_transfer_owner',password:'synthetic-roundtrip-password'});
+  assert.equal(signup.status,201);const cookie=signup.headers.get('set-cookie').split(';')[0];
+  for(const [travelMode,duration]of [['walk',12],['local-bus',53],['subway',35],['car',20]]){
+    let current=planner.createItinerary({city,startDate:'2026-10-20',dayCount:1,dayDepartures:{0:stop()},dayArrivals:{0:stop('TO')},eventEdits:{0:{departure:{duration:60}}}});
+    assert.equal(current.ok,true,current.reason);
+    const selected=planner.setTransferMode({city,itinerary:current,dayIndex:0,eventId:'arrival-transfer',mode:travelMode});
+    assert.equal(selected.ok,true,selected.reason);current=selected.itinerary;
+    const timed=planner.updateEvent({city,itinerary:current,dayIndex:0,eventId:'arrival-transfer',duration});
+    assert.equal(timed.ok,true,timed.reason);current=timed.itinerary;
+    const saved=normalizePlanDocument({version:8,itinerary:clone(current)});
+    assert.deepEqual(saved.itinerary.eventEdits[0]['arrival-transfer'],{travelMode,duration});
+    const created=await send('/api/plans','POST',{title:`첫 관광지 ${travelMode}`,document:saved},cookie);
+    assert.equal(created.status,201,travelMode);const plan=(await created.json()).plan;
+    const loaded=await send(`/api/plans/${plan.id}`,'GET',undefined,cookie);assert.equal(loaded.status,200);
+    const stored=(await loaded.json()).plan.document;
+    assert.deepEqual(stored.itinerary.eventEdits[0]['arrival-transfer'],{travelMode,duration});
+    const rebuilt=planner.createItinerary({city,...stored.itinerary});
+    assert.equal(rebuilt.ok,true,rebuilt.reason);assert.deepEqual(clone(rebuilt.days),clone(current.days));
+  }
+});
+
+test('arrival-transfer mode still requires its matching arrival and cannot be applied to non-transfer rows', () => {
+  const input=document();Object.assign(input.itinerary,{dayDepartures:{0:stop()},dayArrivals:{0:stop('TO')},eventEdits:{0:{'arrival-transfer':{travelMode:'local-bus',duration:53}}}});
+  assert.equal(normalizePlanDocument(input).itinerary.eventEdits[0]['arrival-transfer'].travelMode,'local-bus');
+  for(const arrival of [undefined,null]){
+    const invalid=clone(input);if(arrival===undefined)delete invalid.itinerary.dayArrivals;else invalid.itinerary.dayArrivals[0]=arrival;
+    assert.throws(()=>normalizePlanDocument(invalid),error('INVALID_PLAN'));
+  }
+  for(const travelMode of ['train','flight',null,'PRIVATE']){
+    const invalid=clone(input);invalid.itinerary.eventEdits[0]['arrival-transfer'].travelMode=travelMode;
+    assert.throws(()=>normalizePlanDocument(invalid),error('INVALID_PLAN'));
+  }
+  for(const id of ['departure','place-0','lunch','finish']){
+    const invalid=clone(input);invalid.itinerary.eventEdits[0]={[id]:{travelMode:'local-bus'}};
+    assert.throws(()=>normalizePlanDocument(invalid),error('INVALID_PLAN'));
+  }
 });
 
 test('personal checklist, favorite ids and event tags round-trip as detached inputs while old documents remain compatible', () => {

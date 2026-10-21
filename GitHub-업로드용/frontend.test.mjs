@@ -2272,10 +2272,12 @@ test('adding and replacing extra tourists clears stale local estimates but prese
   assert.equal(added.itinerary.days[0].events.find(event => event.id === 'arrival-transfer').duration, 0);
   assert.equal(added.itinerary.days[0].events.find(event => event.id === 'arrival-transfer').to, candidate.id);
   assert.equal(added.itinerary.days[0].events.find(event => event.id === 'arrival-transfer').description, '내리는 문 확인');
-  assert.equal(added.itinerary.eventEdits[0]['transfer-0'].duration, undefined);
+  assert.equal(added.itinerary.eventEdits[0]['transfer-0'].duration, 27, 'the original first-to-second tourist leg has not changed');
   assert.equal(added.itinerary.eventEdits[0]['transfer-0'].description, '걷기 메모');
   assert.equal(added.itinerary.eventEdits[0]['transfer-0'].travelMode, 'walk');
-  assert.equal(added.itinerary.extraEvents[0].find(event => event.type === 'transfer').duration, 0);
+  assert.equal(added.itinerary.eventEdits[0]['transfer-1'].duration, 31);
+  assert.equal(added.itinerary.extraEvents[0].find(event => event.type === 'transfer').duration, 17,
+    'adding a first visit does not change the extra transfer after the last visit');
   const swapped = planner.updateEvent({ city, itinerary: added.itinerary, dayIndex: 0, eventId: added.eventId, placeId: city.areas[2].places[1].id, description: '방문 전 확인' });
   assert.equal(swapped.ok, true, swapped.reason);
   assert.equal(swapped.itinerary.days[0].events.find(event => event.id === added.eventId).title, city.areas[2].places[1].name);
@@ -2365,7 +2367,7 @@ test('an explicit original beforeId reanchors an extra after manual moves while 
   assert.equal(reanchored.itinerary.extraEvents[0][0].description, '메모만 고침');
 });
 
-test('tourist additions, removals and row moves invalidate the day road estimates while unrelated notes and dates survive', async () => {
+test('tourist additions, removals and moves retain estimates when their visible route endpoints are unchanged', async () => {
   const app = runtime(), city = await app.TourData.ensureCity('seoul'), planner = app.TravelPlanner;
   const original = planner.createItinerary({ city, startDate: '2026-10-20', dayCount: 2,
     departure: departureFixture({ mode: 'car' }), eventEdits: { 0: { departure: { duration: 35, description: '출발 메모' },
@@ -2374,9 +2376,9 @@ test('tourist additions, removals and row moves invalidate the day road estimate
   for (const current of [added,
     planner.removeEvent({ city, itinerary: added, dayIndex: 0, eventId: added.extraEvents[0][0].id }).itinerary,
     planner.moveEvent({ city, itinerary: original, dayIndex: 0, eventId: 'place-1', direction: -1 }).itinerary]) {
-    assert.equal(current.days[0].events[0].duration, 0);
+    assert.equal(current.days[0].events[0].duration, 35);
     assert.equal(current.eventEdits[0].departure.description, '출발 메모');
-    assert.equal(current.eventEdits[0]['transfer-0'].duration, undefined);
+    assert.equal(current.eventEdits[0]['transfer-0'].duration, 19);
     assert.equal(current.eventEdits[0]['transfer-0'].description, '이동 메모');
     assert.equal(current.eventEdits[0]['transfer-0'].travelMode, 'car');
     assert.equal(current.eventEdits[0]['place-1'].description, '박물관 예약');
@@ -2400,11 +2402,197 @@ test('replacing a base tourist after manual reordering clears estimates against 
   assert.equal(result.ok, true, result.reason);
   assert.equal(result.itinerary.days[0].events[1].place.id, replacement.id);
   assert.equal(result.itinerary.days[0].events[0].duration, 0);
-  assert.equal(result.itinerary.eventEdits[0]['transfer-0'].duration, undefined);
-  assert.equal(result.itinerary.eventEdits[0]['transfer-1'].duration, undefined);
+  assert.equal(result.itinerary.eventEdits[0]['transfer-0'].duration, 24, 'this reordered leg still connects place-0 to place-1');
+  assert.equal(result.itinerary.eventEdits[0]['transfer-1'].duration, 26, 'the trailing leg still starts at place-1 and has no following tourist');
   assert.equal(result.itinerary.eventEdits[0].departure.description, 'departure 메모');
   assert.equal(result.itinerary.eventEdits[0]['transfer-0'].description, 'transfer-0 메모');
   assertSequential(result.itinerary.days[0]);
+});
+
+test('removing, restoring and moving meals or rests preserves every unchanged travel estimate and recalculates clocks', async () => {
+  const app = runtime(), city = await app.TourData.ensureCity('seoul'), planner = app.TravelPlanner;
+  const original = planner.createItinerary({ city, startDate: '2026-10-20', dayCount: 2,
+    departure: departureFixture({ mode: 'car' }), eventEdits: { 0: {
+      departure: { duration: 35, description: '출발 메모' },
+      'transfer-0': { duration: 19, description: '버스 승강장', travelMode: 'local-bus' },
+      'transfer-1': { duration: 21, title: '산책길', description: '강변으로', travelMode: 'walk' }
+    } } });
+  const added = planner.addEvent({ city, itinerary: original, dayIndex: 0, type: 'transfer', duration: 17,
+    beforeId: 'place-1', travelMode: 'subway', description: '환승 출구' }).itinerary;
+  const snapshot = plain(added);
+  for (const eventId of ['rest', 'lunch']) {
+    const selected = added.days[0].events.find(event => event.id === eventId);
+    const removed = planner.removeEvent({ city, itinerary: added, dayIndex: 0, eventId });
+    assert.equal(removed.ok, true, removed.reason);
+    assert.deepEqual(plain(removed.itinerary.eventEdits), snapshot.eventEdits);
+    assert.deepEqual(plain(removed.itinerary.extraEvents), snapshot.extraEvents);
+    assert.equal(removed.itinerary.days[0].end, added.days[0].end - selected.duration);
+    assert.deepEqual(plain(removed.itinerary.days[1]), snapshot.days[1]);
+    const restored = planner.restoreEvent({ city, itinerary: removed.itinerary, dayIndex: 0, eventId });
+    assert.equal(restored.ok, true, restored.reason);
+    assert.deepEqual(plain(restored.itinerary.days), snapshot.days);
+    assertSequential(removed.itinerary.days[0]);
+  }
+  const moved = planner.moveEvent({ city, itinerary: added, dayIndex: 0, eventId: 'lunch', direction: -1 });
+  assert.equal(moved.ok, true, moved.reason);
+  assert.deepEqual(plain(moved.itinerary.eventEdits), snapshot.eventEdits);
+  assert.deepEqual(plain(moved.itinerary.extraEvents), snapshot.extraEvents);
+  assert.deepEqual(plain(added), snapshot, 'edits never mutate the previous note');
+});
+
+test('moving a tourist across a transfer clears only that changed leg while preserving other modes, notes and dates', async () => {
+  const app = runtime(), city = await app.TourData.ensureCity('seoul'), planner = app.TravelPlanner;
+  let current = planner.createItinerary({ city, startDate: '2026-10-20', dayCount: 2,
+    departure: departureFixture({ mode: 'walk' }), eventEdits: { 0: {
+      departure: { duration: 35, description: '첫 출발' }, 'transfer-0': { duration: 19, description: '환승 메모', travelMode: 'subway' },
+      'transfer-1': { duration: 21, description: '마지막 이동', travelMode: 'local-bus' }
+    } } });
+  for (let index = 0; index < 2; index++) {
+    current = planner.moveEvent({ city, itinerary: current, dayIndex: 0, eventId: 'place-1', direction: -1 }).itinerary;
+    assert.equal(current.eventEdits[0]['transfer-0'].duration, 19, 'crossing meal and rest rows does not change the journey');
+  }
+  const snapshot = plain(current);
+  const moved = planner.moveEvent({ city, itinerary: current, dayIndex: 0, eventId: 'place-1', direction: -1 });
+  assert.equal(moved.ok, true, moved.reason);
+  assert.equal(moved.itinerary.days[0].events.find(event => event.id === 'transfer-0').duration, 0);
+  assert.deepEqual(plain(moved.itinerary.eventEdits[0]['transfer-0']), { description: '환승 메모', travelMode: 'subway' });
+  assert.deepEqual(plain(moved.itinerary.eventEdits[0].departure), snapshot.eventEdits[0].departure);
+  assert.deepEqual(plain(moved.itinerary.eventEdits[0]['transfer-1']), snapshot.eventEdits[0]['transfer-1']);
+  assert.deepEqual(plain(moved.itinerary.days[1]), snapshot.days[1]);
+  assert.deepEqual(plain(current), snapshot); assertSequential(moved.itinerary.days[0]);
+});
+
+test('extra transfer reanchoring and memo edits retain its duration until the actual neighbouring tourists change', async () => {
+  const app = runtime(), city = await app.TourData.ensureCity('seoul'), planner = app.TravelPlanner;
+  const original = planner.createItinerary({ city, startDate: '2026-10-20', dayCount: 2,
+    departure: departureFixture({ mode: 'car' }), eventEdits: { 0: {
+      departure: { duration: 35 }, 'transfer-0': { duration: 19 }, 'transfer-1': { duration: 21 }
+    } } });
+  const added = planner.addEvent({ city, itinerary: original, dayIndex: 0, type: 'transfer', beforeId: 'place-1',
+    duration: 17, travelMode: 'subway', title: '지하철 이동', description: '2번 출구' });
+  const moved = planner.updateEvent({ city, itinerary: added.itinerary, dayIndex: 0, eventId: added.eventId, beforeId: 'lunch' });
+  assert.equal(moved.ok, true, moved.reason);
+  assert.equal(moved.itinerary.extraEvents[0][0].duration, 17, 'an anchor change within the same leg does not reset a manual time');
+  const memo = planner.updateEvent({ city, itinerary: moved.itinerary, dayIndex: 0, eventId: added.eventId, description: '3번 출구', duration: 18 });
+  assert.equal(memo.ok, true, memo.reason); assert.equal(memo.itinerary.extraEvents[0][0].duration, 18);
+  const snapshot = plain(memo.itinerary);
+  const changed = planner.updateEvent({ city, itinerary: memo.itinerary, dayIndex: 0, eventId: added.eventId, beforeId: 'place-2' });
+  assert.equal(changed.ok, true, changed.reason);
+  assert.equal(changed.itinerary.extraEvents[0][0].duration, 0);
+  assert.equal(changed.itinerary.extraEvents[0][0].description, '3번 출구');
+  assert.equal(changed.itinerary.extraEvents[0][0].travelMode, 'subway');
+  assert.equal(changed.itinerary.extraEvents[0][0].title, '지하철 이동');
+  assert.deepEqual(plain(changed.itinerary.eventEdits), snapshot.eventEdits);
+  assert.deepEqual(plain(changed.itinerary.days[1]), snapshot.days[1]);
+  assert.deepEqual(plain(memo.itinerary), snapshot);
+});
+
+test('adding and replacing an extra tourist invalidates only transfers attached to it and preserves local departure time', async () => {
+  const app = runtime(), city = await app.TourData.ensureCity('seoul'), planner = app.TravelPlanner;
+  const original = planner.createItinerary({ city, startDate: '2026-10-20', dayCount: 2,
+    departure: departureFixture({ mode: 'local-bus' }), eventEdits: { 0: {
+      departure: { duration: 35 }, 'transfer-0': { duration: 19, description: '기존 이동', travelMode: 'subway' },
+      'transfer-1': { duration: 21 }
+    } } });
+  const withTransfer = planner.addEvent({ city, itinerary: original, dayIndex: 0, type: 'transfer', beforeId: 'place-1',
+    duration: 17, travelMode: 'walk', description: '추가 이동' });
+  const snapshot = plain(withTransfer.itinerary);
+  const added = planner.addEvent({ city, itinerary: withTransfer.itinerary, dayIndex: 0, type: 'place',
+    beforeId: 'place-1', placeId: city.areas[2].places[0].id });
+  assert.equal(added.ok, true, added.reason);
+  assert.equal(added.itinerary.eventEdits[0].departure.duration, 35);
+  assert.equal(added.itinerary.days[0].events.find(event => event.id === 'transfer-0').duration, 0);
+  assert.equal(added.itinerary.eventEdits[0]['transfer-1'].duration, 21);
+  assert.equal(added.itinerary.extraEvents[0].find(event => event.id === withTransfer.eventId).duration, 0);
+  let timed = planner.updateEvent({ city, itinerary: added.itinerary, dayIndex: 0, eventId: 'transfer-0', duration: 22 }).itinerary;
+  timed = planner.updateEvent({ city, itinerary: timed, dayIndex: 0, eventId: withTransfer.eventId, duration: 23 }).itinerary;
+  const replaced = planner.updateEvent({ city, itinerary: timed, dayIndex: 0, eventId: added.eventId, placeId: city.areas[2].places[1].id });
+  assert.equal(replaced.ok, true, replaced.reason);
+  assert.equal(replaced.itinerary.days[0].events.find(event => event.id === 'transfer-0').duration, 0);
+  assert.equal(replaced.itinerary.extraEvents[0].find(event => event.id === withTransfer.eventId).duration, 0);
+  assert.equal(replaced.itinerary.eventEdits[0].departure.duration, 35);
+  assert.equal(replaced.itinerary.eventEdits[0]['transfer-1'].duration, 21);
+  assert.deepEqual(plain(replaced.itinerary.days[1]), snapshot.days[1]);
+  assert.deepEqual(plain(withTransfer.itinerary), snapshot);
+});
+
+test('a new first tourist resets a local departure only while official intercity connections and unaffected local legs survive', async () => {
+  const app = runtime(), city = await app.TourData.ensureCity('seoul'), planner = app.TravelPlanner;
+  const local = planner.createItinerary({ city, startDate: '2026-10-20', dayCount: 2,
+    departure: departureFixture({ mode: 'subway' }), eventEdits: { 0: {
+      departure: { duration: 35, description: '기존 출발' }, 'transfer-0': { duration: 19 }, 'transfer-1': { duration: 21 }
+    } } });
+  const candidate = city.areas[2].places[0].id;
+  const added = planner.addEvent({ city, itinerary: local, dayIndex: 0, type: 'place', beforeId: 'place-0', placeId: candidate });
+  assert.equal(added.ok, true, added.reason); assert.equal(added.itinerary.days[0].events[0].duration, 0);
+  assert.equal(added.itinerary.eventEdits[0].departure.description, '기존 출발');
+  assert.equal(added.itinerary.eventEdits[0]['transfer-0'].duration, 19);
+  assert.equal(added.itinerary.eventEdits[0]['transfer-1'].duration, 21);
+  const official = planner.setDayConnection({ city, itinerary: officialItinerary(app, city), dayIndex: 0, ...connectionFixtures() }).itinerary;
+  const snapshot = plain(official);
+  const changed = planner.addEvent({ city, itinerary: official, dayIndex: 0, type: 'place', beforeId: 'place-0', placeId: candidate });
+  assert.equal(changed.ok, true, changed.reason);
+  assert.equal(changed.itinerary.days[0].events[0].duration, 210);
+  assert.equal(changed.itinerary.days[0].events.find(event => event.id === 'arrival-transfer').duration, 0);
+  assert.deepEqual(plain(changed.itinerary.dayTransports), snapshot.dayTransports);
+  assert.deepEqual(plain(changed.itinerary.days[1]), snapshot.days[1]);
+  assert.deepEqual(plain(official), snapshot);
+});
+
+test('failed layout and place edits do not partially reset existing travel times or mutate their original note', async () => {
+  const app = runtime(), city = await app.TourData.ensureCity('seoul'), planner = app.TravelPlanner;
+  const original = planner.createItinerary({ city, startDate: '2026-10-20', dayCount: 1,
+    departure: departureFixture({ mode: 'car' }), eventEdits: { 0: {
+      departure: { duration: 35 }, 'transfer-0': { duration: 19, description: '메모', travelMode: 'walk' }, 'transfer-1': { duration: 21 }
+    } } });
+  const added = planner.addEvent({ city, itinerary: original, dayIndex: 0, type: 'place', placeId: city.areas[2].places[0].id }).itinerary;
+  const snapshot = plain(added);
+  for (const result of [
+    planner.moveEvent({ city, itinerary: added, dayIndex: 0, eventId: 'place-0', direction: -1 }),
+    planner.removeEvent({ city, itinerary: added, dayIndex: 0, eventId: 'departure' }),
+    planner.restoreEvent({ city, itinerary: added, dayIndex: 0, eventId: 'rest' }),
+    planner.updateEvent({ city, itinerary: added, dayIndex: 0, eventId: 'extra-1', beforeId: 'place-0', placeId: added.selections[0][1] }),
+    planner.addEvent({ city, itinerary: added, dayIndex: 0, type: 'place', beforeId: 'place-0', placeId: 'unknown' })
+  ]) assert.equal(result.ok, false);
+  assert.deepEqual(plain(added), snapshot);
+});
+
+test('changing an area retains an extra-to-extra journey but invalidates an extra journey between replaced recommendations', async () => {
+  const app = runtime(), city = await app.TourData.ensureCity('seoul'), planner = app.TravelPlanner;
+  let current = planner.createItinerary({ city, startDate: '2026-10-20', dayCount: 2 });
+  current = planner.addEvent({ city, itinerary: current, dayIndex: 0, type: 'place', placeId: city.areas[2].places[0].id }).itinerary;
+  const stable = planner.addEvent({ city, itinerary: current, dayIndex: 0, type: 'transfer', travelMode: 'walk', description: '추가 장소 사이' });
+  current = planner.addEvent({ city, itinerary: stable.itinerary, dayIndex: 0, type: 'place', placeId: city.areas[2].places[1].id }).itinerary;
+  current = planner.updateEvent({ city, itinerary: current, dayIndex: 0, eventId: stable.eventId, duration: 17 }).itinerary;
+  const changing = planner.addEvent({ city, itinerary: current, dayIndex: 0, type: 'transfer', beforeId: 'place-1',
+    duration: 18, travelMode: 'subway', description: '추천 장소 사이' });
+  const snapshot = plain(changing.itinerary);
+  const changed = planner.changeDayArea({ city, itinerary: changing.itinerary, dayIndex: 0, areaId: city.areas[3].id });
+  assert.equal(changed.ok, true, changed.reason);
+  assert.equal(changed.itinerary.extraEvents[0].find(event => event.id === stable.eventId).duration, 17);
+  const invalidated = changed.itinerary.extraEvents[0].find(event => event.id === changing.eventId);
+  assert.equal(invalidated.duration, 0); assert.equal(invalidated.description, '추천 장소 사이'); assert.equal(invalidated.travelMode, 'subway');
+  assert.deepEqual(plain(changed.itinerary.days[1]), snapshot.days[1]);
+  assert.deepEqual(plain(changing.itinerary), snapshot); assertSequential(changed.itinerary.days[0]);
+});
+
+test('hidden transfers retain unchanged manual times on restore but cannot revive an estimate after their destination changes', async () => {
+  const app = runtime(), city = await app.TourData.ensureCity('seoul'), planner = app.TravelPlanner;
+  const original = planner.createItinerary({ city, startDate: '2026-10-20', dayCount: 1,
+    eventEdits: { 0: { 'transfer-0': { duration: 19, description: '환승 출구', travelMode: 'subway' }, 'transfer-1': { duration: 21 } } } });
+  const hidden = planner.removeEvent({ city, itinerary: original, dayIndex: 0, eventId: 'transfer-0' });
+  assert.equal(hidden.ok, true, hidden.reason); assert.equal(hidden.itinerary.eventEdits[0]['transfer-0'].duration, 19);
+  const restored = planner.restoreEvent({ city, itinerary: hidden.itinerary, dayIndex: 0, eventId: 'transfer-0' });
+  assert.equal(restored.ok, true, restored.reason); assert.equal(restored.itinerary.eventEdits[0]['transfer-0'].duration, 19);
+  const snapshot = plain(hidden.itinerary);
+  const replaced = planner.replacePlace({ city, itinerary: hidden.itinerary, dayIndex: 0,
+    placeId: hidden.itinerary.selections[0][1], replacementId: city.areas[0].places[3].id });
+  assert.equal(replaced.ok, true, replaced.reason);
+  assert.deepEqual(plain(replaced.itinerary.eventEdits[0]['transfer-0']), { description: '환승 출구', travelMode: 'subway' });
+  const refreshed = planner.restoreEvent({ city, itinerary: replaced.itinerary, dayIndex: 0, eventId: 'transfer-0' });
+  assert.equal(refreshed.ok, true, refreshed.reason);
+  assert.equal(refreshed.itinerary.days[0].events.find(event => event.id === 'transfer-0').duration, 0);
+  assert.deepEqual(plain(hidden.itinerary), snapshot);
 });
 
 test('custom state rejects malformed days, IDs, duplicate or unregistered tourists and invalid positions without mutation', async () => {

@@ -176,7 +176,7 @@ function timedNoteFixture(dayCount = 1) {
   return { ...fixture, note };
 }
 
-function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadError, storageError, cityData = null, planner = null, withAccount = false, accountUser = null, accountReady, accountHandler, currentDateTime='2026-10-20T12:00:00' } = {}) {
+function runtime({ hash = '', search = '', socialReturn = false, raw = null, seedStorage = [], destinationsPromise, ensureCity, loadError, storageError, cityData = null, planner = null, withAccount = false, accountUser = null, accountReady, accountHandler, restoreAttachment, currentDateTime='2026-10-20T12:00:00' } = {}) {
   const elements = new Map(), documentListeners = new Map(), documentCaptureListeners = new Map();
   const document = {
     title: '', activeElement: null,
@@ -203,7 +203,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   const ids = ['country-select', 'city-select', 'start-date', 'day-count', 'trip-form', 'destinations-retry',
     'city-note', 'duration-note', 'data-status', 'app-message', 'date-trigger', 'itinerary-section',
     'empty-state', 'day-list', 'day-bookmarks', 'day-bookmarks-bottom', 'trip-summary', 'note-timing-notice', 'pending-transfers', 'capacity-message', 'print-button', 'clear-button', 'undo-button', 'redo-button',
-    'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'account-notice', 'saved-plans', 'account-save', 'note-export', 'personal-tools', 'day-map'];
+    'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'account-notice', 'saved-plans', 'account-save', 'draft-recovery', 'note-export', 'personal-tools', 'day-map'];
   for (const id of ids) {
     const tag = ['city-select', 'day-count'].includes(id) ? 'select' : id === 'trip-form' ? 'form' : ['print-button','clear-button','undo-button','redo-button'].includes(id) ? 'button' : 'div';
     const element = document.createElement(tag); element.id = id; elements.set(id, element);
@@ -214,13 +214,13 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   $('resume-note').append($('resume-summary'));
   $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('undo-button'), $('redo-button'), $('note-timing-notice'), $('pending-transfers'), $('note-export'), $('personal-tools'), $('day-map'), $('day-bookmarks'), $('day-list'), $('day-bookmarks-bottom'));
   $('screen-loading').append($('loading-title'));
-  document.body.append($('app-message'), $('screen-loading'), $('start-screen'), $('itinerary-section'));
+  document.body.append($('app-message'), $('draft-recovery'), $('screen-loading'), $('start-screen'), $('itinerary-section'));
   const submit = document.createElement('button'); submit.type = 'submit'; submit.append(document.createElement('span'));
   $('trip-form').append(submit);
   const listeners = new Map(), history = [hash], scrolls = [], creations = [], mounts = [], downloads = [], revoked = [];
   let historyIndex = 0, currentHash = hash;
   const emitHash = () => { for (const listener of listeners.get('hashchange') || []) listener({ type: 'hashchange' }); };
-  const location = {};
+  const location = { search, pathname: '/' };
   Object.defineProperty(location, 'hash', {
     get: () => currentHash,
     set: value => {
@@ -275,15 +275,19 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   window.TravelTransport = mountStub('transport');
   window.TravelSchedule = mountStub('schedule');
   window.TravelRestaurants = { ...mountStub('restaurant'), mountManual: mountStub('manual-restaurant').mount, districtFromAddress: () => '남구' };
-  const account={options:null,changes:0,detaches:0};
+  const account={options:null,changes:0,detaches:0,attachment:null,attachmentVersion:0,restores:[]};
   if(withAccount&&!accountHandler)window.TravelAccount={mount(options){
     account.options=options;
-    return {ready:Promise.resolve(accountReady).then(()=>options.onUserChange(accountUser,{initial:true})),changed(){account.changes++;},detach(){account.detaches++;}};
+    account.attach=snapshot=>{account.attachmentVersion++;account.attachment=snapshot;options.onAttachmentChange(snapshot);};
+    return {ready:Promise.resolve(accountReady).then(()=>options.onUserChange(accountUser,{initial:true,socialReturn})),changed(){account.changes++;},detach(){account.detaches++;account.attachmentVersion++;account.attachment=null;},
+      getAttachment(){return account.attachment;},
+      async restoreAttachment(snapshot){const version=++account.attachmentVersion;account.restores.push(snapshot);const result=restoreAttachment?await restoreAttachment(snapshot):{ok:true};
+        if(version===account.attachmentVersion)account.attachment=result.ok||['unavailable','conflict'].includes(result.reason)?snapshot:null;return result;}};
   }};
-  const stored = new Map(raw === null ? [] : [[storageKey, raw]]), writes = [], removals = [];
+  const stored = new Map([...(raw === null ? [] : [[storageKey, raw]]), ...seedStorage]), writes = [], removals = [];
   const localStorage = {
     getItem(key) { if (storageError?.get) throw Error('storage inaccessible'); return stored.get(key) ?? null; },
-    setItem(key, value) { if (storageError?.set) throw Error('storage full'); writes.push([key, value]); stored.set(key, value); },
+    setItem(key, value) { if (typeof storageError?.set === 'function' ? storageError.set(key,value) : storageError?.set) throw Error('storage full'); writes.push([key, value]); stored.set(key, value); },
     removeItem(key) { if (storageError?.remove) throw Error('storage locked'); removals.push(key); stored.delete(key); }
   };
   let now = 0, timerId = 0;
@@ -349,6 +353,252 @@ function selectedDay(app, index) {
       days.map((_, at) => at === index ? 'page' : 'false'), `${id} marks the same current day`);
   }
 }
+
+function editRow(app, eventId = 'place-0', dayIndex = 0) {
+  const row = app.$('day-list').children[dayIndex].querySelector(`[data-event-id="${eventId}"]`);
+  assert.ok(row, `editable row ${eventId}`);
+  row.querySelector('.event-edit-button').click();
+  assert.ok(row.querySelector('.event-editor'), `editor ${eventId} opened`);
+  return row;
+}
+function inputMemo(row, text) { const field = row.querySelector('textarea'); field.value = text; field.dispatch('input'); }
+function ownerNote(note, ownerId, extra = {}) {
+  return JSON.stringify({ version: 8, ownerId, savedAt: '2026-10-20T00:00:00Z', itinerary: note, attachment: null, editorDrafts: {}, ...extra });
+}
+function noteWithMemo(fixture, text) {
+  return fixture.planner.createItinerary({ city: fixture.cityData, startDate: '2026-10-20', dayCount: 1,
+    eventEdits: { 0: { 'place-0': { description: text } } } });
+}
+
+test('editor drafts survive switching cards and reloading without entering cloud parameters or undo history', async () => {
+  const fixture = actualPlannerFixture(), app = runtime({ ...fixture, withAccount: true }); await settle(); await app.create();
+  const original = noteParameters(app), changes = app.account.changes;
+  let first = editRow(app); inputMemo(first, 'A에서 아직 저장하지 않은 메모');
+  const minutes = first.querySelector('input[type="number"]'); minutes.value = '75'; minutes.dispatch('input');
+  const second = editRow(app, 'place-1'); inputMemo(second, 'B의 입력도 유지');
+  assert.equal(first.querySelector('.event-editor'), null);
+  first = editRow(app); assert.equal(first.querySelector('textarea').value, 'A에서 아직 저장하지 않은 메모');
+  assert.equal(first.querySelector('input[type="number"]').value, '75');
+  assert.deepEqual(noteParameters(app), original); assert.equal(app.account.changes, changes);
+  assert.equal(app.$('undo-button').disabled, true);
+  const restored = runtime({ ...fixture, withAccount: true, raw: app.stored.get(storageKey), hash: '#/note' }); await settle();
+  const reopened = editRow(restored);
+  assert.equal(reopened.querySelector('textarea').value, 'A에서 아직 저장하지 않은 메모');
+  assert.equal(reopened.querySelector('input[type="number"]').value, '75');
+  const other = editRow(restored, 'place-1'); assert.equal(other.querySelector('textarea').value, 'B의 입력도 유지');
+  assert.deepEqual(noteParameters(restored), original); assert.equal(restored.$('undo-button').disabled, true);
+});
+
+test('an official tourist name longer than the editable title limit does not discard its unfinished memo on reload', async () => {
+  const fixture = actualPlannerFixture(); fixture.cityData.areas[0].places[0].name = '긴 공식 관광지 이름 '.repeat(9).trim();
+  assert.ok(fixture.cityData.areas[0].places[0].name.length > 80);
+  const app = runtime({ ...fixture, withAccount: true }); await settle(); await app.create();
+  inputMemo(editRow(app), '긴 관광지 이름과 관계없이 유지할 메모');
+  const restored = runtime({ ...fixture, withAccount: true, raw: app.stored.get(storageKey), hash: '#/note' }); await settle();
+  assert.equal(editRow(restored).querySelector('textarea').value, '긴 관광지 이름과 관계없이 유지할 메모');
+  assert.equal(restored.$('undo-button').disabled, true);
+});
+
+test('changing a departure mode invalidates unfinished duration fields belonging to its former mode', async () => {
+  const fixture = timedNoteFixture(), app = runtime({ ...fixture, withAccount: true, raw: savedNote(fixture.note), hash: '#/note' }); await settle();
+  const departure = editRow(app, 'departure'); inputMemo(departure, '자가용에만 해당하는 입력');
+  const hours = departure.querySelectorAll('input').find(input => input.getAttribute('aria-label') === '이동시간: 시간'); hours.value = '2'; hours.dispatch('input');
+  const widget = app.mounts.findLast(item => item.kind === 'departure' && !item.destroyed && !item.options.role);
+  widget.options.onChange({ ...fixture.note.days[0].departure, mode: 'local-bus' });
+  const reopened = editRow(app, 'departure');
+  assert.notEqual(reopened.querySelector('textarea').value, '자가용에만 해당하는 입력');
+  assert.equal(reopened.querySelectorAll('input').find(input => input.getAttribute('aria-label') === '이동시간: 시간').value, '0');
+  assert.equal(JSON.parse(app.stored.get(storageKey)).editorDrafts['0:departure'], undefined);
+});
+
+test('explicit editor cancel discards only that card draft while unrelated saved edits preserve another draft', async () => {
+  const app = runtime({ ...actualPlannerFixture(), withAccount: true }); await settle(); await app.create();
+  const first = editRow(app); inputMemo(first, 'A는 계속 작성 중');
+  const second = editRow(app, 'place-1'); inputMemo(second, 'B는 취소할 입력'); second.querySelector('.editor-cancel').click();
+  const reopened = editRow(app, 'place-1'); assert.notEqual(reopened.querySelector('textarea').value, 'B는 취소할 입력');
+  inputMemo(reopened, 'B만 저장한 메모'); reopened.querySelector('.event-editor').dispatch('submit');
+  assert.equal(noteParameters(app).eventEdits[0]['place-1'].description, 'B만 저장한 메모');
+  const preserved = editRow(app); assert.equal(preserved.querySelector('textarea').value, 'A는 계속 작성 중');
+  assert.equal(noteParameters(app).eventEdits[0]['place-0'], undefined);
+  assert.equal(app.$('undo-button').disabled, false);
+  preserved.querySelector('.editor-cancel').click();
+  assert.equal(JSON.parse(app.stored.get(storageKey)).editorDrafts['0:place-0'], undefined);
+});
+
+test('new recommendations retain the previous personal note and unfinished fields for explicit recovery', async () => {
+  const fixture = actualPlannerFixture(), note = noteWithMemo(fixture, '개인적으로 작성한 방문 메모');
+  const app = runtime({ ...fixture, withAccount: true, raw: savedNote(note), hash: '#/note' }); await settle();
+  const first = editRow(app); inputMemo(first, '이전 노트에서 계속 쓰던 입력');
+  await app.create(); assert.notEqual(noteParameters(app).eventEdits[0]?.['place-0']?.description, '개인적으로 작성한 방문 메모');
+  const previous = JSON.parse(app.stored.get(storageKey)).previous;
+  assert.equal(previous.itinerary.eventEdits[0]['place-0'].description, '개인적으로 작성한 방문 메모');
+  assert.equal(previous.editorDrafts['0:place-0'].description, '이전 노트에서 계속 쓰던 입력');
+  assert.equal(app.$('draft-recovery').hidden, false);
+  app.$('draft-recovery').querySelector('button').click(); await settle();
+  assert.equal(noteParameters(app).eventEdits[0]['place-0'].description, '개인적으로 작성한 방문 메모');
+  const restored = editRow(app); assert.equal(restored.querySelector('textarea').value, '이전 노트에서 계속 쓰던 입력');
+  assert.equal(app.$('undo-button').disabled, true);
+});
+
+test('a failed previous-note write rejects regeneration or cloud replacement without replacing the note, storage or open map', async () => {
+  const storageError = {}, app = runtime({ ...actualPlannerFixture(), withAccount: true, storageError }); await settle(); await app.create();
+  const original = noteParameters(app), raw = app.stored.get(storageKey), card = app.$('day-list').children[0];
+  const maps = leafletFixture(); app.window.L = maps.L;
+  const panel = openDayMap(app), places = panel.querySelector('.day-map-places').textContent;
+  const remote = app.account.options.getDocument();
+  storageError.set = key => key === storageKey;
+  await app.create();
+  assert.deepEqual(noteParameters(app), original); assert.equal(app.stored.get(storageKey), raw);
+  assert.equal(app.$('day-list').children[0], card); assert.equal(app.$('draft-recovery').hidden, true);
+  assert.match(app.$('app-message').textContent, /새 노트로 바꾸지 않았어요/);
+  assert.equal(await app.account.options.loadDocument(remote), false);
+  assert.deepEqual(noteParameters(app), original); assert.equal(app.stored.get(storageKey), raw);
+  assert.equal(app.$('day-list').children[0], card); assert.equal(panel.open, true);
+  assert.equal(panel.querySelector('.day-map-places').textContent, places);
+  assert.equal(maps.maps.length, 1); assert.equal(maps.maps[0].removed, false);
+});
+
+test('previous-note recovery is isolated to its account owner', async () => {
+  const fixture = actualPlannerFixture(), app = runtime({ ...fixture, withAccount: true }); await settle(); await app.create();
+  await app.account.options.onUserChange({ id: 'owner-a', username: 'alice' }, { initial: false });
+  const row = editRow(app); inputMemo(row, 'Alice의 개인 메모'); row.querySelector('.event-editor').dispatch('submit');
+  await app.create(); assert.equal(app.$('draft-recovery').hidden, false);
+  await app.account.options.onUserChange({ id: 'owner-b', username: 'bob' }, { initial: false });
+  assert.equal(app.$('draft-recovery').hidden, true); assert.equal(app.account.options.getDocument(), null);
+  assert.equal(app.document.body.textContent.includes('Alice의 개인 메모'), false);
+  await app.account.options.onUserChange({ id: 'owner-a', username: 'alice' }, { initial: false });
+  assert.equal(app.$('draft-recovery').hidden, false);
+  app.$('draft-recovery').querySelector('button').click(); await settle();
+  assert.equal(noteParameters(app).eventEdits[0]['place-0'].description, 'Alice의 개인 메모');
+});
+
+test('sign-in preserves both the guest draft and an existing owner draft with explicit recovery', async () => {
+  const fixture = actualPlannerFixture(), owner = { id: 'owner-a', username: 'alice' };
+  const guestRaw = savedNote(noteWithMemo(fixture, '로그인 전에 쓰던 메모'));
+  const existingRaw = ownerNote(noteWithMemo(fixture, '계정에 전에 쓰던 메모'), owner.id);
+  const app = runtime({ ...fixture, withAccount: true, raw: guestRaw, seedStorage: [[`${storageKey}:${owner.id}`, existingRaw]], hash: '#/note' });
+  await settle(); await app.account.options.onUserChange(owner, { initial: false });
+  assert.equal(noteParameters(app).eventEdits[0]['place-0'].description, '로그인 전에 쓰던 메모');
+  assert.equal(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).ownerId, owner.id);
+  assert.equal(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).previous.itinerary.eventEdits[0]['place-0'].description, '계정에 전에 쓰던 메모');
+  assert.equal(app.stored.has(storageKey), false);
+  app.$('draft-recovery').querySelector('button').click(); await settle();
+  assert.equal(noteParameters(app).eventEdits[0]['place-0'].description, '계정에 전에 쓰던 메모');
+  assert.equal(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).previous.itinerary.eventEdits[0]['place-0'].description, '로그인 전에 쓰던 메모');
+});
+
+test('a social callback adopts the guest note on initial account discovery and backs up the previous owner note', async () => {
+  const fixture = actualPlannerFixture(), owner = { id: 'owner-a', username: 'alice' };
+  const existingRaw = ownerNote(noteWithMemo(fixture, '이전 계정 노트'), owner.id);
+  const app = runtime({ ...fixture, withAccount: true, accountUser: owner, socialReturn: true, search: '?social=success', hash: '#/note/day/1',
+    raw: savedNote(noteWithMemo(fixture, '소셜 로그인 중 보존한 노트')), seedStorage: [[`${storageKey}:${owner.id}`, existingRaw]] });
+  await settle();
+  assert.equal(noteParameters(app).eventEdits[0]['place-0'].description, '소셜 로그인 중 보존한 노트');
+  assert.equal(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).previous.itinerary.eventEdits[0]['place-0'].description, '이전 계정 노트');
+  assert.equal(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).ownerId, owner.id);
+  assert.equal(app.stored.has(storageKey), false); assert.equal(app.$('draft-recovery').hidden, false);
+});
+
+test('a social success query without an account-verified pending attempt cannot replace an existing owner draft', async () => {
+  const fixture = actualPlannerFixture(), owner = { id: 'owner-a', username: 'alice' };
+  const guestRaw = savedNote(noteWithMemo(fixture, '로그인 전 노트'));
+  const existing = ownerNote(noteWithMemo(fixture, '원래 계정 노트'), owner.id);
+  const app = runtime({ ...fixture, withAccount: true, accountUser: owner, search: '?social=success', hash: '#/note', raw: guestRaw,
+    seedStorage: [[`${storageKey}:${owner.id}`, existing]] }); await settle();
+  assert.equal(noteParameters(app).eventEdits[0]['place-0'].description, '원래 계정 노트');
+  assert.equal(app.stored.get(storageKey), guestRaw); assert.equal(app.stored.get(`${storageKey}:${owner.id}`), existing);
+});
+
+test('recovering an unlinked note detaches the previously open cloud plan before another save', async () => {
+  const fixture = actualPlannerFixture(), owner = { id: 'owner-a', username: 'alice' };
+  const attachment = { ownerId: owner.id, plan: { id: 'plan-current', title: '현재 계정 계획', revision: 2 } };
+  const previous = JSON.parse(ownerNote(noteWithMemo(fixture, '계정에 연결하지 않은 이전 메모'), owner.id));
+  const app = runtime({ ...fixture, withAccount: true, accountUser: owner, hash: '#/note',
+    seedStorage: [[`${storageKey}:${owner.id}`, ownerNote(noteWithMemo(fixture, '현재 계정 계획'), owner.id, { attachment, previous })]] });
+  await settle(); assert.equal(app.account.attachment.plan.id, 'plan-current');
+  app.$('draft-recovery').querySelector('button').click(); await settle();
+  assert.equal(app.account.attachment, null); assert.equal(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).attachment, null);
+  assert.equal(noteParameters(app).eventEdits[0]['place-0'].description, '계정에 연결하지 않은 이전 메모');
+});
+
+test('a delayed recovery attachment result cannot clear the replacement account draft or its link', async () => {
+  const fixture = actualPlannerFixture(), ownerA = { id: 'owner-a', username: 'alice' }, ownerB = { id: 'owner-b', username: 'bob' }, gate = deferred();
+  const link = (owner, id) => ({ ownerId: owner.id, plan: { id, title: '계정 계획', revision: 2 } });
+  const previous = JSON.parse(ownerNote(noteWithMemo(fixture, 'Alice 이전 노트'), ownerA.id, { attachment: link(ownerA, 'pending-plan') }));
+  const app = runtime({ ...fixture, withAccount: true, accountUser: ownerA, hash: '#/note',
+    seedStorage: [[`${storageKey}:${ownerA.id}`, ownerNote(noteWithMemo(fixture, 'Alice 현재 노트'), ownerA.id, { attachment: link(ownerA, 'current-plan'), previous })],
+      [`${storageKey}:${ownerB.id}`, ownerNote(noteWithMemo(fixture, 'Bob의 새 노트'), ownerB.id, { attachment: link(ownerB, 'bob-plan') })]],
+    restoreAttachment: snapshot => snapshot.plan.id === 'pending-plan' ? gate.promise : Promise.resolve({ ok: true }) });
+  await settle(); app.$('draft-recovery').querySelector('button').click(); await settle();
+  await app.account.options.onUserChange(ownerB, { initial: false });
+  const raw = app.stored.get(`${storageKey}:${ownerB.id}`), messages = app.$('app-message').textContent;
+  gate.resolve({ ok: false, reason: 'invalid' }); await settle();
+  assert.equal(noteParameters(app).eventEdits[0]['place-0'].description, 'Bob의 새 노트');
+  assert.equal(app.stored.get(`${storageKey}:${ownerB.id}`), raw); assert.equal(app.$('app-message').textContent, messages);
+  assert.equal(JSON.parse(raw).attachment.plan.id, 'bob-plan'); assert.equal(app.account.attachment.plan.id, 'bob-plan');
+});
+
+test('restored plan attachments are verified and metadata callbacks persist without a committed edit or undo step', async () => {
+  const fixture = actualPlannerFixture(), owner = { id: 'owner-a', username: 'alice' };
+  const attachment = { ownerId: owner.id, plan: { id: 'plan-a', title: '기존 계획', revision: 3 } };
+  const raw = ownerNote(noteWithMemo(fixture, '기존 계획의 메모'), owner.id, { attachment });
+  const app = runtime({ ...fixture, withAccount: true, accountUser: owner, hash: '#/note', seedStorage: [[`${storageKey}:${owner.id}`, raw]] });
+  await settle(); assert.equal(app.account.restores.length, 1); assert.deepEqual(app.account.restores[0], attachment);
+  const parameters = noteParameters(app), changes = app.account.changes;
+  const updated = { ownerId: owner.id, plan: { ...attachment.plan, revision: 4 } };
+  app.account.attach(updated);
+  assert.deepEqual(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).attachment, updated);
+  assert.deepEqual(noteParameters(app), parameters); assert.equal(app.account.changes, changes);
+  assert.equal(app.$('undo-button').disabled, true);
+  app.account.attach({ ownerId: 'owner-b', plan: { id: 'private-other-plan', revision: 1 } });
+  assert.equal(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).attachment, null);
+  assert.deepEqual(noteParameters(app), parameters); assert.equal(app.account.changes, changes);
+});
+
+test('a real account controller reconnects a refreshed local draft and saves changes to its original cloud plan', async () => {
+  const fixture = actualPlannerFixture(), owner = { id: 'owner-a', username: 'alice' }, requests = [];
+  const plan = { id: 'original-plan', title: '기존 여행 노트', cityId: fixture.cityData.id, startDate: '2026-10-20', dayCount: 1,
+    revision: 3, createdAt: '2026-10-20T00:00:00Z', updatedAt: '2026-10-20T00:00:00Z' };
+  const attachment = { ownerId: owner.id, plan };
+  const app = runtime({ ...fixture, withAccount: true, hash: '#/note',
+    seedStorage: [[`${storageKey}:${owner.id}`, ownerNote(noteWithMemo(fixture, '다시 불러온 내 메모'), owner.id, { attachment })]],
+    accountHandler: async (path, options) => {
+      requests.push({ path, method: options.method, body: options.body ? JSON.parse(options.body) : null });
+      let data;
+      if (path === '/api/auth/session') data = { configured: true, user: owner };
+      else if (path === '/api/plans') data = { plans: [plan] };
+      else if (path === '/api/plans/original-plan' && options.method === 'GET') data = { plan };
+      else if (path === '/api/plans/original-plan' && options.method === 'PUT') data = { plan: { ...plan, revision: 4 } };
+      else throw Error(`Unexpected request ${options.method} ${path}`);
+      return { ok: true, status: 200, json: async () => data };
+    } });
+  await settle(); assert.ok(requests.some(request => request.path === '/api/plans/original-plan' && request.method === 'GET'));
+  const save = app.$('account-save').querySelector('button'); assert.equal(save.textContent, '변경사항 저장');
+  assert.equal(save.disabled, false); save.click();
+  const form = app.document.body.querySelector('.account-dialog-form'); assert.ok(form); form.dispatch('submit'); await settle();
+  const writes = requests.filter(request => ['POST', 'PUT'].includes(request.method));
+  assert.equal(writes.length, 1); assert.equal(writes[0].method, 'PUT'); assert.equal(writes[0].body.revision, 3);
+  assert.equal(writes[0].body.document.itinerary.eventEdits[0]['place-0'].description, '다시 불러온 내 메모');
+  assert.equal(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).attachment.plan.revision, 4);
+  assert.equal(app.$('undo-button').disabled, true);
+  app.account.controller.destroy();
+});
+
+test('attachment verification failures preserve retryable links and reject invalid owner metadata without creating history', async () => {
+  for (const reason of ['unavailable', 'conflict', 'invalid', 'not-owned']) {
+    const fixture = actualPlannerFixture(), owner = { id: 'owner-a', username: 'alice' };
+    const attachment = { ownerId: owner.id, plan: { id: 'plan-a', title: '저장 연결', revision: 2 } };
+    let app, changesAtVerification;
+    app = runtime({ ...fixture, withAccount: true, accountUser: owner, hash: '#/note',
+      seedStorage: [[`${storageKey}:${owner.id}`, ownerNote(noteWithMemo(fixture, '내 메모는 유지'), owner.id, { attachment })]],
+      restoreAttachment: async () => { changesAtVerification = app.account.changes; return { ok: false, reason }; } });
+    await settle();
+    assert.deepEqual(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).attachment,
+      ['invalid', 'not-owned'].includes(reason) ? null : attachment);
+    assert.equal(noteParameters(app).eventEdits[0]['place-0'].description, '내 메모는 유지');
+    assert.equal(app.account.changes, changesAtVerification); assert.equal(app.$('undo-button').disabled, true);
+  }
+});
 
 test('export toolbar follows the selected page and exports all committed days even when collapsed, without saving or disturbing history', async () => {
   const fixture = timedNoteFixture(3), app = runtime({ ...fixture, raw: savedNote(fixture.note), withAccount: true, hash: '#/note' });
@@ -417,6 +667,33 @@ test('a pending copy success cannot announce the wrong day, and export errors le
 function personalInput(app){return app.$('personal-tools').querySelector('.personal-checklist-form input');}
 function addPersonalItem(app,text){personalInput(app).value=text;app.$('personal-tools').querySelector('.personal-checklist-form').dispatch('submit');}
 function personalData(app){return app.account.options.getDocument().itinerary.personalization;}
+
+test('personalization saves and previous-note recovery retain an unfinished editor through refresh', async () => {
+  const fixture = actualPlannerFixture(), app = runtime({ ...fixture, withAccount: true });
+  await settle(); await app.create();
+  const row = editRow(app, 'lunch'), memo = row.querySelector('textarea');
+  inputMemo(row, '아직 작성 중인 식사 예약 메모');
+  addPersonalItem(app, '공연 입장권');
+  const checkbox = app.$('personal-tools').querySelector('.personal-checklist-items input');
+  checkbox.checked = true; checkbox.dispatch('change');
+  const place = app.$('day-list').querySelector('[data-event-id="place-0"]');
+  place.querySelector('.event-favorite-button').click();
+  const tag = place.querySelector('.event-tag-select'); tag.value = 'booked'; tag.dispatch('change');
+  const personal = JSON.parse(JSON.stringify(personalData(app)));
+  assert.equal(row.querySelector('textarea'), memo);
+  assert.equal(memo.value, '아직 작성 중인 식사 예약 메모');
+  assert.equal(noteParameters(app).eventEdits[0]?.lunch?.description, undefined);
+  const restored = runtime({ ...fixture, withAccount: true, raw: app.stored.get(storageKey), hash: '#/note' });
+  await settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(personalData(restored))), personal);
+  assert.equal(editRow(restored, 'lunch').querySelector('textarea').value, '아직 작성 중인 식사 예약 메모');
+  await restored.create();
+  assert.equal(personalData(restored), undefined);
+  restored.$('draft-recovery').querySelector('button').click(); await settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(personalData(restored))), personal);
+  assert.equal(editRow(restored, 'lunch').querySelector('textarea').value, '아직 작성 중인 식사 예약 메모');
+  assert.equal(noteParameters(restored).eventEdits[0]?.lunch?.description, undefined);
+});
 
 test('checklist add, check, delete and history persist locally and through account documents without replacing an unfinished memo', async()=>{
   const fixture=actualPlannerFixture(),app=runtime({...fixture,withAccount:true});await settle();await app.create();
@@ -497,6 +774,55 @@ test('personalization rejects invalid and oversized inputs, preserves failed sav
 });
 
 function openDayMap(app) { const panel=app.$('day-map');panel.open=true;panel.dispatch('toggle');return panel; }
+
+test('recovering a previous note restores its visitor map and unfinished memo after recommendation replacement', async () => {
+  const fixture = timedNoteFixture();
+  const note = fixture.planner.createItinerary({ city: fixture.cityData, startDate: '2026-10-20', dayCount: 1,
+    selections: { 0: ['d', 'b', 'c'] }, eventEdits: { 0: { 'place-0': { description: '이전 노트의 저장한 메모' } } } });
+  const app = runtime({ ...fixture, withAccount: true, raw: savedNote(note), hash: '#/note' }); await settle();
+  const maps = leafletFixture(); app.window.L = maps.L;
+  const panel = openDayMap(app); assert.match(panel.querySelector('.day-map-places').textContent, /추천 관광지 d/);
+  inputMemo(editRow(app), '지도에서 일정을 보며 아직 작성 중인 메모');
+  await app.create(); assert.equal(maps.maps[0].removed, true); assert.equal(panel.open, false);
+  openDayMap(app); assert.match(panel.querySelector('.day-map-places').textContent, /추천 관광지 a/);
+  assert.doesNotMatch(panel.querySelector('.day-map-places').textContent, /추천 관광지 d/);
+  app.$('draft-recovery').querySelector('button').click(); await settle();
+  assert.equal(maps.maps[1].removed, true); assert.equal(panel.open, false);
+  openDayMap(app); assert.match(panel.querySelector('.day-map-places').textContent, /추천 관광지 d/);
+  assert.doesNotMatch(panel.querySelector('.day-map-places').textContent, /추천 관광지 a/);
+  assert.equal(noteParameters(app).eventEdits[0]['place-0'].description, '이전 노트의 저장한 메모');
+  assert.equal(editRow(app).querySelector('textarea').value, '지도에서 일정을 보며 아직 작성 중인 메모');
+});
+
+test('account switching clears former map places and callbacks while preserving each owner draft and recovery', async () => {
+  const fixture = timedNoteFixture(), ownerA = { id: 'owner-a', username: 'alice' }, ownerB = { id: 'owner-b', username: 'bob' };
+  const bobNote = fixture.planner.createItinerary({ city: fixture.cityData, startDate: '2026-10-20', dayCount: 1, selections: { 0: ['d', 'b', 'c'] } });
+  const previous = JSON.parse(ownerNote(noteWithMemo(fixture, 'Alice 이전 노트'), ownerA.id));
+  const app = runtime({ ...fixture, withAccount: true, accountUser: ownerA, hash: '#/note', seedStorage: [
+    [`${storageKey}:${ownerA.id}`, ownerNote(fixture.note, ownerA.id, { previous })],
+    [`${storageKey}:${ownerB.id}`, ownerNote(bobNote, ownerB.id)]
+  ] }); await settle();
+  const maps = leafletFixture(); app.window.L = maps.L;
+  const panel = openDayMap(app), oldJump = maps.markers[0].popup.querySelector('button');
+  inputMemo(editRow(app), 'Alice만 보관하는 미완성 메모');
+  assert.equal(app.$('draft-recovery').hidden, false);
+  await app.account.options.onUserChange(ownerB, { initial: false }); await app.go('#/note');
+  assert.equal(maps.maps[0].removed, true); assert.equal(panel.open, false);
+  assert.equal(app.$('draft-recovery').hidden, true);
+  openDayMap(app); assert.match(panel.querySelector('.day-map-places').textContent, /추천 관광지 d/);
+  assert.doesNotMatch(panel.querySelector('.day-map-places').textContent, /추천 관광지 a/);
+  assert.doesNotMatch(app.document.body.textContent, /Alice만 보관하는 미완성 메모|Alice 이전 노트/);
+  const focused = app.document.activeElement, status = panel.querySelector('.day-map-status').textContent, raw = app.stored.get(`${storageKey}:${ownerB.id}`);
+  oldJump.click(); maps.tiles[0].emit('tileerror'); maps.tiles[0].emit('loading');
+  assert.equal(app.document.activeElement, focused); assert.equal(panel.querySelector('.day-map-status').textContent, status);
+  assert.equal(app.stored.get(`${storageKey}:${ownerB.id}`), raw);
+  assert.equal(JSON.parse(app.stored.get(`${storageKey}:${ownerA.id}`)).editorDrafts['0:place-0'].description, 'Alice만 보관하는 미완성 메모');
+  await app.account.options.onUserChange(ownerA, { initial: false }); await app.go('#/note'); openDayMap(app);
+  assert.equal(maps.maps[1].removed, true); assert.match(panel.querySelector('.day-map-places').textContent, /추천 관광지 a/);
+  assert.doesNotMatch(panel.querySelector('.day-map-places').textContent, /추천 관광지 d/);
+  assert.equal(app.$('draft-recovery').hidden, false);
+  assert.equal(editRow(app).querySelector('textarea').value, 'Alice만 보관하는 미완성 메모');
+});
 
 test('the map stays dormant until opened, groups coincident visits, and popup links reveal the exact collapsed event without saving', async()=>{
   const fixture=timedNoteFixture(2),app=runtime({...fixture,raw:savedNote(fixture.note),hash:'#/note',withAccount:true});await settle();
@@ -830,10 +1156,10 @@ test('loading or creating another note resets the current day without persisting
   await app.create(); selectedDay(app, 0);
 });
 
-test('top and bottom bookmarks show one day at a time without saving or discarding an unfinished memo', async () => {
+test('top and bottom bookmarks keep an unfinished memo outside the committed itinerary and edit history', async () => {
   const app = runtime({ ...timedNoteFixture(3), withAccount: true }); await settle();
   app.$('day-count').value = '3'; await app.create();
-  const cards = [...app.$('day-list').children], saved = app.stored.get(storageKey), writes = app.writes.length;
+  const cards = [...app.$('day-list').children], parameters = noteParameters(app), changes = app.account.changes;
   const visible = () => app.$('day-list').children.filter(day => !day.hidden).map(day => day.dataset.dayIndex);
   const current = id => app.$(id).children.filter(button => button.getAttribute('aria-current') === 'page').map(button => button.textContent);
   assert.deepEqual(visible(), ['0']);
@@ -850,7 +1176,9 @@ test('top and bottom bookmarks show one day at a time without saving or discardi
   app.$('day-bookmarks-bottom').children[1].click();
   assert.deepEqual(visible(), ['1']); assert.equal(row.querySelector('textarea'), memo);
   assert.equal(memo.value, '저장하기 전 둘째 날 메모');
-  assert.deepEqual(app.$('day-list').children, cards); assert.equal(app.writes.length, writes); assert.equal(app.stored.get(storageKey), saved);
+  assert.deepEqual(app.$('day-list').children, cards); assert.deepEqual(noteParameters(app), parameters);
+  assert.equal(app.account.changes, changes); assert.equal(app.$('undo-button').disabled, true);
+  assert.equal(JSON.parse(app.stored.get(storageKey)).editorDrafts['1:place-0'].description, memo.value);
   assert.equal(app.window.location.hash, '#/note/day/2');
 });
 
@@ -957,14 +1285,16 @@ test('place address copy prevents duplicate requests and reports success, denial
   delete app.window.navigator.clipboard; button.click(); await settle(); assert.match(status.textContent, /직접 선택/);
 });
 
-test('memo counts show restored text and update during input without saving or changing the note', async () => {
+test('memo counts update while the local editor draft stays separate from the committed note', async () => {
   const app = runtime({ ...actualPlannerFixture(), withAccount: true }); await settle(); await app.create();
-  const saved = app.stored.get(storageKey), row = app.$('day-list').querySelector('[data-event-id="place-0"]');
+  const parameters = noteParameters(app), changes = app.account.changes, row = app.$('day-list').querySelector('[data-event-id="place-0"]');
   row.querySelector('.event-edit-button').click();
   const memo = row.querySelector('textarea'), count = row.querySelector('.memo-counter');
   assert.equal(count.textContent, `${memo.value.length} / 500자`);
   memo.value = '한글 메모'; memo.dispatch('input'); assert.equal(count.textContent, '5 / 500자');
-  assert.equal(memo.getAttribute('aria-describedby'), count.id); assert.equal(app.stored.get(storageKey), saved);
+  assert.equal(memo.getAttribute('aria-describedby'), count.id); assert.deepEqual(noteParameters(app), parameters);
+  assert.equal(app.account.changes, changes); assert.equal(app.$('undo-button').disabled, true);
+  assert.equal(JSON.parse(app.stored.get(storageKey)).editorDrafts['0:place-0'].description, '한글 메모');
 });
 
 test('creating a note refuses a past start date without replacing the current note and permits today',async()=>{
@@ -1840,9 +2170,9 @@ test('switching day pages clears the old live preview and permits route projecti
   assert.deepEqual(noteParameters(app), parameters);
 });
 
-test('bookmark and browser-history navigation preserve a working memo while clearing outgoing transit previews', async () => {
+test('bookmark and browser-history navigation preserve a local editor draft while clearing outgoing transit previews', async () => {
   const app = previewRuntime(transitPreviewFixture({ dayCount: 2 })); await settle();
-  const cards = [...app.$('day-list').children], raw = app.stored.get(storageKey), writes = app.writes.length;
+  const cards = [...app.$('day-list').children];
   const parameters = noteParameters(app), changes = app.account.changes;
   const row = previewRow(app, 'place-0'); row.querySelector('.event-edit-button').click();
   const memo = row.querySelector('textarea'); memo.value = '날짜를 오가며 작성 중인 메모'; memo.dispatch('input');
@@ -1864,7 +2194,10 @@ test('bookmark and browser-history navigation preserve a working memo while clea
   assert.equal(app.window.location.hash, '#/note/day/2');
   assert.equal(app.$('day-bookmarks').lastScrollIntoView.behavior, 'instant');
   assert.deepEqual(app.$('day-list').children, cards); assert.deepEqual(noteParameters(app), parameters);
-  assert.equal(app.stored.get(storageKey), raw); assert.equal(app.writes.length, writes); assert.equal(app.account.changes, changes);
+  assert.equal(app.account.changes, changes); assert.equal(app.$('undo-button').disabled, true);
+  const draft = JSON.parse(app.stored.get(storageKey));
+  assert.equal(draft.editorDrafts['0:place-0'].description, memo.value);
+  assert.equal(draft.itinerary.eventEdits[0].departure.duration, 0, 'a live route duration never enters the stored itinerary');
 });
 
 test('browser printing restores canonical times and closes the active transit lookup', async () => {

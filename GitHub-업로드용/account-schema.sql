@@ -37,3 +37,25 @@ CREATE TABLE IF NOT EXISTS gil_plans (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS gil_plans_owner_updated ON gil_plans(user_id, updated_at DESC, id);
+
+-- Additive social-login migration: existing users, sessions and plans stay intact.
+CREATE TABLE IF NOT EXISTS gil_oauth_identities (
+  provider TEXT NOT NULL CHECK(provider IN ('google','kakao','naver')),
+  subject_hash TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES gil_users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY(provider, subject_hash)
+);
+CREATE INDEX IF NOT EXISTS gil_oauth_identities_user ON gil_oauth_identities(user_id);
+
+CREATE TABLE IF NOT EXISTS gil_oauth_states (
+  state_hash TEXT PRIMARY KEY,
+  provider TEXT NOT NULL CHECK(provider IN ('google','kakao','naver')),
+  browser_hash TEXT NOT NULL,
+  return_to TEXT NOT NULL,
+  nonce TEXT NOT NULL,
+  pkce_verifier TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS gil_oauth_states_expiry ON gil_oauth_states(expires_at);
