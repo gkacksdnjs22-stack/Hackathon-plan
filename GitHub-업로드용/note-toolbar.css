@@ -1,0 +1,33 @@
+@media screen {
+  .note-toolbar { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:18px 0; }
+  .note-toolbar[hidden],.note-toolbar-button[hidden] { display:none; }
+  .note-toolbar-button { display:flex; align-items:center; justify-content:center; min-width:0; min-height:48px; padding:11px 14px; border:1px solid #bed1ef; border-radius:12px; background:#edf4ff; color:#244d87; font:inherit; font-size:15px; font-weight:700; line-height:1.5; cursor:pointer; }
+  .note-toolbar-button:hover,.note-toolbar-button[aria-expanded="true"] { border-color:#628fd1; background:#dfeaff; color:#163c77; }
+  .note-toolbar-button:focus-visible { outline:3px solid #739ee0; outline-offset:3px; }
+  .note-tool-dialog { position:fixed; inset:0; box-sizing:border-box; width:min(920px,calc(100% - 40px)); max-width:920px; max-height:calc(100dvh - 48px); margin:auto; padding:0; overflow:hidden; border:1px solid #b9ccec; border-radius:20px; background:#f7faff; color:#24456e; box-shadow:0 24px 90px #15356840; }
+  .note-tool-dialog[open] { display:flex; flex-direction:column; }
+  .note-tool-dialog::backdrop { background:#132e5b80; }
+  .note-tool-dialog-heading { display:flex; flex:none; align-items:center; justify-content:space-between; gap:16px; padding:18px 22px; border-bottom:1px solid #cedcf3; background:#edf4ff; }
+  .note-tool-dialog-title { margin:0; color:#1e447b; font-size:22px; font-weight:750; line-height:1.5; }
+  .note-tool-dialog-close { flex:none; min-height:44px; padding:9px 16px; border:1px solid #b7ccea; border-radius:10px; background:#fff; color:#28518c; font:inherit; font-size:14px; font-weight:650; cursor:pointer; }
+  .note-tool-dialog-close:hover { border-color:#729ad2; background:#e2edff; }
+  .note-tool-dialog-body { min-height:0; min-width:0; padding:20px 22px; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+  .note-tool-dialog-body > * { margin-top:0; margin-bottom:16px; }
+  .note-tool-dialog-body > :last-child { margin-bottom:0; }
+  .note-tool-dialog-body .note-sharing,.note-tool-dialog-body .offline-tools,.note-tool-dialog-body .note-assistance { margin:0 0 16px; }
+  .note-tool-dialog-body .day-map { margin:0; }
+  .note-tool-dialog-body :is(button,input,select,textarea,a):focus-visible { outline:3px solid #739ee0; outline-offset:2px; }
+}
+@media screen and (max-width:600px) {
+  .note-toolbar { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:14px 0; }
+  .note-toolbar-button { min-height:46px; padding:10px 9px; font-size:14px; }
+  .note-tool-dialog { width:calc(100% - 20px); max-height:calc(100dvh - 24px); border-radius:15px; }
+  .note-tool-dialog-heading { padding:12px 14px; }
+  .note-tool-dialog-title { font-size:19px; }
+  .note-tool-dialog-body { padding:14px; }
+}
+@media print {
+  .note-toolbar,.note-tool-dialog { display:none!important; }
+  #note-tool-panels[hidden] { display:block!important; }
+  #note-tool-panels > :not(#personal-tools) { display:none!important; }
+}

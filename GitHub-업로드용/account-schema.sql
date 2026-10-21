@@ -59,3 +59,13 @@ CREATE TABLE IF NOT EXISTS gil_oauth_states (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS gil_oauth_states_expiry ON gil_oauth_states(expires_at);
+
+-- Explicitly published, fixed text snapshots. Only an opaque token hash is
+-- retained; deleting a saved plan also revokes its published link.
+CREATE TABLE IF NOT EXISTS gil_plan_shares (
+  plan_id TEXT PRIMARY KEY REFERENCES gil_plans(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json) AND length(CAST(snapshot_json AS BLOB)) <= 262144),
+  revision INTEGER NOT NULL CHECK(revision > 0),
+  created_at INTEGER NOT NULL
+);

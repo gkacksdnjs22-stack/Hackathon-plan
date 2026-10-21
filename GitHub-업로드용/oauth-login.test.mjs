@@ -71,7 +71,7 @@ test('provider discovery exposes only complete configured providers, never crede
   assert.deepEqual((await partial.call('/api/auth/providers')).data.providers.map(provider => provider.id), ['kakao']);
 });
 
-test('missing settings and non-origin, insecure or credentialed deployment URLs disable social login without disabling password accounts', async t => {
+test('missing settings and non-origin, insecure or credentialed deployment URLs disable social login safely', async t => {
   for (const value of ['', 'http://gil.example', 'https://gil.example/path', 'https://gil.example?bad=1', 'https://gil.example/#bad', 'https://user:password@gil.example', ' https://gil.example']) {
     const f = fixture(t, { oauthEnv: { ...ENV, SOCIAL_AUTH_BASE_URL: value } });
     assert.deepEqual((await f.call('/api/auth/providers')).data, { configured: false, providers: [] });
@@ -82,12 +82,11 @@ test('missing settings and non-origin, insecure or credentialed deployment URLs 
   assert.equal((await missing.call('/api/auth/providers')).data.configured, false);
 });
 
-test('a missing social migration safely hides its buttons while existing password login remains usable', async t => {
+test('a missing social migration hides its buttons and never restores retired password login', async t => {
   const f = fixture(t);
-  await f.call('/api/auth/signup', { method: 'POST', body: { username: 'password_owner', password: 'synthetic-password-2026' } });
   await f.db.prepare('DROP TABLE gil_oauth_states').run();
   assert.deepEqual((await f.call('/api/auth/providers')).data, { configured: false, providers: [] });
-  assert.equal((await f.call('/api/auth/login', { method: 'POST', body: { username: 'password_owner', password: 'synthetic-password-2026' } })).status, 200);
+  assert.equal((await f.call('/api/auth/login', { method: 'POST', body: { username: 'password_owner', password: 'synthetic-password-2026' } })).status, 410);
 });
 
 test('Google authorization uses one-time browser state, nonce and S256 PKCE with a registered callback and minimal scope', async t => {
@@ -106,7 +105,8 @@ test('Google authorization uses one-time browser state, nonce and S256 PKCE with
 test('a valid signed Google ID token creates an OAuth-only owner and private Strict session while clearing state', async t => {
   const f = fixture(t), started = await f.start(), stored = await f.db.prepare('SELECT * FROM gil_oauth_states').first(), finished = await f.complete(started);
   assert.equal(finished.location, `${BASE}/?social=success#/note/day/2`); assert.equal(finished.cookies.length, 2);
-  assert.ok(finished.cookies.find(cookie => cookie.startsWith('gil_session=')).includes('SameSite=Strict'));
+  const sessionHeader=finished.cookies.find(cookie => cookie.startsWith('gil_session='));
+  for(const flag of ['HttpOnly','Secure','SameSite=Strict','Path=/','Max-Age=604800'])assert.ok(sessionHeader.includes(flag));
   assert.ok(finished.cookies.find(cookie => cookie.startsWith('gil_oauth_google=')).includes('Max-Age=0'));
   assert.equal(await f.db.prepare('SELECT COUNT(*) AS n FROM gil_oauth_states').first('n'), 0);
   const owner = await f.who(finished); assert.match(owner.username, /^google_[0-9a-f]{16}$/);
@@ -115,7 +115,7 @@ test('a valid signed Google ID token creates an OAuth-only owner and private Str
   const exchange = new URLSearchParams(f.calls[0].init.body); assert.equal(exchange.get('code_verifier'), stored.pkce_verifier);
   assert.equal(exchange.get('client_secret'), ENV.GOOGLE_CLIENT_SECRET);
   for (const call of f.calls) { assert.equal(call.init.redirect, 'error'); assert.equal(call.init.cache, 'no-store'); assert.ok(call.init.signal); }
-  assert.equal((await f.call('/api/auth/login', { method: 'POST', body: { username: owner.username, password: 'synthetic-password-2026' } })).status, 401);
+  assert.equal((await f.call('/api/auth/login', { method: 'POST', body: { username: owner.username, password: 'synthetic-password-2026' } })).status, 410);
 });
 
 test('Kakao and NAVER exchange codes server-side and identify users only with verified profile IDs', async t => {
@@ -134,12 +134,14 @@ test('Kakao and NAVER exchange codes server-side and identify users only with ve
 });
 
 test('same-provider repeat login reuses its owner, but equal IDs or emails across providers never merge accounts or expose plans', async t => {
-  const f = fixture(t), password = await f.call('/api/auth/signup', { method: 'POST', body: { username: 'password_owner', password: 'synthetic-password-2026' } });
+  const f = fixture(t), legacyId=crypto.randomUUID();
+  await f.db.prepare('INSERT INTO gil_users(id,username,password_salt,password_hash,created_at) VALUES(?,?,?,?,?)')
+    .bind(legacyId,'password_owner','synthetic-legacy-salt','synthetic-legacy-hash',1).run();
   const first = await f.complete(await f.start('google')), repeated = await f.complete(await f.start('google'));
   assert.equal((await f.who(first)).id, (await f.who(repeated)).id);
   const kakao = await f.complete(await f.start('kakao')), naver = await f.complete(await f.start('naver'));
   const owner = await f.who(first), other = await f.who(kakao), third = await f.who(naver);
-  assert.equal(new Set([owner.id, other.id, third.id, password.data.user.id]).size, 4);
+  assert.equal(new Set([owner.id, other.id, third.id, legacyId]).size, 4);
   assert.equal(await f.db.prepare('SELECT COUNT(*) AS n FROM gil_users').first('n'), 4);
   const saved = await f.call('/api/plans', { method: 'POST', cookie: f.sessionCookie(first), body: { title: 'private social plan', document: document() } });
   assert.equal(saved.status, 201);

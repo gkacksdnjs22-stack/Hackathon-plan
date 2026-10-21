@@ -10,12 +10,15 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium --only-shell",
     "build:cloudflare": "node build-cloudflare.mjs",
     "db:local": "node setup-account-db.mjs",
     "db:secret": "node setup-account-db.mjs --secret-only",
     "dev:cloudflare": "wrangler pages dev cloudflare-upload --port 8788"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "esbuild": "0.28.2",
     "leaflet": "1.9.4",
     "wrangler": "4.151.2"

@@ -39,9 +39,6 @@
   .account-dialog-field input:focus { border-color:#8797bf; }
   .account-dialog-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:7px; margin-top:16px; }
   .account-dialog-form .account-dialog-actions { margin-top:1px; }
-  .account-dialog-tabs { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-top:13px; }
-  .account-dialog-tabs .account-button { flex:1; }
-  .account-dialog-tabs [aria-pressed="true"] { border-color:#a8b3d2; background:#eef0fb; color:#52638f; }
   .account-dialog-message { margin:11px 0 0; color:#817669; font-size:11px; line-height:1.8; overflow-wrap:anywhere; }
   .account-dialog-message:empty { display:none; }
   .account-social-options { display:grid; gap:8px; margin:16px 0 4px; }

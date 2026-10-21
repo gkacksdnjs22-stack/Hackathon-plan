@@ -8,7 +8,7 @@ import { createTransitRoutingClient, TransitRoutingError } from './transit-routi
 import { PUBLIC_FILES } from './public-assets.mjs';
 import { createAccountHandler } from './auth-store.mjs';
 
-const API_PATHS = new Set(['/api/tour/backdrop', '/api/tour/areas', '/api/tour/places', '/api/departures/search', '/api/transport/stops', '/api/transport/trips', '/api/restaurants', '/api/car-route', '/api/transit-routes']);
+const API_PATHS = new Set(['/api/tour/backdrop', '/api/tour/areas', '/api/tour/places', '/api/tour/place-details', '/api/departures/search', '/api/transport/stops', '/api/transport/trips', '/api/restaurants', '/api/car-route', '/api/transit-routes']);
 const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin' };
 function json(request, status, data, extra = {}) {
   return new Response(request.method === 'HEAD' ? null : JSON.stringify(data), { status, headers: { ...headers, 'Content-Type': 'application/json; charset=utf-8', ...extra } });
@@ -38,7 +38,7 @@ export function createPagesWorker({ createClients = createDefaultClients, authFe
         try { pathname = decodeURIComponent(url.pathname); }
         catch { return json(request, 400, { error: { code: 'BAD_REQUEST', message: '올바르지 않은 요청입니다.' } }); }
         if (!pathname.startsWith('/') || /[\\\u0000]/.test(pathname) || pathname.split('/').some(part => part === '.' || part === '..')) return json(request, 404, { error: { code: 'NOT_FOUND', message: '파일을 찾을 수 없습니다.' } });
-        if(pathname.startsWith('/api/auth/')||pathname==='/api/plans'||pathname.startsWith('/api/plans/')){
+        if(pathname.startsWith('/api/auth/')||pathname==='/api/plans'||pathname.startsWith('/api/plans/')||pathname==='/api/shared-plan'){
           const accountResponse=await createAccountHandler({db:env.DB,secret:env.AUTH_SECRET,oauthEnv:env,fetchImpl:authFetch})(request);
           return accountResponse||json(request,404,{error:{code:'NOT_FOUND',message:'요청한 기능을 찾을 수 없어요.'}});
         }
@@ -49,6 +49,7 @@ export function createPagesWorker({ createClients = createDefaultClients, authFe
           if (pathname === '/api/tour/backdrop') result = await api.backdrop.getPhotos();
           else if (pathname === '/api/tour/areas') result = await api.tour.getAreas();
           else if (pathname === '/api/tour/places') result = await api.tour.getPlaces(query.get('areaCode') ?? query.get('city') ?? '1');
+          else if (pathname === '/api/tour/place-details') result = await api.tour.getPlaceDetails({ contentId: query.get('contentId'), contentTypeId: query.get('contentTypeId') });
           else if (pathname === '/api/departures/search') result = await api.departure.search(query.get('q'));
           else if (pathname === '/api/transport/stops') result = await api.transport.searchStops({ mode: query.get('mode'), q: query.get('q'), service: query.get('service') || undefined });
           else if (pathname === '/api/transport/trips') result = await api.transport.getTrips({ service: query.get('service'), from: query.get('from'), to: query.get('to'), date: query.get('date') });

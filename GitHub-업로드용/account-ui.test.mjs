@@ -67,7 +67,7 @@ function runtime({ user = null, configured = true, plans = [], handler, onUserCh
     if (handler) { const result = await handler(request, state); if (result !== undefined) return result; }
     if (path === '/api/auth/session') return response({ configured: state.configured, user: state.user });
     if (path === '/api/auth/providers') return response({ configured: providers.length > 0, providers });
-    if (path === '/api/auth/login' || path === '/api/auth/signup') { state.user = { id: 'user-one', username: body.username }; return response({ user: state.user }); }
+    if (path === '/api/auth/login' || path === '/api/auth/signup') return response({ error: { code: 'LOGIN_METHOD_REMOVED' } }, 410);
     if (path === '/api/auth/logout') { state.user = null; return response({ user: null }); }
     if (path === '/api/plans' && method === 'GET') return response({ plans: clone(state.plans) });
     if (path === '/api/plans' && method === 'POST') {
@@ -122,7 +122,6 @@ function runtime({ user = null, configured = true, plans = [], handler, onUserCh
     async submit() { find('account-dialog-form').dispatch('submit'); await settle(); }
   };
 }
-function fillLogin(app, username = 'traveler_1') { app.find('account-username').value = username; app.find('account-password').value = 'a-long-password'; }
 
 test('a restored account attachment verifies ownership and updates the same plan after a refresh', async () => {
   const existing = planFixture(), app = runtime({ user: person, plans: [existing] }); await app.ready();
@@ -307,29 +306,29 @@ test('a changed cookie owner cannot expose another account list or document thro
   }
 });
 
-test('configured social providers preserve the current day return route and keep password login available', async () => {
+test('configured social providers are the only login methods and preserve the current day return route', async () => {
   const providers = ['google', 'kakao', 'naver'].map(id => ({ id, label: id, startUrl: `/api/auth/oauth/${id}/start` }));
   const app = runtime({ providers, location: { hash: '#/note/day/2' } }); await app.ready();
-  await app.click('로그인 · 회원가입');
-  assert.ok(app.find('account-username')); assert.ok(app.find('account-password'));
+  await app.click('소셜 로그인');
+  assert.equal(app.find('account-username'), null); assert.equal(app.find('account-password'), null);
   assert.equal(app.all('account-social-button').length, 3);
   await app.click('카카오로 계속하기');
   assert.deepEqual(app.state.navigations, ['/api/auth/oauth/kakao/start?returnTo=%2F%23%2Fnote%2Fday%2F2']);
   assert.equal(app.calls.some(call => call.method !== 'GET'), false); app.controller.destroy();
 });
 
-test('unconfigured, unknown and unsafe social links stay hidden without blocking password login', async () => {
+test('unconfigured, unknown and unsafe social links stay hidden while guest editing remains available', async () => {
   for (const providers of [[], [{ id: 'untrusted', startUrl: 'https://external.test/' }], [{ id: 'google', startUrl: '//external.test/' }],
     [{ id: 'google', startUrl: '/api/auth/oauth/google/start' }, { id: 'google', startUrl: '/api/auth/oauth/google/start' }]]) {
-    const app = runtime({ providers }); await app.ready(); await app.click('로그인 · 회원가입');
-    assert.equal(app.all('account-social-button').length, 0); assert.ok(app.find('account-username'));
+    const app = runtime({ providers }); await app.ready(); await app.click('소셜 로그인');
+    assert.equal(app.all('account-social-button').length, 0); assert.equal(app.find('account-username'), null); assert.match(app.find('account-dialog-title').textContent,/소셜 로그인/);
     assert.deepEqual(app.state.navigations, []); app.controller.destroy();
   }
 });
 
 test('delayed provider responses cannot insert controls in a replacement dialog', async () => {
   const gate = deferred(), app = runtime({ handler: request => request.path === '/api/auth/providers' ? gate.promise : undefined });
-  await app.ready(); await app.click('로그인 · 회원가입');
+  await app.ready(); await app.click('소셜 로그인');
   app.document.dispatch('keydown', { key: 'Escape' });
   gate.resolve(response({ configured: true, providers: [{ id: 'google', label: 'Google', startUrl: '/api/auth/oauth/google/start' }] }));
   await settle(); assert.equal(app.all('account-social-button').length, 0); app.controller.destroy();
@@ -377,11 +376,11 @@ test('only a recent same-tab social attempt can request adoption of the guest no
 
 test('social redirect records only a return route and time, and blocked session storage prevents unsafe navigation', async () => {
   const providers = [{ id: 'google', label: 'Google', startUrl: '/api/auth/oauth/google/start' }];
-  const app = runtime({ providers }); await app.ready(); await app.click('로그인 · 회원가입'); await app.click('Google로 계속하기');
+  const app = runtime({ providers }); await app.ready(); await app.click('소셜 로그인'); await app.click('Google로 계속하기');
   const marker = JSON.parse(app.sessionStore.get('gil-social-login-pending'));
   assert.deepEqual(Object.keys(marker).sort(), ['at', 'returnTo']); assert.equal(marker.returnTo, '/#/start');
   assert.equal(Number.isSafeInteger(marker.at), true); assert.equal(app.state.navigations.length, 1); app.controller.destroy();
-  const blocked = runtime({ providers, sessionStorageError: true }); await blocked.ready(); await blocked.click('로그인 · 회원가입'); await blocked.click('Google로 계속하기');
+  const blocked = runtime({ providers, sessionStorageError: true }); await blocked.ready(); await blocked.click('소셜 로그인'); await blocked.click('Google로 계속하기');
   assert.equal(blocked.state.navigations.length, 0); assert.match(blocked.find('account-dialog-message').textContent, /브라우저 저장/);
   assert.doesNotMatch(blocked.document.body.textContent, /private storage detail/); blocked.controller.destroy();
 });
@@ -413,12 +412,12 @@ test('setup can be checked again from the notice without reloading or replacing 
   app.state.configured = true;
   await app.click('다시 확인', app.roots.noticeRoot);
   assert.equal(app.calls.filter(call => call.path === '/api/auth/session').length, 2);
-  assert.match(app.roots.accountRoot.textContent, /로그인 · 회원가입/);
+  assert.match(app.roots.accountRoot.textContent, /소셜 로그인/);
   assert.match(app.roots.noticeRoot.textContent, /다른 기기에서도 내 계획/);
   assert.deepEqual(app.state.document, draft); assert.equal(app.reads, 0);
   assert.ok(app.state.users.every(change => change.user === null));
   await app.click('로그인', app.roots.noticeRoot);
-  assert.ok(app.find('account-username')); app.controller.destroy();
+  assert.equal(app.find('account-username'), null); assert.match(app.find('account-dialog-title').textContent,/소셜 로그인/); app.controller.destroy();
 });
 
 test('the unavailable dialog retries safely and opens login only after setup is ready', async () => {
@@ -438,41 +437,30 @@ test('the unavailable dialog retries safely and opens login only after setup is 
   assert.equal(app.find('account-dialog-actions').querySelector('button').disabled, false);
   failSession = false; app.state.configured = true;
   await app.click('다시 확인', app.find('account-dialog'));
-  assert.ok(app.find('account-username')); assert.ok(app.find('account-password'));
+  assert.equal(app.find('account-username'), null); assert.equal(app.find('account-password'), null);
   assert.equal(app.calls.filter(call => ['/api/auth/signup', '/api/auth/login'].includes(call.path)).length, 0);
   assert.deepEqual(app.state.document, draft); assert.equal(app.reads, 0);
   app.controller.destroy();
 });
 
-test('signup validates confirmation and uses same-origin cookie requests without putting credentials in URLs or storage', async () => {
-  const app = runtime(); await app.ready(); await app.click('로그인 · 회원가입');
-  await app.click('회원가입', app.find('account-dialog-tabs')); fillLogin(app, 'Traveler_1');
-  app.find('account-password-confirm').value = 'mismatch'; await app.submit();
-  assert.match(app.find('account-dialog-message').textContent, /일치하지/);
-  assert.equal(app.calls.filter(call => call.path === '/api/auth/signup').length, 0);
-  app.find('account-password-confirm').value = 'a-long-password'; await app.submit();
-  const request = app.calls.find(call => call.path === '/api/auth/signup');
-  assert.equal(request.body.username, 'traveler_1'); assert.equal(request.body.password, 'a-long-password');
-  assert.equal(request.options.credentials, 'same-origin'); assert.equal(request.options.cache, 'no-store');
-  assert.ok(app.calls.every(call => !call.path.includes('traveler_1') && !call.path.includes('password')));
-  assert.equal(app.find('account-password'), null); assert.equal(app.find('account-user').textContent, 'traveler_1');
-  assert.equal(app.state.users.at(-1).metadata.initial, false); assert.equal(app.state.users.at(-1).metadata.previousUser, null);
-  assert.doesNotMatch(app.document.body.textContent, /a-long-password/); app.controller.destroy();
+test('provider loading never shows a password form and preserves the current draft through the redirect', async () => {
+  const gate=deferred(), app=runtime({handler:request=>request.path==='/api/auth/providers'?gate.promise:undefined});await app.ready();
+  const draft=clone(app.state.document);await app.click('소셜 로그인');
+  assert.match(app.find('account-dialog-message').textContent,/확인하고/);assert.equal(app.find('account-dialog-form'),null);
+  assert.equal(app.find('account-dialog-tabs'),null);assert.equal(app.find('account-username'),null);assert.equal(app.find('account-password'),null);
+  gate.resolve(response({configured:true,providers:[{id:'google',startUrl:'/api/auth/oauth/google/start'}]}));await settle();await app.click('Google로 계속하기');
+  assert.deepEqual(app.state.document,draft);assert.equal(app.reads,0);assert.equal(app.state.navigations.length,1);
+  assert.ok(app.calls.every(call=>call.method==='GET'&&call.options.credentials==='same-origin'&&call.options.cache==='no-store'));
+  assert.equal(app.calls.some(call=>['/api/auth/signup','/api/auth/login'].includes(call.path)),false);app.controller.destroy();
 });
 
-test('password visibility is independent for signup fields, keeps values and resets when the dialog reopens', async () => {
-  const app = runtime(); await app.ready(); await app.click('로그인 · 회원가입'); await app.click('회원가입', app.find('account-dialog-tabs'));
-  const password = app.find('account-password'), confirmation = app.find('account-password-confirm');
-  password.value = 'a-long-password'; confirmation.value = 'confirmation-value';
-  const toggles = app.all('account-password-toggle'); assert.equal(toggles.length, 2);
-  toggles[0].click(); assert.equal(password.type, 'text'); assert.equal(confirmation.type, 'password');
-  assert.equal(toggles[0].getAttribute('aria-pressed'), 'true');
-  assert.equal(password.value, 'a-long-password'); assert.equal(confirmation.value, 'confirmation-value');
-  toggles[1].click(); assert.equal(confirmation.type, 'text');
-  toggles[0].click(); assert.equal(password.type, 'password');
-  await app.click('×'); await app.click('로그인 · 회원가입');
-  assert.equal(app.find('account-password').type, 'password'); assert.equal(app.find('account-password').value, '');
-  app.controller.destroy();
+test('unavailable social providers can be retried without replacing the guest draft or exposing credentials', async () => {
+  let ready=false;const app=runtime({handler:request=>request.path==='/api/auth/providers'?response({configured:ready,providers:ready?[{id:'kakao',startUrl:'/api/auth/oauth/kakao/start'}]:[]}):undefined});
+  await app.ready();await app.click('소셜 로그인');const draft=clone(app.state.document);
+  assert.match(app.find('account-dialog-message').textContent,/준비 중/);assert.equal(app.all('account-social-button').length,0);
+  ready=true;await app.click('다시 확인',app.find('account-dialog-actions'));
+  assert.equal(app.all('account-social-button').length,1);assert.equal(app.find('account-password'),null);
+  assert.deepEqual(app.state.document,draft);assert.equal(app.state.navigations.length,0);app.controller.destroy();
 });
 
 test('saved plans sort locally by updated time or start date and retain the choice through refresh', async () => {
@@ -572,12 +560,11 @@ test('filtered load and delete actions target the matching plan and account chan
   app.controller.destroy();
 });
 
-test('a failed login renders safe feedback and never exposes upstream diagnostics', async () => {
-  const app = runtime({ handler: request => request.path === '/api/auth/login' ? response({ error: { code: 'INVALID_CREDENTIALS', message: 'private key diagnostic' } }, 401) : undefined });
-  await app.ready(); await app.click('로그인 · 회원가입'); fillLogin(app); await app.submit();
-  assert.match(app.find('account-dialog-message').textContent, /아이디나 비밀번호/);
-  assert.doesNotMatch(app.document.body.textContent, /private|diagnostic/); assert.equal(app.find('account-username').disabled, false);
-  app.controller.destroy();
+test('failed provider discovery renders safe feedback and retry without exposing upstream diagnostics', async () => {
+  let failed=true;const app=runtime({handler:request=>request.path==='/api/auth/providers'?(failed?response({error:{code:'PRIVATE_BACKEND_ERROR',message:'private key diagnostic'}},500):response({configured:true,providers:[{id:'google',startUrl:'/api/auth/oauth/google/start'}]})):undefined});
+  await app.ready();await app.click('소셜 로그인');assert.match(app.find('account-dialog-message').textContent,/불러오지 못했어요/);
+  assert.doesNotMatch(app.document.body.textContent,/private|diagnostic/);assert.equal(app.find('account-password'),null);
+  failed=false;await app.click('다시 확인',app.find('account-dialog-actions'));assert.equal(app.all('account-social-button').length,1);app.controller.destroy();
 });
 
 test('changed only marks the current draft; explicit create, update and save-as use the correct revision contracts', async () => {
@@ -725,10 +712,10 @@ test('a visible guest tab reflects setup becoming ready or unavailable without a
   await app.click('계정 저장 준비 중', app.roots.accountRoot);
   app.state.configured = true;
   app.document.visibilityState = 'visible'; app.document.dispatch('visibilitychange'); await settle();
-  assert.match(app.roots.accountRoot.textContent, /로그인 · 회원가입/);
+  assert.match(app.roots.accountRoot.textContent, /소셜 로그인/);
   assert.match(app.roots.saveRoot.textContent, /계획표 저장/);
   assert.equal(app.find('account-dialog-backdrop').hidden, true);
-  await app.click('로그인 · 회원가입'); fillLogin(app);
+  await app.click('소셜 로그인');
   app.state.configured = false;
   app.document.dispatch('visibilitychange'); await settle();
   assert.match(app.roots.accountRoot.textContent, /계정 저장 준비 중/);
@@ -758,15 +745,13 @@ test('a same-account visibility probe preserves the linked plan, unsaved edits, 
   app.controller.destroy();
 });
 
-test('broadcast notifications contain no identity or credentials and the channel is cleaned up on destroy', async () => {
-  const app = runtime({ broadcast: true }); await app.ready(); await app.click('로그인 · 회원가입'); fillLogin(app); await app.submit();
-  assert.equal(app.signals.length, 1); assert.equal(app.signals[0].type, 'session-changed');
-  assert.deepEqual(Object.keys(app.signals[0]).sort(), ['nonce', 'type']);
-  assert.doesNotMatch(JSON.stringify(app.signals), /traveler_1|user-one|password/);
-  app.state.user = null; app.channels[0].emit({ type: 'session-changed' }); await settle();
-  assert.equal(app.find('account-user'), null); app.controller.destroy(); assert.equal(app.channels[0].closed, true);
+test('social login broadcasts contain no identity or credentials and the channel is cleaned up on destroy', async () => {
+  const app=runtime({user:person,broadcast:true,location:{search:'?social=success'}});await app.ready();
+  assert.equal(app.signals.length,1);assert.equal(app.signals[0].type,'session-changed');assert.deepEqual(Object.keys(app.signals[0]).sort(),['nonce','type']);
+  assert.doesNotMatch(JSON.stringify(app.signals),/traveler_1|user-one|password/);
+  app.state.user=null;app.channels[0].emit({type:'session-changed'});await settle();assert.equal(app.find('account-user'),null);
+  app.controller.destroy();assert.equal(app.channels[0].closed,true);
 });
-
 
 test('cloud load preserves the document owners local persistence warning', async () => {
   const warning='이 기기 자동저장에 실패했어요.';
