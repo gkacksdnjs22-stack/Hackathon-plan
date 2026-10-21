@@ -61,7 +61,7 @@
         if (!map) {
           const version = ++revision;
           status.textContent = '배경 지도를 불러오는 중이에요.'; retry.hidden = true;
-          map = L.map(canvas, { scrollWheelZoom: false, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false });
+          map = L.map(canvas, { scrollWheelZoom: true, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false });
           map.zoomControl?.setPosition('topright');
           layer = L.layerGroup().addTo(map);
           const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
