@@ -86,11 +86,11 @@ function runtime(options = {}) {
 
 test('the collapsed add form has no position selector and explains that entries are appended before the finish', () => {
   const app = runtime();
-  assert.equal(app.details.open, false); assert.equal(app.details.children[0].textContent, '일정 추가+');
+  assert.equal(app.details.open, false); assert.equal(app.details.children[0].textContent, '＋ 일정 추가');
   assert.equal(app.find('schedule-position-select'), null); assert.equal(app.find('schedule-place-field').hidden, true);
   assert.equal(app.find('schedule-place-select').disabled, true);
   assert.match(app.find('schedule-help').textContent, /맨 마지막\(마무리 앞\)/);
-  assert.match(app.find('schedule-help').textContent, /시간표의 점에서/);
+  assert.match(app.find('schedule-help').textContent, /시간 옆 점과 위·아래 버튼/);
   assert.equal(app.find('schedule-form').getAttribute('aria-label'), '2일차 일정 추가');
   app.details.open = true; app.details.dispatch('toggle'); assert.ok(app.refreshes >= 2);
   app.widget.destroy();

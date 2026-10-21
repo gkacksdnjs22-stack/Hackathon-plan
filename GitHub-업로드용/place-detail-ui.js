@@ -2,11 +2,12 @@
   'use strict';
   const node=(tag,className='',text='')=>{const element=document.createElement(tag);element.className=className;element.textContent=text;return element;};
   function safeUrl(value){try{const url=new URL(value);return ['https:','http:'].includes(url.protocol)&&!url.username&&!url.password?url.href:'';}catch{return '';}}
-  function mount(content,place){
-    const host=node('details','place-detail'),summary=node('summary','','장소 상세정보'),body=node('div','place-detail-body');
+  function mount(content,place,{candidate=false}={}){
+    const host=node('details',candidate?'place-detail candidate-preview':'place-detail'),summary=node('summary','','장소 상세정보'),body=node('div','place-detail-body');
     const status=node('p','place-detail-status'),result=node('div','place-detail-result'),retry=node('button','place-detail-retry','상세정보 다시 조회');
     status.setAttribute('role','status');retry.type='button';retry.hidden=true;
     body.append(node('h4','',place.name),node('p','',place.address||'주소 정보가 제공되지 않았어요.'),status,result,retry);
+    if(candidate){summary.textContent='사진·지역·소개 확인';body.prepend(node('p','candidate-region',`${place.areaName||place.area||''} · ${place.category||'관광지'}`));}
     host.append(summary,body);content.append(host);
     let version=0,controller=null,timer=null,loaded=false,destroyed=false;
     const contentId=String(place.contentId||place.id?.match(/^tourapi-(\d+)$/)?.[1]||''),contentTypeId=place.contentTypeId||(place.category==='문화시설'?'14':'12');
@@ -24,7 +25,7 @@
         if(!response.ok)throw Error('request');
         if(data?.contentId!==contentId||data.contentTypeId!==contentTypeId||typeof data.title!=='string')throw Error('format');
         result.replaceChildren();
-        const description=node('p','place-detail-overview',typeof data.overview==='string'&&data.overview?data.overview:'이 장소의 자세한 설명은 제공되지 않았어요.');result.append(description);
+        const description=node('p','place-detail-overview',typeof data.overview==='string'&&data.overview?(candidate?data.overview.slice(0,220):data.overview):'이 장소의 자세한 설명은 제공되지 않았어요.');result.append(description);
         const imageUrl=safeUrl(data.imageUrl);
         if(imageUrl){
           const figure=node('figure'),image=node('img','place-detail-photo');image.src=imageUrl;image.alt=`${place.name} 제공 사진`;image.loading='lazy';image.referrerPolicy='no-referrer';
@@ -33,7 +34,7 @@
         }else result.append(node('p','place-detail-missing','제공된 사진이 없어요.'));
         const fields=node('dl','place-detail-fields');
         for(const [label,key] of [['운영시간','hours'],['휴무일','closed'],['이용요금','fee'],['주차','parking'],['문의','phone']])fields.append(node('dt','',label),node('dd','',typeof data[key]==='string'&&data[key]?data[key]:'정보 미제공'));
-        result.append(fields);
+        if(!candidate)result.append(fields);
         const homepage=safeUrl(data.homepage);
         if(homepage){const link=node('a','','시설 홈페이지 ↗');link.href=homepage;link.target='_blank';link.rel='noopener noreferrer';result.append(link);}
         const credit=node('p','place-detail-source'),source=node('a','','한국관광공사 TourAPI');source.href='https://www.data.go.kr/data/15101578/openapi.do';source.target='_blank';source.rel='noopener noreferrer';credit.append(source);
@@ -47,6 +48,7 @@
     }
     host.addEventListener('toggle',()=>{if(!host.open)cancel();else if(!loaded)load();});
     retry.addEventListener('click',load);
+    if(candidate)host.open=true;
     return {destroy(){destroyed=true;cancel();host.remove();}};
   }
   window.TravelPlaceDetail={mount};

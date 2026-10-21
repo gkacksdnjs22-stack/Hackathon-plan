@@ -34,3 +34,11 @@ test('the shipped map library, CSS images and license are pinned and explicitly 
   assert.match(readFileSync(new URL('vendor/leaflet/LICENSE.txt', import.meta.url), 'utf8'), /Copyright/);
   assert.equal(PUBLIC_FILES.get('vendor/leaflet/LICENSE.txt'), 'text/plain; charset=utf-8');
 });
+
+test('departure, arrival, restaurant and lodging share visit order while missing locations remain unmapped',()=>{
+ const point={name:'확인한 장소',address:'부산',latitude:35.115,longitude:129.04};
+ const points=helpers.placesForDay({events:[{id:'departure',type:'departure',departure:point},{id:'arrival',type:'arrival',arrival:point},{id:'arrival-transfer',type:'transfer',arrival:point},
+ {id:'lunch',type:'meal',title:'점심 식사 · 식당',location:{...point,kind:'meal'}},place('tour',35.12,129.05),{id:'extra-1',type:'free',location:{...point,kind:'stay'}},{id:'extra-2',type:'free',title:'좌표 없는 직접 입력'}]});
+ assert.deepEqual(Array.from(points,p=>p.eventId),['departure','arrival','lunch','tour','extra-1','extra-2']);
+ assert.deepEqual(Array.from(points,p=>p.icon),['🚩','🏁','🍽','📍','🛏','◇']);assert.equal(points.at(-1).mapped,false);assert.equal(points.at(-1).latitude,undefined);
+});

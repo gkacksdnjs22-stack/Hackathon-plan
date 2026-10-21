@@ -198,3 +198,54 @@
 }
 @media (prefers-reduced-motion:reduce) { .timeline-dot::before { transition:none; } }
 @media print { .timeline-reorder,.timeline-drag-status,.event-moved-status { display:none !important; } }
+
+/* The detailed timetable keeps its original dot controls. */
+.schedule-insert { margin:4px 18px 4px 95px; min-width:0; }
+.schedule-insert-button,.schedule-leg-add,.day-view-toggle,.event-show-map { min-height:44px; padding:8px 12px; border:1px solid #ccd9ec; border-radius:8px; color:#365879; background:#fff; font:inherit; font-size:13px; cursor:pointer; }
+.schedule-insert-button { width:100%; border-style:dashed; background:transparent; }
+.schedule-insert .schedule-add { margin:0; }
+.reservation-status { padding:8px 10px; border:1px solid #d7aa5c; border-radius:8px; color:#734600; background:#fff8e8; font-size:13px; }
+.event-show-map { margin-top:8px; }
+.timeline-guide,.timeline-guide-desktop { margin:16px 18px; padding:14px; border:1px solid #d2dff2; border-radius:12px; background:#f4f8ff; color:#61728b; font-size:13px; line-height:1.8; word-break:keep-all; overflow-wrap:anywhere; }
+.timeline-guide strong,.timeline-guide-desktop strong { display:flex; align-items:center; gap:7px; color:#365879; font-size:13px; font-weight:650; }
+.timeline-guide strong::before,.timeline-guide-desktop strong::before { content:"i"; display:inline-grid; place-items:center; flex:0 0 18px; width:18px; height:18px; border:1px solid #a7bddc; border-radius:50%; color:#53749e; font:600 12px/1 system-ui,sans-serif; }
+.timeline-guide p,.timeline-guide-desktop p { margin:6px 0 0; }
+.timeline-guide p { white-space:nowrap; font-size:12px; letter-spacing:-.025em; }
+.timeline-guide-desktop { display:none; }
+.compact-event-toggle,.compact-event-alerts { display:none; }
+.route-status { color:#734600; font-size:13px; line-height:1.6; }
+.candidate-preview .place-detail-photo { max-height:180px; }
+@media screen and (min-width:1000px) {
+  .day-list-layout { display:grid; grid-template-columns:136px minmax(0,1fr); gap:16px; align-items:start; }
+  .timeline-guide-desktop { display:block; position:sticky; top:20px; margin:20px 0 0; padding:14px 12px; background:#eaf2ff; }
+  .timeline-guide-desktop strong { gap:6px; font-size:12px; }
+  .timeline-guide-desktop p { margin:14px 0 0; font-size:12px; line-height:1.7; }
+  .timeline-guide-desktop p + p { padding-top:12px; border-top:1px solid #d2dff2; }
+  .timeline-guide-desktop b { display:block; color:#365879; font-weight:600; }
+  .timeline-guide-desktop p span { display:block; margin-top:4px; }
+  .day-card-body > .timeline-guide { display:none; }
+  .itinerary-section:has(.day-card:not([hidden]):not(.is-compact)) .day-bookmarks { margin-left:152px; }
+  .day-list-layout:has(.day-card:not([hidden]).is-compact) { display:block; }
+  .day-list-layout:has(.day-card:not([hidden]).is-compact) > .timeline-guide-desktop,
+  .day-list-layout:has(.day-card:not([hidden]).is-collapsed) > .timeline-guide-desktop { display:none; }
+}
+@media screen {
+  .day-card.is-compact .day-card-body { display:block; }
+  .day-card.is-compact .timeline-guide,.day-card.is-compact .day-footnote { display:none; }
+  .day-card.is-compact .schedule-insert:not(:has(details[open])),.day-card.is-compact .schedule-add-container:not(:has(details[open])),.day-card.is-compact .schedule-restore:not([open]) { display:none; }
+  .day-card.is-compact .timeline { padding:8px 18px; }
+  .day-card.is-compact .timeline-row { display:block; min-height:0; margin:0; padding:0; border-bottom:1px solid #e1e9f6; }
+  .day-card.is-compact .timeline-row::before,.day-card.is-compact .timeline-row::after { display:none; }
+  .day-card.is-compact .timeline-row:not(.compact-expanded) > .timeline-time,.day-card.is-compact .timeline-row:not(.compact-expanded) > .timeline-content { display:none; }
+  .day-card.is-compact .compact-event-toggle { display:block; width:100%; min-height:44px; margin:0; padding:10px 8px; border:0; border-radius:6px; background:transparent; color:#294c70; text-align:left; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",sans-serif; font-size:15px; font-weight:500; letter-spacing:-.02em; line-height:1.75; overflow-wrap:anywhere; cursor:pointer; }
+  .day-card.is-compact .compact-event-toggle:hover,.day-card.is-compact .compact-event-toggle[aria-expanded="true"] { background:#eef4ff; }
+  .compact-event-time { font-variant-numeric:tabular-nums; font-weight:600; }
+  .compact-event-name { font-weight:500; }
+  .day-card.is-compact .compact-event-alerts:not([hidden]) { display:block; margin:0 8px 8px; color:#81520a; font-size:12px; line-height:1.6; }
+  .day-card.is-compact .timeline-row.compact-expanded > .compact-event-alerts { display:none; }
+  .day-card.is-compact .timeline-row.compact-expanded > .timeline-time { margin:12px 8px; }
+  .day-card.is-compact .timeline-row.compact-expanded > .timeline-content { margin:0 0 12px; }
+  .compact-event-toggle:focus-visible { outline:3px solid #8798c5; outline-offset:-3px; }
+}
+@media(max-width:600px) { .schedule-insert { margin:3px 10px; } .day-header-actions { flex-wrap:wrap; } .day-card.is-compact .timeline { padding:6px 10px; } }
+@media print { .schedule-insert,.day-view-toggle,.compact-event-toggle,.compact-event-alerts,.event-show-map,.timeline-guide,.timeline-guide-desktop { display:none!important; } }

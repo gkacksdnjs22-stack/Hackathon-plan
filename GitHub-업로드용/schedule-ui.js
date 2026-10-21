@@ -8,7 +8,7 @@
   const defaultDraft = type => ({ title: ({ meal: '식사', rest: '휴식', transfer: '이동' })[type] || '',
     description: '', hours: '0', minutes: type === 'rest' ? '30' : type === 'transfer' ? '0' : '60' });
 
-  function mount(host, { day = null, dayIndex = 0, city = null, usedPlaceIds = [], onAdd = null } = {}) {
+  function mount(host, { day = null, dayIndex = 0, city = null, usedPlaceIds = [], onAdd = null, beforeId = 'finish' } = {}) {
     const used = new Set(Array.isArray(usedPlaceIds) ? usedPlaceIds.filter(id => typeof id === 'string') : []);
     const places = new Map();
     const candidates = Array.isArray(city?.catalogPlaces) ? city.catalogPlaces.map(place => ({ place, area: null }))
@@ -24,13 +24,12 @@
     const availablePlaces = [...places.values()].filter(place => !used.has(place.id));
     const details = document.createElement('details'); details.className = 'schedule-add';
     const summary = document.createElement('summary');
-    const heading = document.createElement('strong'); heading.textContent = '일정 추가';
-    const mark = document.createElement('span'); mark.className = 'schedule-summary-mark'; mark.textContent = '+'; mark.setAttribute('aria-hidden', 'true');
-    summary.append(heading, mark);
+    const heading = document.createElement('strong'); heading.textContent = beforeId === 'finish' ? '＋ 일정 추가' : '＋ 여기에 추가';
+    summary.append(heading);
     const form = document.createElement('form'); form.className = 'schedule-form'; form.noValidate = true;
     form.setAttribute('aria-label', `${Number.isInteger(dayIndex) && dayIndex >= 0 ? dayIndex + 1 : 1}일차 일정 추가`);
     const help = document.createElement('p'); help.className = 'schedule-help';
-    help.textContent = '새 일정은 맨 마지막(마무리 앞)에 추가돼요. 순서는 시간표의 점에서 바꾸고, 필요한 이동 구간도 추가해 주세요.';
+    help.textContent = (beforeId === 'finish' ? '새 일정은 맨 마지막(마무리 앞)에 추가돼요. ' : '선택한 위치에 추가해요. ') + ' 시간 옆 점과 위·아래 버튼으로 순서를 바꾸고 필요한 이동 구간도 추가할 수 있어요.';
     const grid = document.createElement('div'); grid.className = 'schedule-grid';
     function field(caption, input, className = '') {
       const label = document.createElement('label'); label.className = `schedule-field ${className}`.trim();
@@ -84,6 +83,9 @@
     const message = document.createElement('p'); message.className = 'schedule-message'; message.setAttribute('role', 'status'); message.setAttribute('aria-live', 'polite');
     actions.append(save, cancel); form.append(help, grid, actions, message); details.append(summary, form); host.replaceChildren(details);
 
+    let candidateWidget=null;
+    const candidateHost=document.createElement('div');candidateHost.className='schedule-candidate-preview schedule-wide';grid.append(candidateHost);
+    function previewCandidate(){candidateWidget?.destroy();candidateHost.replaceChildren();candidateHost.hidden=currentType!=='place';if(currentType==='place'){const original=candidates.find(item=>item.place.id===place.value)?.place;if(original&&window.TravelPlaceDetail)candidateWidget=window.TravelPlaceDetail.mount(candidateHost,original,{candidate:true});}}
     let destroyed = false, pending = false, version = 0, currentType = 'free', added = false;
     const drafts = new Map();
     const controls = [type, place, title, hours, minutes, description, cancel];
@@ -123,7 +125,7 @@
         const candidate = places.get(place.value); title.value = candidate?.name || '';
         if (!drafts.has(next)) setRecommendedDuration(candidate);
       }
-      updateControls();
+      previewCandidate();updateControls();
     }
     function edited() {
       if (destroyed || pending) return;
@@ -138,7 +140,7 @@
     function changePlace() {
       if (destroyed || pending || currentType !== 'place') return;
       const candidate = availablePlaces.find(candidate => candidate.id === place.value);
-      title.value = candidate?.name || ''; setRecommendedDuration(candidate);
+      title.value = candidate?.name || ''; setRecommendedDuration(candidate);previewCandidate();
     }
     async function submit(event) {
       event.preventDefault();
@@ -153,7 +155,7 @@
         showMessage(currentType === 'transfer' ? '이동시간은 0분부터 최대 12시간까지, 분은 0~59로 입력해 주세요.' : '소요시간은 1분부터 최대 12시간까지, 분은 0~59로 입력해 주세요.', true);
         hours.focus(); return;
       }
-      const payload = Object.freeze({ beforeId: 'finish', type: currentType,
+      const payload = Object.freeze({ beforeId, type: currentType,
         ...(currentType === 'place' ? { placeId: selected.id } : { title: title.value.trim() }), description: description.value.trim(), duration: total });
       const submission = ++version;
       pending = true; showMessage(''); updateControls();
@@ -182,7 +184,7 @@
     renderType('free');
     return { destroy() {
       if (destroyed) return;
-      destroyed = true; version++; drafts.clear();
+      destroyed = true; version++; drafts.clear();candidateWidget?.destroy();
       type.removeEventListener('change', changeType); place.removeEventListener('change', changePlace);
       form.removeEventListener('input', edited); form.removeEventListener('change', edited);
       form.removeEventListener('submit', submit); form.removeEventListener('keydown', keydown);

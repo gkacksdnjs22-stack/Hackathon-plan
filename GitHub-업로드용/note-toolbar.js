@@ -76,7 +76,7 @@
       if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)close();
     });
     refresh();
-    return {refresh,close,destroy(){if(destroyed)return;close({restoreFocus:false});destroyed=true;for(const marker of slots.values())marker.remove();dialog.remove();root.replaceChildren();root.hidden=true;}};
+    return {refresh,close,openGroup(id){const entry=entries.find(item=>item.id===id);if(entry)open(entry);},destroy(){if(destroyed)return;close({restoreFocus:false});destroyed=true;for(const marker of slots.values())marker.remove();dialog.remove();root.replaceChildren();root.hidden=true;}};
   }
   window.TravelNoteToolbar={mount};
 })();

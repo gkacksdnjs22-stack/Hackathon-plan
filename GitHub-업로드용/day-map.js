@@ -4,12 +4,15 @@
     const element = document.createElement(tag); element.className = className; element.textContent = text; return element;
   };
   function placesForDay(day) {
-    return (day?.events || []).filter(event => event.type === 'place').map((event, index) => {
-      const place = event.place || {}, latitude = place.latitude, longitude = place.longitude;
+    return (day?.events || []).filter(event => event.type!=='transfer' && (event.type === 'place' || event.type === 'meal' && event.title?.includes(' · ') || /^extra-/.test(event.id) && ['meal','free','rest'].includes(event.type) || event.location || event.departure || event.arrival)).map((event, index) => {
+      const place = event.place || event.location || event.departure || event.arrival || {}, latitude = place.latitude, longitude = place.longitude;
+      const kind = event.type === 'departure' ? 'departure' : event.type === 'arrival' ? 'arrival' : event.location?.kind || event.type;
+      const icon = ({departure:'🚩',arrival:'🏁',meal:'🍽',stay:'🛏',place:'📍'})[kind] || '◇';
       const mapped = Number.isFinite(latitude) && Number.isFinite(longitude) && latitude >= 33 && latitude <= 39.5 && longitude >= 124 && longitude <= 132;
-      return { number: index + 1, eventId: event.id, name: place.name || '이름 없는 관광지', address: place.address || '', latitude, longitude, mapped };
+      return { number: index + 1, eventId: event.id, kind, icon, name: place.name || event.title || '이름 없는 관광지', address: place.address || '', latitude, longitude, mapped };
     });
   }
+
   function groupsForPlaces(places) {
     const groups = new Map();
     for (const item of places.filter(item => item.mapped)) {
@@ -87,14 +90,14 @@
           const popup = node('div', 'day-map-popup');
           group.forEach(item => {
             const entry = node('div', 'day-map-popup-place');
-            const title = node('strong', '', `${item.number}. ${item.name}`), address = node('p', '', item.address || '주소 정보 없음');
+            const title = node('strong', '', `${item.icon} ${item.number}. ${item.name}`), address = node('p', '', item.address || '주소 정보 없음');
             const jump = node('button', 'day-map-jump', '해당 일정으로 이동'); jump.type = 'button';
             jump.setAttribute('aria-label', `${item.number}. ${item.name} 일정으로 이동`);
             jump.addEventListener('click', () => focus(item, version)); entry.append(title, address, jump); popup.append(entry);
           });
           const marker = L.marker([first.latitude, first.longitude], {
-            icon: L.divIcon({ className: 'day-map-pin', html: `<span>${numbers}</span>`, iconSize: [group.length > 1 ? 46 : 34, 34], iconAnchor: [group.length > 1 ? 23 : 17, 34], popupAnchor: [0, -32] }),
-            title: group.map(item => `${item.number}. ${item.name}`).join(' / '), alt: `${numbers}번 방문 장소`, keyboard: true
+            icon: L.divIcon({ className: 'day-map-pin', html: `<span>${first.icon} ${numbers}</span>`, iconSize: [group.length > 1 ? 70 : 58, 34], iconAnchor: [group.length > 1 ? 23 : 17, 34], popupAnchor: [0, -32] }),
+            title: group.map(item => `${item.icon} ${item.number}. ${item.name}`).join(' / '), alt: `${numbers}번 방문 장소`, keyboard: true
           }).addTo(layer).bindPopup(popup, { maxWidth: 280 });
           group.forEach(item => markers.set(item.eventId, marker));
         });
@@ -107,15 +110,15 @@
       list.replaceChildren();
       const version = signature;
       places.forEach(item => {
-        const entry = node('li', 'day-map-place'), copy = node('div', 'day-map-place-copy');
-        copy.append(node('strong', '', `${item.number}. ${item.name}`), node('span', '', item.address || '주소 정보 없음'));
+        const entry = node('li', 'day-map-place');entry.dataset.eventId=item.eventId;const copy = node('div', 'day-map-place-copy');
+        copy.append(node('strong', '', `${item.icon} ${item.number}. ${item.name}`), node('span', '', item.address || '주소 정보 없음'));
         const controls = node('div', 'day-map-place-actions');
         if (item.mapped) {
           const show = node('button', '', '지도에서 보기'); show.type = 'button';
           show.setAttribute('aria-label', `${item.number}. ${item.name} 지도에서 보기`);
           show.addEventListener('click', () => { paint(); markers.get(item.eventId)?.openPopup(); canvas.scrollIntoView({ block: 'nearest', behavior: 'instant' }); });
           controls.append(show);
-        } else copy.append(node('span', 'day-map-missing', '좌표 없음 · 목록에서 일정 확인'));
+        } else copy.append(node('span', 'day-map-missing', '위치 미설정 · 일정 수정에서 위치 이름과 확인한 위도·경도를 입력하거나 식당 검색 결과를 담아 주세요.'));
         const jump = node('button', 'day-map-jump', '일정으로 이동'); jump.type = 'button';
         jump.setAttribute('aria-label', `${item.number}. ${item.name} 일정으로 이동`); jump.addEventListener('click', () => focus(item, version));
         controls.append(jump); entry.append(copy, controls); list.append(entry);
@@ -127,9 +130,9 @@
       places = placesForDay(note.days[index]);
       const next = JSON.stringify([index, places]);
       host.hidden = false; summary.textContent = `Day ${String(index + 1).padStart(2, '0')} 방문 장소 지도 · ${places.length}곳`;
-      canvas.setAttribute('aria-label', `${index + 1}일차 관광지 지도`);
+      canvas.setAttribute('aria-label', `${index + 1}일차 방문 장소 지도`);
       const missing = places.filter(item => !item.mapped).length;
-      caption.textContent = !places.length ? '이 날짜에는 담긴 관광지가 없어요.' : missing === places.length ? '지도에 표시할 좌표가 없어요. 아래 목록에서 일정으로 이동할 수 있어요.'
+      caption.textContent = !places.length ? '이 날짜에는 담긴 장소가 없어요.' : missing === places.length ? '지도에 표시할 좌표가 없어요. 아래 목록에서 일정으로 이동할 수 있어요.'
         : `방문 순서대로 번호를 표시해요.${missing ? ` 좌표가 없는 ${missing}곳은 목록에서 확인해 주세요.` : ''} 지도를 펼치면 OpenStreetMap 배경을 불러와요.`;
       fit.disabled = !places.some(item => item.mapped); canvas.hidden = fit.disabled;
       if (next !== signature) {
@@ -150,7 +153,11 @@
     const resize = () => { if (visible && host.open) map?.invalidateSize({ pan: false }); };
     window.addEventListener('resize', resize);
     if (window.ResizeObserver) new window.ResizeObserver(resize).observe(canvas);
-    return { update, reset, setVisible(value) { visible = value; if (value) paint(); else clearMap(); } };
+    return { update, reset, showEvent(eventId) {
+      host.open=true;paint();const marker=markers.get(eventId);marker?.openPopup();
+      const entry=[...list.children].find(item=>item.dataset.eventId===eventId);entry?.scrollIntoView({block:'nearest',behavior:'instant'});
+      host.scrollIntoView({block:'nearest',behavior:'instant'});
+    }, setVisible(value) { visible = value; if (value) paint(); else clearMap(); } };
   }
   window.TravelDayMap = { mount, placesForDay, groupsForPlaces };
 })();

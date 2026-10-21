@@ -631,3 +631,165 @@ test('operating checks are explicit, report available warnings and discard resul
   await expect(operating.locator('[role=status]')).toHaveText('');
   await expect(rows).toHaveCount(0);
 });
+
+async function guestNote(page) {
+  return page.evaluate(() => JSON.parse(localStorage.getItem('travel-weave-itinerary-v1')).itinerary);
+}
+async function openRowEditor(page, row) {
+  await row.locator('.event-edit-button').click();
+  return row.locator('.event-editor');
+}
+
+test('insert between rows and original dot controls preserve reservation, tags and memo through undo, reload and account save', async ({ page, browser, baseURL }) => {
+  await createNote(page);
+  await page.locator('#travel-day-0 .schedule-insert-button[aria-label="합성 역사박물관 앞에 일정 추가"]').click();
+  const form=page.locator('#travel-day-0 .schedule-insert .schedule-form');
+  const addSummary=page.locator('#travel-day-0 .schedule-insert details > summary');
+  await expect(addSummary).toHaveText('＋ 여기에 추가');
+  await expect(addSummary.locator('.schedule-summary-mark')).toHaveCount(0);
+  await form.locator('.schedule-title-input').fill('14시 예약 체험');
+  await form.locator('.schedule-description-input').fill('예약번호 ABC / 소중한 메모');
+  await form.getByRole('button',{name:'일정에 추가',exact:true}).click();
+  const row=page.locator('#travel-day-0 [data-event-id="extra-1"]');
+  let note=await guestNote(page);let ids=note.days[0].events.map(e=>e.id);
+  expect(ids.indexOf('extra-1')+1).toBe(ids.indexOf('place-1'));
+  await row.locator('.event-tag-select').selectOption('booked');
+  const editor=await openRowEditor(page,row);
+  await editor.getByLabel('시작 시각 고정',{exact:true}).check();
+  await editor.getByLabel('고정 시작 시각',{exact:true}).fill('14:00');
+  await editor.getByRole('button',{name:'수정 저장',exact:true}).click();
+  await row.locator('.timeline-dot').click();
+  await expect(row.locator('.timeline-move-controls')).toBeVisible();
+  await row.getByRole('button',{name:'14시 예약 체험 아래로',exact:true}).click();
+  note=await guestNote(page);ids=note.days[0].events.map(e=>e.id);expect(ids.indexOf('extra-1')).toBeGreaterThan(ids.indexOf('place-1'));
+  await expect(row.locator('.timeline-dot')).toHaveText('');
+  await expect(page.locator('#travel-day-0 .timeline-guide')).toContainText('점 클릭: ↑↓ 이동');
+  await expect(row.locator('.event-move-day')).toHaveCount(0);
+  await expect(row.locator('.timeline-move-controls select')).toHaveCount(0);
+  const moved=note.days[0].events.find(e=>e.title==='14시 예약 체험');
+  expect(note.days.flatMap(d=>d.events).filter(e=>e.title==='14시 예약 체험')).toHaveLength(1);
+  expect(moved.description).toBe('예약번호 ABC / 소중한 메모');expect(moved.duration).toBe(60);expect(moved.fixedStart).toBe('14:00');expect(note.personalization.eventTags[0][moved.id]).toBe('booked');
+  await page.locator('#undo-button').click();
+  ids=(await guestNote(page)).days[0].events.map(e=>e.id);expect(ids.indexOf('extra-1')+1).toBe(ids.indexOf('place-1'));
+  await page.locator('#redo-button').click();
+  ids=(await guestNote(page)).days[0].events.map(e=>e.id);expect(ids.indexOf('extra-1')).toBeGreaterThan(ids.indexOf('place-1'));
+  await page.reload();await expect(page.locator('#itinerary-section')).toBeVisible();
+  note=await guestNote(page);expect(note.days[0].events.find(e=>e.id===moved.id).description).toBe('예약번호 ABC / 소중한 메모');
+  await socialLogin(page);await saveAccountNote(page,'중간 삽입과 예약 검증');
+  const fresh=await browser.newContext({baseURL,locale:'ko-KR',timezoneId:'Asia/Seoul'});
+  try{
+    await fresh.addCookies(await page.context().cookies());const reopened=await fresh.newPage();await reopened.goto('/#/start');
+    await reopened.locator('.account-plan-card').filter({hasText:'중간 삽입과 예약 검증'}).getByRole('button',{name:'불러오기',exact:true}).click();
+    const dialog=reopened.getByRole('dialog');if(await dialog.isVisible())await dialog.getByRole('button',{name:/불러오기/}).click();
+    await expect(reopened.locator('#itinerary-section')).toBeVisible();
+    const stored=await reopened.evaluate(()=>Object.keys(localStorage).map(k=>{try{return JSON.parse(localStorage.getItem(k));}catch{return null;}}).find(v=>v?.itinerary?.extraEvents?.[0]?.some(e=>e.fixedStart==='14:00')).itinerary);
+    const saved=stored.extraEvents[0].find(e=>e.fixedStart==='14:00');expect(saved.description).toBe('예약번호 ABC / 소중한 메모');expect(stored.personalization.eventTags[0][saved.id]).toBe('booked');
+  }finally{await fresh.close();}
+});
+
+test('compact mode keeps an unfinished editor and fixed reservation after earlier duration causes a late arrival',async({page})=>{
+  await createNote(page);
+  const reservation=page.locator('#travel-day-0 [data-event-id="place-1"]');
+  let editor=await openRowEditor(page,reservation);
+  await editor.getByLabel('시작 시각 고정',{exact:true}).check();await editor.getByLabel('고정 시작 시각',{exact:true}).fill('14:00');await editor.getByRole('button',{name:'수정 저장',exact:true}).click();
+  const first=page.locator('#travel-day-0 [data-event-id="place-0"]');editor=await openRowEditor(page,first);
+  await editor.getByLabel('소요시간 (분)').fill('400');await editor.getByLabel('설명·메모').fill('인쇄할 확정 메모');await editor.getByRole('button',{name:'수정 저장',exact:true}).click();
+  await expect(reservation.locator('.reservation-status')).toContainText('분 초과');await expect(reservation.locator('.reservation-status')).toContainText('정시 도착 확인 필요');
+  await expect(reservation.locator('.timeline-time-labels')).toContainText('14:00');
+  editor=await openRowEditor(page,first);await editor.getByLabel('설명·메모').fill('아직 저장하지 않은 편집');
+  await page.locator('#travel-day-0 .day-view-toggle').click();await expect(editor.getByLabel('설명·메모')).toHaveValue('아직 저장하지 않은 편집');
+  await expect(reservation.locator('.compact-event-alerts')).toContainText('분 초과');await expect(reservation.locator('.compact-event-alerts')).toContainText('정시 도착');await page.locator('#travel-day-0 .day-view-toggle').click();await expect(editor.getByLabel('설명·메모')).toHaveValue('아직 저장하지 않은 편집');
+  await editor.getByRole('button',{name:'취소',exact:true}).click();await page.locator('#travel-day-0 .day-view-toggle').click();
+  await page.emulateMedia({media:'print'});await expect(first.locator('.event-user-memo')).toBeVisible();await expect(first.locator('.event-personal-controls')).toBeHidden();await expect(reservation.locator('.reservation-status')).toBeVisible();await page.emulateMedia({media:'screen'});
+  await page.reload();
+  await expect(reservation.locator('.reservation-status')).toContainText('분 초과');await expect(reservation.locator('.timeline-time-labels')).toContainText('14:00');
+});
+
+test('restaurant, origin and lodging map to real positions and restaurant route legs follow visit order',async({page})=>{
+  await createNote(page);
+  const origin=page.locator('#travel-day-0 .day-origin-container');await origin.locator('summary').click();await origin.locator('.departure-mode-select').selectOption('walk');await origin.locator('.origin-query').fill('합성 숙소');await origin.locator('.origin-search').click();await origin.locator('.origin-result').click();
+  // Only the map tiles are synthetic; marker data comes from the saved itinerary.
+  await page.route('**://tile.openstreetmap.org/**',route=>route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64')}));
+  const lunch=page.locator('#travel-day-0 [data-event-id="lunch"]');
+  await lunch.locator('.restaurant-lookup:not(.restaurant-manual) > summary').click();
+  await expect(lunch.locator('.restaurant-food')).toContainText('합성 정식');
+  await lunch.getByRole('button',{name:'합성 점심 식당 식사 일정에 담기',exact:true}).click();
+  let note=await guestNote(page);expect(note.eventEdits[0].lunch.location.latitude).toBe(37.575);
+  await expect(page.locator('#travel-day-0 .schedule-leg-add').filter({hasText:'합성 점심 식당 → 합성 역사박물관'})).toBeVisible();
+  await page.locator('#travel-day-0 .schedule-leg-add').filter({hasText:'합성 점심 식당 → 합성 역사박물관'}).click();
+  await page.locator('#travel-day-0 .event-editor').getByRole('button',{name:'취소',exact:true}).click();
+  const route=page.locator('#travel-day-0 [data-event-id="extra-1"] .local-transfer-container');await expect(route).toContainText('합성 점심 식당');await expect(route).toContainText('합성 역사박물관');
+  const free=page.locator('#travel-day-0 [data-event-id="free-1"]');const editor=await openRowEditor(page,free);
+  await editor.getByLabel('장소 종류',{exact:true}).selectOption('stay');await editor.getByLabel('위치 이름',{exact:true}).fill('확인한 숙소');await editor.getByLabel('위치 주소',{exact:true}).fill('서울특별시 종로구 숙소길');await editor.getByLabel('확인한 위도',{exact:true}).fill('37.58');await editor.getByLabel('확인한 경도',{exact:true}).fill('126.99');await editor.getByRole('button',{name:'수정 저장',exact:true}).click();
+  await lunch.locator('.event-show-map').click();
+  await expect(page.getByRole('dialog',{name:'지도',exact:true})).toBeVisible();await expect(page.locator('.day-map-place-copy').filter({hasText:'비공개 합성 숙소'})).toContainText('🚩');await expect(page.locator('.day-map-place-copy').filter({hasText:'합성 점심 식당'})).toContainText('🍽');await expect(page.locator('.day-map-place-copy').filter({hasText:'확인한 숙소'})).toContainText('🛏');
+  await page.locator('.day-map-place').filter({hasText:'합성 점심 식당'}).getByRole('button',{name:/일정으로 이동/}).click();await expect(page.getByRole('dialog',{name:'지도',exact:true})).toBeHidden();await expect(lunch.locator('.event-edit-button')).toBeFocused();
+});
+
+test('touch taps and keyboard activation operate the handle; pointer dragging changes order on a mobile layout',async({browser,baseURL})=>{
+  const context=await browser.newContext({baseURL,hasTouch:true,isMobile:true,viewport:{width:390,height:844},locale:'ko-KR',timezoneId:'Asia/Seoul'});
+  const page=await context.newPage(),issues=[];await isolatePage(page,baseURL,{account:1},issues);
+  try{
+    await createNote(page);const dot=page.locator('#travel-day-0 [data-event-id="place-0"] .timeline-dot');
+    await dot.tap();await expect(dot).toHaveAttribute('aria-expanded','true');
+    await page.locator('#travel-day-0 [data-event-id="place-0"] .event-move-button').last().tap();
+    let note=await guestNote(page);expect(note.eventOrders[0].indexOf('place-0')).toBeGreaterThan(note.eventOrders[0].indexOf('transfer-0'));
+    await page.keyboard.press('Escape');await dot.focus();await page.keyboard.press('Enter');
+    await expect(dot).toHaveAttribute('aria-expanded','true');
+    await expect(page.locator('#travel-day-0 .timeline-move-controls:visible .event-move-button').first()).toBeInViewport();
+    await page.keyboard.press('Escape');
+    const target=page.locator('#travel-day-0 [data-event-id="transfer-0"]');await dot.evaluate(element=>element.scrollIntoView({block:'center',behavior:'instant'}));
+    const start=await dot.boundingBox(),end=await target.boundingBox();
+    const touch=await context.newCDPSession(page),x=start.x+start.width/2,y=start.y+start.height/2,toY=end.y+5;
+    await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});
+    for(let step=1;step<=12;step++)await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y:y+(toY-y)*step/12}]});
+    await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await touch.detach();
+    note=await guestNote(page);expect(note.eventOrders[0].indexOf('place-0')).toBeLessThan(note.eventOrders[0].indexOf('transfer-0'));
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+    await page.screenshot({path:'artifacts/usability-mobile.png',fullPage:true});expect(issues).toEqual([]);
+  }finally{await context.close();}
+});
+
+test('candidate photos can fail without blocking name search or explicit replacement',async({page,baseURL})=>{
+  await createNote(page);
+  await page.route('**/api/tour/place-detail?**',route=>{
+    const url=new URL(route.request().url());
+    return route.fulfill({json:{contentId:url.searchParams.get('contentId'),contentTypeId:url.searchParams.get('contentTypeId'),title:'합성 미술관',overview:'제공기관에서 확인한 짧은 소개. 비교한 뒤 직접 선택합니다.',imageUrl:baseURL+'/missing-candidate-photo.jpg',partial:false}});
+  });
+  const row=page.locator('#travel-day-0 [data-event-id="place-0"]');await row.locator('.swap-button').click();
+  const picker=row.locator('.swap-picker');await expect(picker.locator('.candidate-region')).toContainText('문화시설');
+  await expect(picker.locator('.place-detail-overview')).toContainText('제공기관에서 확인한 짧은 소개');await expect(picker.locator('figcaption')).toHaveText('제공 사진을 불러오지 못했어요.');
+  await expect(row.locator('.event-title')).toHaveText('합성 문화공원');
+  await picker.locator('.select-trigger').click();await picker.locator('.select-search-input').fill('미술관');await expect(picker.getByRole('option',{name:/합성 미술관/})).toBeVisible();await page.keyboard.press('Escape');
+  await picker.getByRole('button',{name:'교체 적용',exact:true}).click();await expect(row.locator('.event-title')).toHaveText('합성 미술관');
+  await page.locator('#travel-day-0 .day-view-toggle').click();
+  await expect(row.locator('.compact-event-toggle')).toHaveText(/\d{2}:\d{2} \(합성 미술관\)/);
+  await expect(row.locator('.timeline-content')).toBeHidden();
+  await page.screenshot({path:'artifacts/usability-desktop.png',fullPage:true});
+});
+
+
+test('compact view shows only time and place rows, expands on demand and preserves itinerary and unfinished inputs',async({page})=>{
+  await createNote(page);
+  const day=page.locator('#travel-day-0'),first=day.locator('[data-event-id="place-0"]');
+  const before=await guestNote(page);
+  await day.locator('.day-view-toggle').click();
+  const rows=day.locator('.timeline-row'),summaries=rows.locator('.compact-event-toggle');
+  await expect(summaries).toHaveCount(before.days[0].events.length);
+  await expect(first.locator('.compact-event-toggle')).toHaveText('09:00 (합성 문화공원)');
+  await expect(first.locator('.timeline-time')).toBeHidden();await expect(first.locator('.timeline-content')).toBeHidden();
+  await expect(day.locator('.schedule-insert-button').first()).toBeHidden();
+  expect(await first.boundingBox()).not.toBeNull();
+  const compactHeight=(await day.boundingBox()).height;
+  await first.locator('.compact-event-toggle').click();await expect(first.locator('.timeline-content')).toBeVisible();
+  const editor=await openRowEditor(page,first);await editor.getByLabel('설명·메모').fill('간단한 목록에서도 유지할 작성 중 메모');
+  await day.locator('.day-view-toggle').click();await expect(editor.getByLabel('설명·메모')).toHaveValue('간단한 목록에서도 유지할 작성 중 메모');
+  const detailedHeight=(await day.boundingBox()).height;expect(compactHeight).toBeLessThan(detailedHeight/2);
+  await day.locator('.day-view-toggle').click();await expect(editor.getByLabel('설명·메모')).toHaveValue('간단한 목록에서도 유지할 작성 중 메모');
+  expect(await guestNote(page)).toEqual(before);
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await editor.getByRole('button',{name:'취소',exact:true}).click();await first.locator('.compact-event-toggle').click();
+  await expect(first.locator('.timeline-content')).toBeHidden();await expect(first.locator('.compact-event-toggle')).toBeVisible();
+  await page.screenshot({path:'artifacts/usability-compact-mobile.png',fullPage:true});
+});

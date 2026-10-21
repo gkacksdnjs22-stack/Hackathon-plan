@@ -29,6 +29,16 @@ function string(value, max, min = 0) {
   if (typeof value !== 'string' || value.length > max || value.trim().length < min || value.includes('\0')) fail();
   return value.trim();
 }
+function location(value) {
+  if(value===null)return null;
+  keys(value,['id','name','address','latitude','longitude','kind'],['id','name','address','latitude','longitude','kind']);
+  if(!Number.isFinite(value.latitude)||value.latitude<33||value.latitude>39.5||!Number.isFinite(value.longitude)||value.longitude<124||value.longitude>132||!['meal','stay','other'].includes(value.kind))fail();
+  return {id:string(value.id,160,1),name:string(value.name,160,1),address:string(value.address,500),latitude:value.latitude,longitude:value.longitude,kind:value.kind};
+}
+function fixedStart(value){
+  if(value!==null&&(typeof value!=='string'||!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)))fail();
+  return value;
+}
 function date(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) fail();
   const [year,month,day] = value.split('-').map(Number), parsed = new Date(Date.UTC(year,month-1,day));
@@ -136,9 +146,9 @@ export function normalizePlanDocument(input) {
   const count = source.dayCount, startDate = date(source.startDate), used = new Set();
   if (!Array.isArray(source.dayAreaIds) || source.dayAreaIds.length !== count || new Set(source.dayAreaIds).size !== count
     || source.dayAreaIds.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,120}$/.test(id))) fail();
-  const selections = dayMap(source.selections,count, ids => {
+  const selections = dayMap(source.selections,count, (ids,index) => {
     if (!Array.isArray(ids) || ids.length !== 3 || ids.some(id => typeof id !== 'string' || !PLACE.test(id) || used.has(id))) fail();
-    for (const id of ids) { if (used.has(id)) fail(); used.add(id); }
+    for (const [slot,id] of ids.entries()) { if (used.has(id)) fail(); if(!source.excludedEvents?.[index]?.includes(`place-${slot}`))used.add(id); }
     return [...ids];
   });
   if (Object.keys(selections).length !== count) fail();
@@ -149,12 +159,14 @@ export function normalizePlanDocument(input) {
   const eventEdits = dayMap(optionalMap(source.eventEdits),count, entries => {
     keys(entries,BASE);
     return Object.fromEntries(Object.entries(entries).map(([id,edit]) => {
-      keys(edit,['title','description','duration','travelMode']);
+      keys(edit,['title','description','duration','travelMode','fixedStart','location']);
       const patch = {};
       if (Object.hasOwn(edit,'title')) patch.title=string(edit.title,80,1);
       if (Object.hasOwn(edit,'description')) patch.description=string(edit.description,500);
       if (Object.hasOwn(edit,'duration')) { if (!integer(edit.duration,['departure','arrival-transfer','finish','transfer-0','transfer-1'].includes(id)?0:1,id==='departure'?4320:720)) fail(); patch.duration=edit.duration; }
       if (Object.hasOwn(edit,'travelMode')) { if (!['arrival-transfer','transfer-0','transfer-1'].includes(id) || !MODES.includes(mode(edit.travelMode))) fail(); patch.travelMode=mode(edit.travelMode); }
+      if(Object.hasOwn(edit,'fixedStart')){if(['departure','arrival-transfer','finish'].includes(id))fail();patch.fixedStart=fixedStart(edit.fixedStart);}
+      if(Object.hasOwn(edit,'location')){if(!['free-0','free-1','rest','lunch','dinner'].includes(id))fail();patch.location=location(edit.location);}
       return [id,patch];
     }));
   });
@@ -162,7 +174,7 @@ export function normalizePlanDocument(input) {
     if (!Array.isArray(entries) || entries.length > 20) fail();
     const ids = new Set();
     return entries.map(entry => {
-      keys(entry,['id','beforeId','type','title','description','duration','placeId','travelMode'],['id','type','duration']);
+      keys(entry,['id','beforeId','type','title','description','duration','placeId','travelMode','fixedStart','location'],['id','type','duration']);
       if (typeof entry.id !== 'string' || !EXTRA.test(entry.id) || ids.has(entry.id) || !['free','meal','rest','place','transfer'].includes(entry.type)
         || !integer(entry.duration,entry.type==='transfer'?0:1,720)) fail();
       ids.add(entry.id);
@@ -179,6 +191,8 @@ export function normalizePlanDocument(input) {
         if (entry.travelMode != null && !MODES.includes(mode(entry.travelMode))) fail();
         item.travelMode=entry.travelMode==null?null:mode(entry.travelMode);
       } else if (Object.hasOwn(entry,'travelMode')) fail();
+      if(Object.hasOwn(entry,'fixedStart'))item.fixedStart=fixedStart(entry.fixedStart);
+      if(Object.hasOwn(entry,'location')){if(['place','transfer'].includes(entry.type))fail();item.location=location(entry.location);}
       return item;
     });
   });

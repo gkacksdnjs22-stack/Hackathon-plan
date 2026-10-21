@@ -873,14 +873,14 @@ test('account switching clears former map places and callbacks while preserving 
 test('the map stays dormant until opened, groups coincident visits, and popup links reveal the exact collapsed event without saving', async()=>{
   const fixture=timedNoteFixture(2),app=runtime({...fixture,raw:savedNote(fixture.note),hash:'#/note',withAccount:true});await settle();
   const maps=leafletFixture();app.window.L=maps.L;
-  assert.equal(maps.maps.length,0);assert.match(app.$('day-map').querySelector('summary').textContent,/Day 01.*3곳/);
+  assert.equal(maps.maps.length,0);assert.match(app.$('day-map').querySelector('summary').textContent,/Day 01.*4곳/);
   const panel=openDayMap(app);assert.equal(maps.maps.length,1);assert.equal(maps.tiles.length,1);
   assert.equal(maps.markers.length,1);assert.match(maps.markers[0].options.icon.html,/1·2·3/);
   const day=app.document.getElementById('travel-day-0'),row=day.querySelector('[data-event-id="place-1"]');
   day.querySelector('[data-event-id="lunch"] .event-edit-button').click();
   const memo=day.querySelector('textarea');memo.value='지도 이동 중에도 유지할 메모';day.querySelector('.day-collapse').click();
   const before=app.stored.get(storageKey),writes=app.writes.length,changes=app.account.changes;
-  maps.markers[0].popup.querySelectorAll('button')[1].click();await settle();
+  maps.markers[0].popup.querySelectorAll('button')[2].click();await settle();
   assert.equal(day.querySelector('.day-card-body').hidden,false);assert.equal(app.document.activeElement,row.querySelector('.event-edit-button'));
   assert.equal(row.lastScrollIntoView.block,'center');assert.equal(memo.value,'지도 이동 중에도 유지할 메모');
   assert.equal(app.stored.get(storageKey),before);assert.equal(app.writes.length,writes);assert.equal(app.account.changes,changes);
@@ -900,8 +900,8 @@ test('day bookmarks and browser history synchronize marker order while harmless 
   app.window.history.back();await settle();assert.match(panel.querySelector('summary').textContent,/Day 01/);
   const day=app.document.getElementById('travel-day-0');
   day.querySelector('[data-event-id="place-1"] .event-remove-button').click();
-  assert.equal(panel.querySelector('.day-map-places').children.length,2);
-  app.$('undo-button').click();assert.equal(panel.querySelector('.day-map-places').children.length,3);
+  assert.equal(panel.querySelector('.day-map-places').children.length,3);
+  app.$('undo-button').click();assert.equal(panel.querySelector('.day-map-places').children.length,4);
 });
 
 test('map numbers follow manual place ordering, adding a catalog visit and restoring the saved note', async()=>{
@@ -909,11 +909,11 @@ test('map numbers follow manual place ordering, adding a catalog visit and resto
   const maps=leafletFixture();app.window.L=maps.L;const panel=openDayMap(app);
   for(let index=0;index<3;index++)app.$('day-list').querySelector('[data-event-id="place-2"] .event-move-button').click();
   const expected=JSON.parse(app.stored.get(storageKey)).itinerary.days[0].events.filter(event=>event.type==='place').map(event=>event.place.name);
-  assert.deepEqual(panel.querySelectorAll('.day-map-place-copy strong').map(item=>item.textContent),expected.map((name,index)=>`${index+1}. ${name}`));
+  assert.deepEqual(panel.querySelectorAll('.day-map-place-copy strong').map(item=>item.textContent),['🚩 1. 출발할 숙소',...expected.map((name,index)=>`📍 ${index+2}. ${name}`)]);
   assert.equal(currentSchedule(app).options.onAdd({type:'place',placeId:'d'}).ok,true);
-  assert.equal(panel.querySelector('.day-map-places').children.length,4);
+  assert.equal(panel.querySelector('.day-map-places').children.length,5);
   const restored=runtime({...fixture,raw:app.stored.get(storageKey),hash:'#/note'});await settle();
-  assert.equal(restored.$('day-map').querySelector('.day-map-places').children.length,4);
+  assert.equal(restored.$('day-map').querySelector('.day-map-places').children.length,5);
   assert.equal(restored.$('day-map').open,false);
 });
 
@@ -945,7 +945,7 @@ for(const failure of ['tileerror','timeout'])test(`map ${failure} status survive
   assert.equal(status.textContent,failureMessage);assert.equal(retry.hidden,false);
   assert.equal(maps.maps.length,1);assert.equal(maps.tiles.length,1,'marker changes do not start a fresh tile layer');
   app.$('day-list').querySelector('[data-event-id="place-0"] .event-remove-button').click();
-  assert.equal(panel.querySelector('.day-map-places').children.length,2);
+  assert.equal(panel.querySelector('.day-map-places').children.length,3);
   assert.deepEqual(Array.from(maps.groups[0].markers[0].point),originalPoint);
   assert.equal(status.textContent,failureMessage);assert.equal(retry.hidden,false);assert.equal(maps.tiles.length,1);
   // A real new loading cycle owns the next status update, even on the same map.
@@ -955,14 +955,14 @@ for(const failure of ['tileerror','timeout'])test(`map ${failure} status survive
   const retryMessage=status.textContent;maps.tiles[0].emit('tileerror');maps.tiles[0].emit('load');
   assert.equal(status.textContent,retryMessage,'late callbacks from the retired tile layer stay ignored');
   maps.tiles[1].emit('loading');maps.tiles[1].emit('load');assert.equal(status.textContent,'');assert.equal(retry.hidden,true);
-  panel.querySelector('.day-map-jump').click();await settle();
+  panel.querySelectorAll('.day-map-jump')[1].click();await settle();
   assert.equal(app.document.activeElement,app.$('day-list').querySelector('[data-event-id="place-2"] .event-edit-button'));
 });
 
 test('missing map library does not break the itinerary and the list still focuses its event', async()=>{
   const fixture=timedNoteFixture(),app=runtime({...fixture,raw:savedNote(fixture.note),hash:'#/note',withAccount:true});await settle();
   const panel=openDayMap(app);assert.match(panel.querySelector('.day-map-status').textContent,/지도를 시작하지 못했어요/);
-  panel.querySelectorAll('.day-map-jump')[1].click();await settle();
+  panel.querySelectorAll('.day-map-jump')[2].click();await settle();
   assert.equal(app.document.activeElement,app.$('day-list').querySelector('[data-event-id="place-1"] .event-edit-button'));
   await app.account.options.onUserChange(undefined);assert.equal(panel.hidden,true);assert.equal(panel.querySelector('.day-map-places').children.length,0);
 });
@@ -1561,7 +1561,7 @@ test('editing an added entry keeps its position when its original base anchor ha
   const row = app.$('day-list').querySelector('[data-event-id="extra-1"]');
   row.querySelector('.event-edit-button').click();
   const editor = row.querySelector('.event-editor');
-  assert.equal(editor.querySelector('select'), null);
+  assert.equal(editor.querySelector('select').getAttribute('aria-label'),'장소 종류'); // Only location kind; moving uses the handle controls.
   editor.querySelector('textarea').value = '바꾼 메모'; editor.dispatch('submit');
   const after = JSON.parse(app.stored.get(storageKey)).itinerary;
   assert.equal(after.extraEvents[0][0].description, '바꾼 메모');
@@ -1877,7 +1877,7 @@ for(const saved of [false,true])test(`cross-area replacement keeps its identity 
     row(app,'place-0').querySelector('.swap-button').click();
     const picker=row(app,'place-0').querySelector('.swap-picker'),select=picker.querySelector('select');
     assert.ok(select.options.some(option=>option.value===replacement.id),'a different area is offered by the real picker');
-    select.value=replacement.id;picker.querySelector('button').click();
+    select.value=replacement.id;picker.querySelector('.swap-apply').click();
   };
   currentSchedule(app).options.onAdd({type:'free',title:'삭제할 일정',duration:20});
   row(app,'extra-1').querySelectorAll('.event-move-button')[0].click();assert.equal(row(app,'extra-1').dataset.moved,'true');
@@ -2674,7 +2674,7 @@ test('tourist replacement and day area exchange remain reversible alongside manu
   app.$('day-count').value='2';await app.create();
   const original=noteParameters(app);
   const row=app.$('day-list').querySelector('[data-event-id="place-0"]');row.querySelector('.swap-button').click();
-  const swap=row.querySelector('.swap-picker');swap.querySelector('select').value='d';swap.querySelector('button').click();
+  const swap=row.querySelector('.swap-picker');swap.querySelector('select').value='d';swap.querySelector('.swap-apply').click();
   const replaced=noteParameters(app);assert.notDeepEqual(replaced.selections,original.selections);
   const day=app.$('day-list').children[0];day.querySelector('.day-area-select').value='area-1';day.querySelector('.area-apply-button').click();
   const exchanged=noteParameters(app);assert.deepEqual(exchanged.dayAreaIds,['area-1','area-a']);
