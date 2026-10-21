@@ -273,6 +273,50 @@ test('synthetic social login → account save → fresh browser context restores
   } finally { await fresh.close(); }
 });
 
+test('dragged saved-note order stays highlighted until account save and matches sharing and offline copies', async ({ page, context }) => {
+  await createNote(page, 1);
+  await socialLogin(page);
+  await saveAccountNote(page, '드래그 통합 검증 여행');
+  const day = page.locator('#travel-day-0'), rows = day.locator('.timeline-row');
+  const before = await rows.evaluateAll(items => items.map(item => item.dataset.eventId));
+  const expected = before.filter(id => id !== 'free-0'); expected.splice(expected.indexOf('transfer-0'), 0, 'free-0');
+  const moved = day.locator('[data-event-id="free-0"]');
+  const handle = moved.locator('.timeline-dot'), target = day.locator('[data-event-id="transfer-0"]');
+  await target.scrollIntoViewIfNeeded();
+  await handle.scrollIntoViewIfNeeded();
+  const from = await handle.boundingBox(), to = await target.boundingBox();
+  expect(from).not.toBeNull(); expect(to).not.toBeNull();
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to.x + 20, to.y + 10, { steps: 12 });
+  await page.mouse.up();
+  await expect.poll(() => rows.evaluateAll(items => items.map(item => item.dataset.eventId))).toEqual(expected);
+  await expect(moved).toHaveAttribute('data-moved', 'true');
+  await expect(moved.locator('.event-moved-status')).toHaveText('순서 변경 · 계정 저장 전');
+  await expect(page.locator('#account-save')).toContainText('계정에 저장하지 않은 수정이 있어요.');
+  await page.reload();
+  await expect(moved).toHaveAttribute('data-moved', 'true');
+  await expect.poll(() => rows.evaluateAll(items => items.map(item => item.dataset.eventId))).toEqual(expected);
+  const titles = await rows.locator('.event-title').allTextContents(); titles[0] = '출발';
+  await openTool(page, 'note-sharing');
+  await page.locator('#note-sharing').getByRole('button', { name: '공유 내용 미리보기' }).click();
+  await expect(page.locator('.sharing-preview .read-note-event h3')).toHaveText(titles);
+  await page.locator('#offline-tools').getByRole('button', { name: '오프라인으로 저장', exact: true }).click();
+  await expect(page.locator('#offline-tools [role=status]')).toContainText('오프라인 사본을 저장했어요.', { timeout: 20_000 });
+  const reader = await context.newPage();
+  try {
+    await reader.goto('/offline.html');
+    await expect(reader.locator('#offline-note .read-note-event h3')).toHaveText(titles);
+  } finally { await reader.close(); }
+  await saveAccountNote(page, '드래그 통합 검증 여행');
+  await expect(moved).not.toHaveAttribute('data-moved', 'true');
+  await expect(day.locator('.event-moved-status')).toHaveCount(0);
+  await expect(page.locator('#account-save')).toContainText('계정에 저장했어요.');
+  await openTool(page, 'note-sharing');
+  await page.locator('#note-sharing').getByRole('button', { name: '공유 내용 미리보기' }).click();
+  await expect(page.locator('.sharing-preview .read-note-event h3')).toHaveText(titles);
+});
+
 test('share preview excludes private fields; published snapshot is frozen, rotated and revoked for guests', async ({ page, browser, baseURL }) => {
   const markupMemo = '<img src=x onerror="document.body.dataset.injected=1"> 합성 비공개 메모';
   await createNote(page, 1);

@@ -58,7 +58,7 @@ function runtime({ user = null, configured = true, plans = [], handler, onUserCh
   document.body = document.createElement('body');
   const roots = Object.fromEntries(['accountRoot', 'libraryRoot', 'saveRoot', ...(notice ? ['noticeRoot'] : [])].map(name => [name, document.createElement('div')]));
   document.body.append(...Object.values(roots));
-  const state = { user, configured, plans: plans.map(plan => ({ ...plan })), document: documentFixture(), messages: [], users: [], loads: [], attachments: [], navigations: [], history: [] };
+  const state = { user, configured, plans: plans.map(plan => ({ ...plan })), document: documentFixture(), messages: [], users: [], loads: [], attachments: [], navigations: [], history: [],savedDocuments:[] };
   const calls = [], signals = [], channels = [], storedDocuments = new Map(plans.map(plan => [plan.id, documentFixture()]));
   let controller;
   async function backend(path, options) {
@@ -113,6 +113,7 @@ function runtime({ user = null, configured = true, plans = [], handler, onUserCh
     loadDocument: async (doc, settings) => { state.loads.push({ doc, settings }); return loadDocument ? await loadDocument(doc, settings, state) : true; },
     onUserChange: async (next, metadata) => { state.users.push({ user: next, metadata }); if (onUserChange) await onUserChange(next, metadata, state); },
     onAttachmentChange: snapshot => { state.attachments.push(clone(snapshot)); if (onAttachmentChange) return onAttachmentChange(snapshot, state); },
+    onSaved: snapshot=>state.savedDocuments.push(clone(snapshot)),
     onMessage: (text, kind) => state.messages.push({ text, kind }) });
   const find = name => all(document.body, name)[0] || null;
   return { controller, document, window, roots, state, calls, timers, signals, channels, sessionStore, find, all: name => all(document.body, name),
@@ -590,6 +591,8 @@ test('a save response cannot mark subsequent edits clean or attach an older docu
     app.state.document.itinerary.note = 'new edits'; app.controller.changed(); if (detach) app.controller.detach();
     saved.resolve(response({ plan: planFixture() })); await settle();
     assert.match(app.roots.saveRoot.textContent, detach ? /계획표 저장/ : /계정에 저장하지 않은 수정/);
+    assert.equal(app.state.savedDocuments.length,detach?0:1);
+    if(!detach)assert.equal(app.state.savedDocuments[0].itinerary.note,undefined,'the callback receives only the snapshot actually saved');
     assert.equal(app.state.document.itinerary.note, 'new edits'); app.controller.destroy();
   }
 });
@@ -600,6 +603,7 @@ test('revision conflicts offer explicit save-as or reload and never silently ret
   await app.click('변경사항 저장', app.roots.saveRoot); await app.submit();
   assert.match(app.find('account-dialog-title').textContent, /다른 기기/);
   assert.equal(app.calls.filter(call => call.method === 'PUT').length, 1);
+  assert.equal(app.state.savedDocuments.length,0,'a rejected save must not clear pending highlights');
   await app.click('새 계획으로 저장', app.find('account-dialog-actions')); await app.submit();
   assert.equal(app.calls.filter(call => call.method === 'POST' && call.path === '/api/plans').length, 1);
   assert.equal(app.calls.filter(call => call.method === 'PUT').length, 1); app.controller.destroy();

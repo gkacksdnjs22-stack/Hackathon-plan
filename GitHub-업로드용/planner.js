@@ -635,13 +635,15 @@
     if(extraEvents[dayIndex])extraEvents[dayIndex]=extraEvents[dayIndex].map(event=>changed.has(event.id)&&event.type==='transfer'?{...event,duration:0}:event);
     return rebuild(city,next,{eventEdits,extraEvents});
   }
-  function addEvent({city,itinerary,dayIndex,type='free',title,description,duration,placeId,beforeId='finish',travelMode}={}){
+  function addEvent({city,itinerary,dayIndex,type='free',title,description,duration,placeId,beforeId='finish',travelMode,reservedEventIds=[]}={}){
     const current=editableItinerary(city,itinerary,dayIndex);
     if(!current.ok)return {ok:false,reason:current.reason};
     const entries=current.extraEvents[dayIndex]??[];
+    if(!Array.isArray(reservedEventIds)||reservedEventIds.some(id=>!extraId(id)))return {ok:false,reason:'추가 일정의 이전 항목 정보를 확인해 주세요.'};
     if(!current.days[dayIndex].events.some(event=>event.id===beforeId&&!PROTECTED_IDS.includes(event.id)||event.id===beforeId&&event.id==='finish'))
       return {ok:false,reason:'추가 일정을 놓을 위치를 화면에 있는 일정에서 선택해 주세요.'};
-    const number=Math.max(0,...entries.map(event=>Number(event.id.slice(6))))+1;
+    // UI history and move highlights can still reference deleted extras.
+    const number=[...entries.map(event=>event.id),...reservedEventIds].reduce((maximum,id)=>Math.max(maximum,Number(id.slice(6))),0)+1;
     const id=`extra-${number}`,place=type==='place'?validationPlace(city,placeId):null;
     const entry={id,type,beforeId,duration:duration===undefined?(place?.stayMinutes??({free:60,meal:60,rest:30,transfer:0})[type]):duration};
     if(title!==undefined)entry.title=title;
@@ -677,14 +679,15 @@
     const next=preserveUnchangedTravel(city,current,rebuild(city,current,{excludedEvents}),dayIndex);
     return next.ok?{ok:true,itinerary:next,eventId}:{ok:false,reason:next.reason};
   }
-  function moveEvent({city,itinerary,dayIndex,eventId,direction}={}){
+  function moveEvent({city,itinerary,dayIndex,eventId,direction,toIndex}={}){
     const current=editableItinerary(city,itinerary,dayIndex);
     if(!current.ok)return {ok:false,reason:current.reason};
-    if(direction!==-1&&direction!==1)return {ok:false,reason:'일정을 위 또는 아래로 한 칸 이동해 주세요.'};
+    if(toIndex===undefined&&direction!==-1&&direction!==1)return {ok:false,reason:'일정을 위 또는 아래로 한 칸 이동해 주세요.'};
     const ids=current.days[dayIndex].events.filter(event=>!PROTECTED_IDS.includes(event.id)).map(event=>event.id);
-    const position=ids.indexOf(eventId),destination=position+direction;
-    if(position<0||destination<0||destination>=ids.length)return {ok:false,reason:'출발·도착 이동과 마무리 사이에서만 일정을 이동할 수 있습니다.'};
-    [ids[position],ids[destination]]=[ids[destination],ids[position]];
+    const position=ids.indexOf(eventId),destination=toIndex===undefined?position+direction:toIndex;
+    if(position<0||!Number.isInteger(destination)||destination<0||destination>=ids.length)return {ok:false,reason:'출발·도착 이동과 마무리 사이에서만 일정을 이동할 수 있습니다.'};
+    if(position===destination)return {ok:true,itinerary:current,eventId};
+    ids.splice(position,1);ids.splice(destination,0,eventId);
     const next=preserveUnchangedTravel(city,current,rebuild(city,current,{eventOrders:{...current.eventOrders,[dayIndex]:ids}}),dayIndex);
     return next.ok?{ok:true,itinerary:next,eventId}:{ok:false,reason:next.reason};
   }
@@ -937,7 +940,7 @@
     if(new Set(ids).size!==ids.length)return {ok:false,reason:'교체 후 일정의 장소 중복을 확인하지 못했습니다.'};
     return {ok:true,itinerary:next,oldPlace:validationPlace(city,placeId),newPlace:replacement};
   }
-  function replaceTouristEvent({city,itinerary,dayIndex,eventId,replacementId}={}){
+  function replaceTouristEvent({city,itinerary,dayIndex,eventId,replacementId,reservedEventIds=[]}={}){
     const current=editableItinerary(city,itinerary,dayIndex);
     if(!current.ok)return {ok:false,reason:current.reason};
     const event=current.days[dayIndex].events.find(item=>item.id===eventId),replacement=validationPlace(city,replacementId);
@@ -955,7 +958,7 @@
       const result=replacePlace({city,itinerary:current,dayIndex,placeId:event.place.id,replacementId});
       return result.ok?{...result,eventId}:result;
     }
-    const added=addEvent({city,itinerary:current,dayIndex,type:'place',placeId:replacement.id,beforeId:eventId,
+    const added=addEvent({city,itinerary:current,dayIndex,type:'place',placeId:replacement.id,beforeId:eventId,reservedEventIds,
       duration:replacement.stayMinutes,description:(replacement.intro??'').slice(0,500)});
     if(!added.ok)return added;
     const removed=removeEvent({city,itinerary:added.itinerary,dayIndex,eventId});

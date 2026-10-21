@@ -2334,6 +2334,31 @@ test('original and added rows can move together while protected rows and finish 
   assertSequential(current.days[0]);
 });
 
+test('direct multi-slot reordering preserves protected rows, hidden edits, tags, other days and survives reload',async()=>{
+  const app=runtime(),city=await app.TourData.ensureCity('seoul'),planner=app.TravelPlanner;
+  let current=officialItinerary(app,city);
+  current=planner.addEvent({city,itinerary:current,dayIndex:0,title:'예약 확인',duration:10,beforeId:'place-1'}).itinerary;
+  current=planner.removeEvent({city,itinerary:current,dayIndex:0,eventId:'rest'}).itinerary;
+  current=planner.updatePersonalization({city,itinerary:current,personalization:{checklist:[{id:'item-1',text:'충전기',done:false}],eventTags:{0:{'free-1':'flex'}}}}).itinerary;
+  const before=plain(current),movable=current.days[0].events.filter(event=>!['departure','arrival','arrival-transfer','finish'].includes(event.id)).map(event=>event.id);
+  const result=planner.moveEvent({city,itinerary:current,dayIndex:0,eventId:movable.at(-1),toIndex:0});
+  assert.equal(result.ok,true,result.reason);
+  const ids=result.itinerary.days[0].events.map(event=>event.id);
+  assert.deepEqual(plain(ids.slice(0,3)),['departure','arrival','arrival-transfer']);assert.equal(ids.at(-1),'finish');
+  assert.deepEqual(plain(ids.slice(3,-1)),[movable.at(-1),...movable.slice(0,-1)]);
+  assert.equal(new Set(ids).size,ids.length);assert.deepEqual(plain(current),before);
+  assert.deepEqual(plain(result.itinerary.personalization),before.personalization);
+  assert.deepEqual(plain(result.itinerary.excludedEvents),before.excludedEvents);
+  assert.deepEqual(plain(result.itinerary.extraEvents),before.extraEvents);
+  assert.deepEqual(plain(result.itinerary.days[1]),before.days[1]);
+  assert.deepEqual(plain(restoreCustomItinerary(app,city,result.itinerary).days),plain(result.itinerary.days));
+  assertSequential(result.itinerary.days[0]);
+  const back=planner.moveEvent({city,itinerary:result.itinerary,dayIndex:0,eventId:movable.at(-1),toIndex:movable.length-1});
+  assert.deepEqual(plain(back.itinerary.days[0].events.map(event=>event.id)),before.days[0].events.map(event=>event.id));
+  for(const toIndex of [-1,movable.length,1.5,'2',null,NaN])assert.equal(planner.moveEvent({city,itinerary:current,dayIndex:0,eventId:movable[0],toIndex}).ok,false);
+  for(const eventId of ['departure','arrival','arrival-transfer','finish','rest','missing'])assert.equal(planner.moveEvent({city,itinerary:current,dayIndex:0,eventId,toIndex:0}).ok,false);
+});
+
 test('new additions retain an existing manual order and moving an extra by position leaves other row order intact', async () => {
   const app = runtime(), city = await app.TourData.ensureCity('seoul'), planner = app.TravelPlanner;
   const original = planner.createItinerary({ city, startDate: '2026-10-20', dayCount: 1 });
