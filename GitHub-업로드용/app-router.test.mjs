@@ -1755,6 +1755,77 @@ test('moved highlights survive redraw and local reload, compare against the save
   assert.equal(app.account.options.getDocument().itinerary.pendingReorders,undefined);
 });
 
+for(const saved of [false,true])for(const title of ['새 자유 일정','원래 자유 일정'])test(`recreated extra does not inherit moved identity (saved=${saved}, title=${title}) through history and reload`,async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  const row=(runtime,id)=>runtime.$('day-list').querySelector(`[data-event-id="${id}"]`);
+  const extraIds=runtime=>(JSON.parse(runtime.stored.get(storageKey)).itinerary.extraEvents[0]||[]).map(event=>event.id);
+  currentSchedule(app).options.onAdd({type:'free',title:'원래 자유 일정',duration:20});
+  const originalId=extraIds(app)[0];row(app,originalId).querySelectorAll('.event-move-button')[0].click();
+  assert.equal(row(app,originalId).dataset.moved,'true');
+  if(saved)app.account.options.onSaved(app.account.options.getDocument());
+  row(app,originalId).querySelector('.event-remove-button').click();
+  const deletedRaw=app.stored.get(storageKey);
+  currentSchedule(app).options.onAdd({type:'free',title,duration:20});
+  const newId=extraIds(app)[0];assert.equal(row(app,newId).dataset.moved,undefined);
+  app.$('undo-button').click();assert.equal(extraIds(app).length,0);
+  app.$('undo-button').click();assert.equal(row(app,originalId).dataset.moved,saved?undefined:'true');
+  assert.equal(row(app,originalId).querySelector('.event-title').textContent,'원래 자유 일정');
+  app.$('redo-button').click();assert.equal(extraIds(app).length,0);
+  app.$('redo-button').click();assert.equal(row(app,newId).dataset.moved,undefined);
+  const reload=runtime({...actualPlannerFixture(),withAccount:true,raw:app.stored.get(storageKey),hash:'#/note'});await settle();
+  assert.equal(row(reload,newId).dataset.moved,undefined);
+  const deletedReload=runtime({...actualPlannerFixture(),withAccount:true,raw:deletedRaw,hash:'#/note'});await settle();
+  currentSchedule(deletedReload).options.onAdd({type:'free',title,duration:20});
+  assert.equal(row(deletedReload,extraIds(deletedReload)[0]).dataset.moved,undefined);
+});
+
+for(const key of ['Enter',' '])test(`first ${key===' '?'Space':key} activation opens the menu after Escape cancels a drag`,async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  const drag=dragGeometry(app);drag.pointer.pointerType='mouse';
+  const host=drag.dot.closest('.timeline-reorder'),menu=drag.row.querySelector('.timeline-move-controls');
+  host.dispatch('pointerenter',{pointerType:'mouse'});drag.dot.focus();assert.equal(menu.hidden,false);
+  drag.start();drag.move(645);assert.equal(menu.hidden,true);
+  app.document.dispatch('keydown',drag.dot,{key:'Escape'});drag.drop(645);
+  drag.dot.dispatch('click',{detail:1});assert.equal(menu.hidden,true,'the synthesized pointer click stays blocked');
+  drag.dot.dispatch('keydown',{key});drag.dot.dispatch('click',{detail:0});
+  assert.equal(menu.hidden,false,'the first keyboard activation must open the menu');
+  assert.equal(app.document.activeElement,drag.dot);assert.equal(app.$('undo-button').disabled,true);
+});
+
+test('real account save then deletion cannot transfer moved highlights to a favorite added as a new event',async()=>{
+  const reply=data=>({ok:true,status:200,json:async()=>data});
+  const app=runtime({...actualPlannerFixture(),withAccount:true,accountHandler:async(path,options)=>{
+    if(path==='/api/auth/session')return reply({configured:true,user:{id:'owner-a',username:'alice'}});
+    if(path==='/api/plans'&&options.method==='GET')return reply({plans:[]});
+    if(path==='/api/plans'&&options.method==='POST')return reply({plan:{id:'plan-one',title:'내 계획',cityId:'test-city',startDate:'2026-10-20',dayCount:1,revision:1,
+      createdAt:'2026-10-20T00:00:00Z',updatedAt:'2026-10-20T00:00:00Z'}});
+    throw Error('Unexpected request '+path);
+  }});await app.account.controller.ready;await settle();await app.create();
+  const row=id=>app.$('day-list').querySelector(`[data-event-id="${id}"]`);
+  currentSchedule(app).options.onAdd({type:'free',title:'원래 일정',duration:20});
+  row('extra-1').querySelectorAll('.event-move-button')[0].click();assert.equal(row('extra-1').dataset.moved,'true');
+  app.$('account-save').querySelector('button').click();app.document.querySelector('.account-dialog form').dispatch('submit');await settle();
+  assert.match(app.$('account-save').textContent,/계정에 저장했어요/);assert.equal(row('extra-1').dataset.moved,undefined);
+  row('extra-1').querySelector('.event-remove-button').click();
+  const personal=app.$('personal-tools'),search=personal.querySelector('.personal-place-search-label input');
+  search.value='추천 관광지 d';search.dispatch('input');personal.querySelector('.personal-place-results button').click();
+  personal.querySelector('.personal-favorite-list button').click();
+  assert.ok(row('extra-2'));assert.equal(row('extra-2').dataset.moved,undefined);assert.equal(row('extra-1'),null);
+  app.account.controller.destroy();
+});
+
+test('an unmoved deleted extra restored from undo keeps its identity after a replacement is moved',async()=>{
+  const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();
+  const row=id=>app.$('day-list').querySelector(`[data-event-id="${id}"]`);
+  currentSchedule(app).options.onAdd({type:'free',title:'원래 일정',duration:20,beforeId:'place-0'});
+  row('extra-1').querySelector('.event-remove-button').click();
+  currentSchedule(app).options.onAdd({type:'free',title:'새 일정',duration:20});
+  row('extra-2').querySelectorAll('.event-move-button')[0].click();
+  app.$('undo-button').click();app.$('undo-button').click();app.$('undo-button').click();
+  assert.equal(row('extra-1').querySelector('.event-title').textContent,'원래 일정');assert.equal(row('extra-1').dataset.moved,undefined);
+  assert.equal(row('extra-2'),null);
+});
+
 test('a direct note without a saved itinerary redirects before slower city preparation completes', async () => {
   const cityLoading = deferred(), app = runtime({ hash: '#/note', ensureCity: () => cityLoading.promise });
   await settle(); screen(app, 'start');

@@ -629,13 +629,15 @@
     if(extraEvents[dayIndex])extraEvents[dayIndex]=extraEvents[dayIndex].map(event=>changed.has(event.id)&&event.type==='transfer'?{...event,duration:0}:event);
     return rebuild(city,next,{eventEdits,extraEvents});
   }
-  function addEvent({city,itinerary,dayIndex,type='free',title,description,duration,placeId,beforeId='finish',travelMode}={}){
+  function addEvent({city,itinerary,dayIndex,type='free',title,description,duration,placeId,beforeId='finish',travelMode,reservedEventIds=[]}={}){
     const current=editableItinerary(city,itinerary,dayIndex);
     if(!current.ok)return {ok:false,reason:current.reason};
     const entries=current.extraEvents[dayIndex]??[];
+    if(!Array.isArray(reservedEventIds)||reservedEventIds.some(id=>!extraId(id)))return {ok:false,reason:'추가 일정의 이전 항목 정보를 확인해 주세요.'};
     if(!current.days[dayIndex].events.some(event=>event.id===beforeId&&!PROTECTED_IDS.includes(event.id)||event.id===beforeId&&event.id==='finish'))
       return {ok:false,reason:'추가 일정을 놓을 위치를 화면에 있는 일정에서 선택해 주세요.'};
-    const number=Math.max(0,...entries.map(event=>Number(event.id.slice(6))))+1;
+    // UI history and move highlights can still reference deleted extras.
+    const number=[...entries.map(event=>event.id),...reservedEventIds].reduce((maximum,id)=>Math.max(maximum,Number(id.slice(6))),0)+1;
     const id=`extra-${number}`,place=type==='place'?validationPlace(city,placeId):null;
     const entry={id,type,beforeId,duration:duration===undefined?(place?.stayMinutes??({free:60,meal:60,rest:30,transfer:0})[type]):duration};
     if(title!==undefined)entry.title=title;

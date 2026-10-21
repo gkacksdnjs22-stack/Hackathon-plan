@@ -358,6 +358,14 @@
     return result;
   }
   const reorderIds=day=>day.events.filter(event=>!['departure','arrival','arrival-transfer','finish'].includes(event.id)).map(event=>event.id);
+  function reservedExtraEventIds(dayIndex){
+    const entry=pendingReorders[dayIndex],ids=new Set([...(entry?.baseline||[]),...(entry?.moved||[])]);
+    // Keep identities distinct while either undo/redo or persisted highlights can restore them.
+    for(const snapshot of [...editHistory.undo,...editHistory.redo]){
+      for(const event of JSON.parse(snapshot).extraEvents?.[dayIndex]||[])ids.add(event.id);
+    }
+    return [...ids].filter(id=>id.startsWith('extra-'));
+  }
   function syncReorderHighlights(){
     $('day-list').querySelectorAll('.day-card').forEach(card=>{
       const index=Number(card.dataset.dayIndex),entry=pendingReorders[index],ids=reorderIds(currentItinerary.days[index]);
@@ -827,7 +835,7 @@
   }
   function addFavoritePlace(placeId){
     const city=window.TRAVEL_DATA.cities[currentItinerary?.cityId];
-    const result=window.TravelPlanner.addEvent({city,itinerary:currentItinerary,dayIndex:activeDayIndex,type:'place',placeId});
+    const result=window.TravelPlanner.addEvent({city,itinerary:currentItinerary,dayIndex:activeDayIndex,type:'place',placeId,reservedEventIds:reservedExtraEventIds(activeDayIndex)});
     if(!result.ok)return result;
     if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'관광지를 저장하지 못했어요. 기존 노트는 유지했어요.'};
     currentItinerary=result.itinerary;renderItinerary();focusEvent(activeDayIndex,result.eventId);
@@ -971,7 +979,7 @@
       departureWidgets.push(window.TravelSchedule.mount(addHost,{day,dayIndex:index,city,
         usedPlaceIds:[...Object.values(currentItinerary.selections||{}).flat(),...currentItinerary.days.flatMap(item=>item.events.filter(event=>event.type==='place').map(event=>event.place.id))],
         onAdd:input=>{
-          const result=window.TravelPlanner.addEvent({city,itinerary:currentItinerary,dayIndex:index,...input});
+          const result=window.TravelPlanner.addEvent({city,itinerary:currentItinerary,dayIndex:index,...input,reservedEventIds:reservedExtraEventIds(index)});
           if(!result.ok)return result;
           if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'추가한 일정을 저장하지 못했어요. 기존 노트는 유지했어요.'};
           currentItinerary=result.itinerary;renderItinerary();
@@ -1063,7 +1071,11 @@
     host.addEventListener('focusin',()=>setOpen(true));
     host.addEventListener('focusout',focus=>{if(!host.contains(focus.relatedTarget))setOpen(false);});
     trigger.addEventListener('pointerdown',()=>{pointerToggle=controls.hidden;});
-    trigger.addEventListener('click',()=>{const open=pointerToggle??controls.hidden;pointerToggle=null;setOpen(open);});
+    trigger.addEventListener('click',click=>{
+      // Keyboard activation must not consume a pointer toggle left by a cancelled drag.
+      const open=click.detail===0?controls.hidden:(pointerToggle??controls.hidden);
+      pointerToggle=null;setOpen(open);
+    });
     for(const [direction,caption] of [[-1,'위로'],[1,'아래로']]){
       const move=document.createElement('button');move.type='button';move.className='event-move-button';move.textContent=direction===-1?'↑':'↓';
       move.setAttribute('aria-label',`${eventName(event)} ${caption}`);move.title=`일정 ${caption}`;
