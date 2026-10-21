@@ -95,3 +95,8 @@
   .sources-notes { margin-top: 20px; padding: 18px; break-inside: avoid; }
   .source-icon { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }
+.photo-sources { display:grid; gap:16px; margin:18px 0; padding:0; list-style:none; }
+.photo-sources li { display:grid; gap:5px; padding-top:12px; border-top:1px solid #e2e6dc; font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
+.photo-sources strong { color:#355d52; font-size:14px; }
+.photo-sources span { color:#657268; }
+.photo-sources a { width:fit-content; padding:6px 0; color:#355d52; text-underline-offset:3px; }

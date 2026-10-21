@@ -585,7 +585,7 @@
     const next=rebuild(city,current,{eventOrders:{...current.eventOrders,[dayIndex]:ids},...resetTouristTravel(current,dayIndex)});
     return next.ok?{ok:true,itinerary:next,eventId}:{ok:false,reason:next.reason};
   }
-  function updateEvent({city,itinerary,dayIndex,eventId,title,description,duration,beforeId,placeId}={}){
+  function updateEvent({city,itinerary,dayIndex,eventId,title,description,duration,beforeId,placeId,resetTitle=false}={}){
     const current=editableItinerary(city,itinerary,dayIndex);
     if(!current.ok)return {ok:false,reason:current.reason};
     if(extraId(eventId)){
@@ -619,6 +619,7 @@
     if(!EVENT_IDS.includes(eventId))return {ok:false,reason:'수정할 일정의 ID를 확인할 수 없습니다.'};
     const patch={...current.eventEdits[dayIndex]?.[eventId]};
     if(title!==undefined)patch.title=title;
+    if(resetTitle===true)delete patch.title;
     if(description!==undefined)patch.description=description;
     if(duration!==undefined)patch.duration=duration;
     const eventEdits={...current.eventEdits,[dayIndex]:{...current.eventEdits[dayIndex],[eventId]:patch}};

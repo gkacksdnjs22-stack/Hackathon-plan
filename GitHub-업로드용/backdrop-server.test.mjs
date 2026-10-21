@@ -10,7 +10,7 @@ const image = 'http://tong.visitkorea.or.kr/cms/resource/04/3304404_image3_1.jpg
 function fixture(url, patch = {}) {
   return new Response(JSON.stringify({ response: { header: { resultCode: '0000' }, body: { items: { item: [{ contentid: new URL(url).searchParams.get('contentId'), cpyrhtDivCd: 'Type1', smallimageurl: image, imgname: '관광사진', ...patch }] } } } }));
 }
-test('fixed destinations, Type1, HTTPS thumbnails, attribution and six-hour cache', async () => {
+test('fixed destinations, Type1, HTTPS images, attribution and six-hour cache', async () => {
   let calls = 0, time = 0;
   const client = createBackdropClient({ serviceKey: 'secret/key', now: () => time, fetchImpl: async (url, options) => {
     calls++; assert.equal(options.redirect, 'error'); assert.equal(new URL(url).searchParams.get('serviceKey'), 'secret/key'); return fixture(url);
@@ -21,6 +21,26 @@ test('fixed destinations, Type1, HTTPS thumbnails, attribution and six-hour cach
   a.items.length=0; assert.equal((await client.getPhotos()).items.length,3);
   time = 6 * 60 * 60 * 1000; await client.getPhotos(); assert.equal(calls,6);
 });
+test('validated full-size original is preferred over a thumbnail', async () => {
+  const original = 'http://tong.visitkorea.or.kr/cms/resource/04/3304404_image2_1.jpg';
+  const client = createBackdropClient({serviceKey:'secret',fetchImpl:async url=>fixture(url,{originimgurl:original})});
+  const result = await client.getPhotos();
+  assert.equal(result.items.length,3);
+  for (const item of result.items) assert.equal(item.imageUrl,original.replace('http:','https:'));
+});
+
+test('missing or unsafe original falls back to a validated thumbnail', async () => {
+  for (const original of [undefined, '', 'https://evil.test/photo.jpg', image+'?key=secret',
+    'https://tong.visitkorea.or.kr/elsewhere/photo.jpg',
+    'https://secret@tong.visitkorea.or.kr/cms/resource/04/photo.jpg',
+    'https://tong.visitkorea.or.kr/cms/resource/04/secret.jpg']) {
+    const client=createBackdropClient({serviceKey:'secret',fetchImpl:async url=>fixture(url,{originimgurl:original})});
+    const result=await client.getPhotos();
+    assert.equal(result.items.length,3);
+    for (const item of result.items) assert.equal(item.imageUrl,image.replace('http:','https:'));
+  }
+});
+
 test('unknown or Type3 license, missing image and foreign hosts are rejected', async () => {
   for (const patch of [{cpyrhtDivCd: undefined}, {cpyrhtDivCd:'Type3'}, {smallimageurl:''}, {smallimageurl:'https://evil.test/photo.jpg'}, {smallimageurl:image+'?key=secret'}, {contentid:'999'}]) {
     const c=createBackdropClient({serviceKey:'secret',fetchImpl:async url=>fixture(url,patch)});
@@ -44,7 +64,7 @@ test('deadline includes stuck body reads and fetch which ignores abort', async (
     assert.deepEqual((await c.getPhotos()).items,[]);
   }
 });
-test('metadata does not echo credentials and original is fallback', async () => {
+test('original works without a thumbnail and metadata does not echo credentials', async () => {
   const c=createBackdropClient({serviceKey:'secret',fetchImpl:async url=>fixture(url,{smallimageurl:'',originimgurl:image,imgname:'secret',author:'secret',serialnum:'secret'})});
   const r=await c.getPhotos(); assert.equal(r.items.length,3); assert.equal(JSON.stringify(r).includes('secret'),false);
 });

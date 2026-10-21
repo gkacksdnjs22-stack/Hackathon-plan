@@ -1,72 +1,507 @@
-/* Quiet scenery outside the page, opaque paper wherever the user edits. */
+/* Clear scenery behind translucent notebook panels; editing stays easy to read. */
 @media screen {
-  :root { --paper:#f2eee6; --ink:#293e3b; --muted:#596b60; --teal:#355d52; --teal-dark:#294d44; --mint-soft:#e9efe4; --line:#d5ddcf; --lemon:#e9dfb7; }
-  body { background: #f2eee6; color: #293e3b; isolation: isolate; }
-  .travel-backdrop { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; background: linear-gradient(135deg,#d8e4df,#eee7d8 55%,#dde6e4); }
+  :root { --paper:#405d52; --ink:#293e3b; --muted:#596b60; --teal:#3e67ad; --teal-dark:#2d4f89; --mint-soft:#e9efe4; --line:#d5ddcf; --lemon:#e9dfb7; --glass-paper:rgba(255,255,255,.84); --glass-menu:rgba(255,255,255,.97); --glass-line:rgba(255,255,255,.6); }
+  body { background:#405d52; color:#293e3b; isolation:isolate; }
+  .travel-backdrop { position:fixed; inset:0; z-index:-1; pointer-events:none; overflow:hidden; background:linear-gradient(135deg,#314e43,#5b7364 55%,#354f4b); }
   .travel-backdrop-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 1800ms ease; }
   .travel-backdrop-photo.is-current { opacity: 1; }
-  .travel-backdrop::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg,rgba(248,246,239,.78),rgba(248,246,239,.89) 55%,rgba(245,242,234,.96)); }
-  body[data-screen="note"] .travel-backdrop::after { background: rgba(244,242,235,.93); }
+  .travel-backdrop::after { content:''; position:absolute; inset:0; background:linear-gradient(180deg,rgba(8,18,36,.3),rgba(8,18,36,.2) 48%,rgba(8,18,36,.24)); }
+  body[data-screen="note"] .travel-backdrop::after { background:linear-gradient(180deg,rgba(10,31,24,.3),rgba(15,35,29,.2) 55%,rgba(240,235,217,.12)); }
   body[data-screen="note"] .travel-backdrop-photo { transition: none; }
-  .field input, .field select, .select-trigger { color:#304a41; border-color:#d2dccc; background:#fffef9; }
+  .field input, .field select, .select-trigger, .custom-select-area .select-trigger, .custom-select-swap .select-trigger { color:#304a41; border-color:rgba(149,170,143,.58); background:rgba(255,254,249,.91); }
   .field input:focus, .field select:focus, .select-trigger[aria-expanded="true"] { border-color:#658373; box-shadow:0 0 0 3px #e8eee3; }
-  .select-popover { color:#304a41; border-color:#cdd8c8; background:#fffefa; box-shadow:0 12px 28px #304a411a; }
-  .select-option[aria-selected="true"], .select-option:hover { background:#eaf0e4; color:#2f554e; }
-  .account-button, .button-secondary { color:#3d6255; border-color:#cad6c6; background:#fffdf6; }
-  .account-button.is-primary { color:#fff; background:#355d52; border-color:#355d52; }
+  .select-popover { color:#304a41; border-color:var(--glass-line); background:var(--glass-menu); box-shadow:0 12px 32px rgba(17,40,30,.18); }
+  .select-option[aria-selected="true"]:enabled, .select-option:hover:enabled { border-color:#d6e0ce; background:#eaf0e4; color:#2f554e; }
+  .select-option[aria-selected="true"]::before { color:#52765b; }
+  .account-button, .button-secondary { color:#3d6255; border-color:rgba(206,219,194,.78); background:rgba(255,253,246,.86); }
+  .account-button:not(.is-danger):hover { color:#2f554e; border-color:#a8bda9; background:#edf2e7; }
+  .account-button.is-primary { color:#fff; background:#3e67ad; border-color:#3e67ad; }
+  .account-button.is-primary:hover { color:#fff; background:#2d4f89; border-color:#2d4f89; }
+  .account-dialog-tabs [aria-pressed="true"] { color:#2f554e; border-color:#adc5b9; background:#eaf2ef; }
+  .account-dialog-tabs [aria-pressed="true"]:hover { color:#2d4f89; border-color:#96b3a4; background:#e0ebe6; }
+  .account-library h2, .account-plan-title, .account-dialog-title { color:#3e67ad; }
+  .account-dialog, .account-dialog-field input { color:#304a41; }
+  .account-dialog-field input:focus { border-color:#658373; }
+  .account-notice .account-notice-link { color:#3d6255; }
+  .account-notice .account-notice-link:hover { color:#2d4f89; }
   .header-note, .intro-tags span { color:#52694f; border-color:#d4ddcc; background:#f7f8ee; }
-  .intro h1 em::after { background:#dbe5cc; }
+  .intro h1 em::after { border-bottom-color:rgba(244,235,195,.8); background:rgba(204,224,193,.18); }
   .postcard { border-color:#839783; box-shadow:4px 6px 0 #d9e1d0; }
-  .site-header { border-bottom-color: #cbd4cb; }
-  .wordmark, .intro h1, .intro h1 em { color: #2f554e; }
-  .wordmark small, .eyebrow, .intro-copy { color: #53645d; }
+  .site-header { display:flex; align-items:center; justify-content:space-between; gap:20px; min-height:96px; padding:16px 20px; border-color:transparent; border-radius:0; background:transparent; box-shadow:none; }
+  .site-header .wordmark { flex:0 1 auto; align-items:center; gap:11px; min-width:0; line-height:1.15; }
+  .site-header .wordmark-mark { display:grid; place-items:center; flex:0 0 44px; align-self:center; }
+  .site-header .wordmark>span:last-child { display:flex; flex-direction:column; gap:4px; min-width:0; }
+  .site-header .wordmark small { margin:0; line-height:1.45; white-space:nowrap; }
+  .site-header > .account-nav { flex:0 1 auto; align-items:center; justify-content:flex-end; max-width:55%; gap:6px 10px; }
+  .site-header .account-button { flex:0 0 auto; min-height:44px; white-space:nowrap; }
+  .wordmark, .intro h1, .intro h1 em { color:#fff; text-shadow:0 2px 5px rgba(5,25,17,.7),0 8px 28px rgba(5,25,17,.42); }
+  .wordmark small, .eyebrow, .intro-copy { color:#fff; text-shadow:0 1px 4px rgba(5,25,17,.82),0 3px 12px rgba(5,25,17,.54); }
+  .account-nav .account-user { color:#fff; text-shadow:0 1px 4px rgba(5,25,17,.75); }
   .intro { padding: 50px 0 34px; }
+  .intro-main::before { content:''; position:absolute; z-index:-1; inset:-18px -8px; border-radius:30%; background:radial-gradient(ellipse,rgba(12,35,26,.3),rgba(12,35,26,.1) 52%,transparent 76%); pointer-events:none; }
   .intro h1 { font-size: clamp(32px,4vw,48px); font-weight: 760; letter-spacing: -.065em; }
-  .intro h1 em { box-shadow: inset 0 -10px 0 #dbe5cc; }
-  .planner-panel { background: #fffefa; border: 1px solid #d7ddd1; border-radius: 22px; box-shadow: 0 15px 50px #334b3d0d; }
-  .panel-heading h2, .note-page-title { color: #2f554e; }
+  .intro h1 em { box-shadow:inset 0 -10px 0 rgba(211,229,196,.2); }
+  .planner-panel { z-index:2; background:var(--glass-paper); border:1px solid var(--glass-line); border-radius:22px; box-shadow:0 15px 50px rgba(15,38,27,.14),inset 0 1px 0 rgba(255,255,255,.4); }
+  .backdrop-story { display:grid; gap:3px; max-width:560px; margin:16px auto 0; padding:10px 14px; border:1px solid var(--glass-line); border-radius:14px; background:rgba(255,254,247,.84); color:#35584a; text-align:center; box-shadow:0 8px 28px rgba(15,38,27,.1); }
+  .backdrop-story strong { color:#304f42; font-size:13px; font-weight:700; line-height:1.55; }
+  .backdrop-story p { margin:0; color:#4d6457; font-size:11px; line-height:1.65; text-shadow:none; }
+  .panel-heading h2 { color:#2f554e; }
   .step-label { color: #6f7766; letter-spacing: .04em; }
   .step-number { background: #e6ebd9; color: #52694c; }
-  .button-primary { background: #355d52; border-color: #355d52; box-shadow: 0 4px 12px #355d521a; }
-  .button-primary:hover { background: #294d44; border-color: #294d44; }
+  .button, .button-quiet { color:#3d6255; border-color:rgba(180,199,165,.68); background:rgba(255,253,246,.84); }
+  .button:hover { color:#2f554e; border-color:#a8bda9; background:#edf2e7; }
+  .button-primary { color:#fff; background: #3e67ad; border-color: #3e67ad; box-shadow: 0 4px 12px #3e67ad1a; }
+  .button-primary:hover, .button-primary:active { color:#fff; background: #2d4f89; border-color: #2d4f89; }
   .itinerary-heading { padding: 22px 0 10px; }
   .note-page-title { font-size: clamp(24px,3vw,34px); line-height: 1.45; letter-spacing: -.055em; }
+  .note-page-title, .itinerary-heading p, .itinerary-heading .step-label, .screen-loading h1, .screen-loading p { color:#fff; text-shadow:0 2px 5px rgba(5,25,17,.75),0 6px 24px rgba(5,25,17,.38); }
   .day-list { gap: 30px; }
-  .day-card { border: 1px solid #d5ddcf; border-radius: 20px; background: #fffef9; box-shadow: 0 12px 36px #344e3d0b; }
-  .day-card-header, .day-card:nth-child(3n+2) .day-card-header, .day-card:nth-child(3n) .day-card-header { background: #edf1e6; border-bottom: 1px solid #d8dfd0; padding: 22px 27px; }
-  .day-card:nth-child(3n+2) .day-card-header { background: #f2eee2; }
-  .day-card:nth-child(3n) .day-card-header { background: #e9eff0; }
+  .day-card { border:1px solid var(--glass-line); border-radius:20px; background:rgba(255,254,249,.8); box-shadow:0 12px 36px rgba(15,38,27,.14),inset 0 1px 0 rgba(255,255,255,.38); }
+  .day-card:has(.select-trigger[aria-expanded="true"]), .day-card:has(.time-trigger[aria-expanded="true"]), .day-card:has(.timeline-row[data-reordering="true"]) { position:relative; z-index:25; }
+  .day-card-header, .day-card:nth-child(3n+2) .day-card-header, .day-card:nth-child(3n) .day-card-header { background:rgba(231,239,222,.72); border-bottom:1px solid rgba(180,198,166,.52); border-radius:19px 19px 0 0; padding:22px 27px; }
+  .day-card:nth-child(3n+2) .day-card-header { background:rgba(243,235,213,.68); }
+  .day-card:nth-child(3n) .day-card-header { background:rgba(221,235,232,.68); }
   .day-title strong, .day-card:nth-child(3n+2) .day-title strong, .day-card:nth-child(3n) .day-title strong { color: #365b50; font-size: 21px; letter-spacing: .035em; font-variant-numeric: tabular-nums; }
   .day-title span { color: #5e6d61; }
   .timeline { padding-top: 23px; padding-bottom: 18px; }
   .timeline-row { padding-top: 12px; padding-bottom: 12px; }
   .timeline-row:not(:last-child)::before { background: #d8dfd0; width: 1px; }
   .timeline-time { color: #4f6b62; font-variant-numeric: tabular-nums; font-weight: 650; }
-  .timeline-time::before { background: #668478; border-color: #edf2e7; box-shadow: 0 0 0 3px #fffef9; }
-  .place-row .timeline-content { background: #fff; border: 1px solid #e0e5d9; border-left: 3px solid #8aa68b; border-radius: 13px; box-shadow: 0 3px 10px #344e3d04; }
+  .timeline-time::before { background: #668478; border-color: #edf2e7; box-shadow: 0 0 0 3px #fff; }
+  .timeline-time .timeline-reorder { --dot-fill:#668478; --dot-ring:#edf2e7; }
+  .timeline-dot::before { box-shadow:0 0 0 2px #fff; }
+  .timeline-dot:hover::before, .timeline-dot[aria-expanded="true"]::before { box-shadow:0 0 0 3px #dce7d6; }
+  .timeline-dot:focus-visible::before, .timeline-move-controls .event-move-button:focus-visible { outline-color:#658373; }
+  .timeline-move-controls .event-move-button { color:#3d6255; border-color:#cad6c6; }
+  .place-row .timeline-content { background:rgba(255,255,250,.64); border:1px solid rgba(255,255,249,.72); border-left:3px solid rgba(114,149,112,.7); border-radius:13px; box-shadow:0 3px 14px rgba(28,52,32,.035); }
   .event-title { color: #304a41; font-size: 16px; }
   .event-description, .event-subtitle { color: #59685d; line-height: 1.85; }
-  .meta-pill { color: #52694f; background: #eef2e7; border-radius: 5px; }
-  .meal-row .timeline-content, .free-row .timeline-content, .rest-row .timeline-content { border-radius: 12px; background: #f7f4eb; }
-  .transfer-row .timeline-content { border: 1px dashed #d5ded5; border-radius: 12px; background: #f4f7f2; }
+  .meta-pill { color:#52694f; background:rgba(232,239,221,.78); border-radius:5px; }
+  .meal-row .timeline-content, .free-row .timeline-content, .rest-row .timeline-content { border-radius:12px; background:rgba(250,246,232,.62); }
+  .transfer-row .timeline-content { border:1px dashed rgba(163,185,155,.64); border-radius:12px; background:rgba(239,246,232,.58); }
+  .departure-row .timeline-content, .arrival-row .timeline-content, .finish-row .timeline-content { border-color:rgba(179,199,164,.58); background:rgba(249,251,238,.72); }
+  .departure-row .event-title, .arrival-row .event-title, .finish-row .event-title { color:#3e67ad; }
   .meal-row .event-title, .transfer-row .event-title, .free-row .event-title { color: #53654e; }
   .event-edit-button, .swap-button, .map-link, .area-apply-button { color: #3d6255; border-color: #ccd8cb; }
+  .event-edit-button:hover, .event-edit-button[aria-expanded="true"], .departure-row .event-edit-button, .finish-row .event-edit-button { color:#3d6255; border-color:#bdceb8; background:#f2f6ec; }
+  .departure-row .event-edit-button:hover, .finish-row .event-edit-button:hover { color:#2d4f89; border-color:#9fb49b; background:#e9f0e2; }
+  .event-editor, .schedule-add { border-color:rgba(183,200,167,.66); background:rgba(253,253,244,.86); }
+  .editor-field input, .editor-field textarea, .schedule-field input, .schedule-field textarea, .schedule-field select, .schedule-duration input { color:#304a41; border-color:#cdd8c8; background:rgba(255,254,249,.94); }
+  .editor-field input:focus, .editor-field textarea:focus { border-color:#658373; }
+  .duration-part:focus-within { border-color:#658373; box-shadow:0 0 0 2px #e8eee3; }
+  .duration-part input[type="number"] { color:#304a41; }
+  .schedule-add>summary { color:#3d6255; }
+  .editor-actions button, .schedule-actions button { color:#3d6255; border-color:#cad6c6; }
+  .editor-actions .editor-save, .schedule-actions .schedule-save { color:#fff; border-color:#3e67ad; background:#3e67ad; }
+  .editor-actions .editor-save:hover, .schedule-actions .schedule-save:hover { color:#fff; border-color:#2d4f89; background:#2d4f89; }
+  .date-trigger.has-date, .calendar-heading h3, .time-popover-heading h3 { color:#3e67ad; }
+  .date-trigger[aria-expanded="true"], .day-start-form .time-trigger[aria-expanded="true"] { color:#304a41; border-color:#658373; box-shadow:0 0 0 3px #e8eee3; }
+  .date-trigger, .day-start-form .time-trigger { background:rgba(255,254,249,.92); }
+  .date-calendar, .time-popover { color:#304a41; border-color:var(--glass-line); background:var(--glass-menu); box-shadow:0 12px 32px rgba(17,40,30,.18); }
+  .select-search-input, .select-search-input:focus { background:#fff; border-color:#d8e2df; color:#3c5954; }
+  .calendar-nav { background:#f7f9f8; border-color:#dce5e2; color:#55756d; }
+  .calendar-nav:hover { background:#edf3f1; border-color:#bfcec7; }
+  .calendar-day:hover:enabled { background:#edf3f1; border-color:#d5e2dc; }
+  .calendar-day.is-today:enabled { background:#f1f6f4; border-color:#c2d6cb; color:#486b5e; }
+  .calendar-footer button, .calendar-footer .calendar-close { background:#eff3f2; color:#536e65; }
+  .calendar-footer button:hover { background:#e3ece8; }
+  .calendar-day { background:transparent; }
+  .time-list { background:#f4f7f6; }
+  .calendar-day.is-selected:enabled, .calendar-week>[role="gridcell"] .calendar-day.is-selected:enabled { color:#fff; border-color:#3e67ad; background:#3e67ad; box-shadow:0 2px 5px #3e67ad1a; }
+  .calendar-day.is-selected:hover:enabled, .calendar-week>[role="gridcell"] .calendar-day.is-selected:hover:enabled { border-color:#2d4f89; background:#2d4f89; }
+  .day-start-form .time-trigger { color:#304a41; border-color:#cdd8c8; }
+  .day-start-form .time-option[aria-selected="true"] { color:#fff; border-color:#3e67ad; background:#3e67ad; }
+  .day-start-form .time-option[aria-selected="true"]::after { color:#e9dfb7; }
+  .day-start-form .time-popover-footer .time-commit { color:#fff; border-color:#3e67ad; background:#3e67ad; }
+  .day-start-form .time-popover-footer .time-commit:hover { border-color:#2d4f89; background:#2d4f89; }
   .day-footnote { color: #5f6b5e; }
-  .backdrop-controls { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 14px; margin: 28px auto 0; padding: 10px 20px; max-width: 960px; color: #59695d; font-size: 11px; line-height: 1.6; }
-  .backdrop-controls a { text-underline-offset: 3px; }
-  .backdrop-controls button { min-height: 36px; padding: 5px 11px; border: 1px solid #c8d2c5; border-radius: 20px; background: #fffdf5; color: #405c4d; font-size: 11px; }
+  .backdrop-controls { display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:8px 14px; width:min(960px,calc(100% - 64px)); margin:28px auto 0; padding:10px 20px; border:1px solid var(--glass-line); border-radius:18px; background:rgba(255,254,247,.86); color:#405a4b; font-size:11px; line-height:1.6; box-shadow:0 8px 28px rgba(15,38,27,.1); }
+  .backdrop-controls a { min-width:0; text-underline-offset:3px; overflow-wrap:anywhere; }
+  .backdrop-controls button { min-height: 44px; padding: 5px 11px; border: 1px solid #c8d2c5; border-radius: 20px; background: #fff; color: #405c4d; font-size: 11px; }
   body:not([data-screen="start"]) .backdrop-controls button { display: none; }
-  .site-footer { border-color: #cbd4cb; color: #56675b; }
+  .site-footer { padding:12px 18px; border:1px solid var(--glass-line); border-radius:18px; background:rgba(255,254,247,.84); color:#405a4b; box-shadow:0 8px 28px rgba(15,38,27,.1); }
+  .site-footer span:first-child, .site-footer a { color:#3e67ad; }
+  .account-notice { background:rgba(255,252,235,.86); border-color:var(--glass-line); box-shadow:0 8px 28px rgba(15,38,27,.08); }
+  .account-notice-label { background:rgba(226,235,207,.85); color:#52694c; }
+  .account-notice-copy { color:#4e6254; }
+  .account-library, .resume-note, .empty-state, .fine-print, .account-save:not(:empty) { border:1px solid var(--glass-line); background:var(--glass-paper); box-shadow:0 10px 32px rgba(15,38,27,.1); }
+  .empty-state { margin-top:22px; border-radius:20px; }
+  .empty-state p, .empty-state>span, .fine-print, .fine-print strong { color:#3f5b4c; }
+  .account-save:not(:empty) { margin:0 0 20px; padding:12px 16px; border-radius:14px; }
+  .account-plan-card { border-color:rgba(182,200,165,.6); background:rgba(255,254,247,.7); }
+  .account-dialog-backdrop { background:rgba(8,30,22,.36); -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px); }
+  .account-dialog { border-color:var(--glass-line); background:rgba(255,255,255,.97); box-shadow:0 18px 70px rgba(8,30,22,.28); }
+  .account-dialog-field input { background:#fff; border-color:#d8e2df; }
+  .account-dialog-close:hover { background:#eef3f1; }
+  .account-dialog .account-button:not(.is-primary):not(.is-danger) { background:#f7f9f8; border-color:#d4e0da; color:#49685b; }
+  .account-dialog .account-dialog-tabs .account-button[aria-pressed="true"] { background:#e8f1ec; border-color:#b7cebf; color:#456955; }
+  .departure-row .day-origin, .restaurant-lookup, .transport-lookup, .connection-lookup, .car-route-lookup, .transit-route-lookup { border-color:rgba(183,200,167,.64); background:rgba(255,254,246,.62); }
+  .restaurant-card, .transport-trip, .origin-result { background:rgba(255,254,248,.78); }
+  .restaurant-select, .origin-search { color:#3e67ad; border-color:#bfd0b4; background:rgba(232,240,219,.84); }
+  .restaurant-select:hover, .origin-search:hover { border-color:#a6bc9a; background:rgba(220,233,204,.94); }
+  .car-route-compact, .transit-route-compact { background:transparent; }
+  .planner-panel, .day-card, .site-header, .backdrop-story, .account-notice, .account-library, .resume-note, .empty-state, .fine-print, .account-save:not(:empty), .account-dialog, .select-popover, .date-calendar, .time-popover, .backdrop-controls, .site-footer {
+    -webkit-backdrop-filter:blur(12px);
+    backdrop-filter:blur(12px);
+  }
+  /* Permanent surfaces on the start screen let the scenery stay fully visible. */
+  body[data-screen="start"] .planner-panel,
+  body[data-screen="start"] .account-notice,
+  body[data-screen="start"] .account-library,
+  body[data-screen="start"] .account-plan-card,
+  body[data-screen="start"] .resume-note,
+  body[data-screen="start"] .empty-state,
+  body[data-screen="start"] .backdrop-story,
+  body[data-screen="start"] .site-header,
+  body[data-screen="start"] .site-footer {
+    border-color:transparent;
+    background:transparent;
+    box-shadow:none;
+    -webkit-backdrop-filter:none;
+    backdrop-filter:none;
+  }
+  body[data-screen="start"] .intro-main::before { display:none; }
+  body[data-screen="start"] .planner-panel,
+  body[data-screen="start"] .account-notice,
+  body[data-screen="start"] .resume-note,
+  body[data-screen="start"] .account-library,
+  body[data-screen="start"] .empty-state {
+    background:rgba(255,255,255,.1);
+    border-color:rgba(255,255,255,.25);
+  }
+  body[data-screen="start"] .planner-panel,
+  body[data-screen="start"] .account-notice,
+  body[data-screen="start"] .account-library,
+  body[data-screen="start"] .resume-note,
+  body[data-screen="start"] .empty-state,
+  body[data-screen="start"] .backdrop-story,
+  body[data-screen="start"] .site-footer {
+    color:#fff;
+    text-shadow:0 1px 4px rgba(5,25,17,.85),0 3px 12px rgba(5,25,17,.55);
+  }
+  body[data-screen="start"] .panel-heading h2,
+  body[data-screen="start"] .step-label,
+  body[data-screen="start"] .field label,
+  body[data-screen="start"] .field-hint,
+  body[data-screen="start"] .form-footer p,
+  body[data-screen="start"] .account-notice-label,
+  body[data-screen="start"] .account-notice-copy,
+  body[data-screen="start"] .account-library h2,
+  body[data-screen="start"] .account-library-copy,
+  body[data-screen="start"] .account-library-message,
+  body[data-screen="start"] .account-plan-title,
+  body[data-screen="start"] .account-plan-meta,
+  body[data-screen="start"] .resume-note strong,
+  body[data-screen="start"] .resume-note p,
+  body[data-screen="start"] .empty-state p,
+  body[data-screen="start"] .empty-state>span,
+  body[data-screen="start"] .empty-features span,
+  body[data-screen="start"] .backdrop-story strong,
+  body[data-screen="start"] .backdrop-story p,
+  body[data-screen="start"] .site-footer span:first-child,
+  body[data-screen="start"] .site-footer a { color:#fff; text-shadow:inherit; }
+  body[data-screen="start"] .step-number,
+  body[data-screen="start"] .field-label-icon,
+  body[data-screen="start"] .account-notice-label,
+  body[data-screen="start"] .empty-features span { color:#fff; background:transparent; }
+  body[data-screen="start"] .form-footer { border-color:rgba(255,255,243,.35); }
+  body[data-screen="start"] .planner-panel .field>input,
+  body[data-screen="start"] .planner-panel .field>select,
+  body[data-screen="start"] .planner-panel .select-trigger,
+  body[data-screen="start"] .planner-panel .date-trigger,
+  body[data-screen="start"] .button,
+  body[data-screen="start"] .button-primary,
+  body[data-screen="start"] .site-header .account-button,
+  body[data-screen="start"] .account-library .account-button {
+    color:#fff;
+    border-color:rgba(255,255,243,.85);
+    background:rgba(255,255,255,.1);
+    box-shadow:none;
+    text-shadow:0 1px 4px rgba(5,25,17,.8);
+  }
+  body[data-screen="start"] .planner-panel .select-trigger:hover,
+  body[data-screen="start"] .planner-panel .select-trigger[aria-expanded="true"],
+  body[data-screen="start"] .planner-panel .date-trigger:hover,
+  body[data-screen="start"] .planner-panel .date-trigger[aria-expanded="true"],
+  body[data-screen="start"] .button:hover,
+  body[data-screen="start"] .button-primary:active,
+  body[data-screen="start"] .site-header .account-button:hover,
+  body[data-screen="start"] .account-library .account-button:hover {
+    color:#fff;
+    border-color:#fff;
+    background:rgba(255,255,255,.16);
+    box-shadow:none;
+  }
+  body[data-screen="start"] .planner-panel .select-trigger:focus-visible,
+  body[data-screen="start"] .planner-panel .date-trigger:focus-visible,
+  body[data-screen="start"] .button:focus-visible,
+  body[data-screen="start"] .site-header .account-button:focus-visible,
+  body[data-screen="start"] .account-library .account-button:focus-visible { outline-color:#fff7d9; }
+  body[data-screen="start"] .planner-panel .select-trigger:disabled { color:rgba(255,253,242,.8); border-color:rgba(255,255,243,.4); background:transparent; }
+  body[data-screen="start"] .planner-panel .date-trigger>span:last-child { color:#fff; }
+  body[data-screen="start"] .planner-panel .select-arrow { border-color:#fff; }
+  body[data-screen="start"] .account-notice .account-notice-link,
+  body[data-screen="start"] .account-notice .account-notice-link:hover { color:#fff; background:transparent; text-shadow:inherit; }
+  body[data-screen="start"] .planner-panel .select-popover,
+  body[data-screen="start"] .planner-panel .date-calendar { color:#304a41; background:var(--glass-menu); text-shadow:none; }
+  body[data-screen="start"] .app-message { color:#fff; border-color:rgba(255,255,255,.25); background:rgba(255,255,255,.1); box-shadow:none; text-shadow:0 1px 4px rgba(5,25,17,.85),0 3px 12px rgba(5,25,17,.55); }
+  body[data-screen="start"] .app-message.is-error { color:#fff; border-color:rgba(255,176,156,.85); border-left:3px solid #ffc3b1; background:rgba(255,255,255,.1); }
+  /* A flat shade avoids backdrop-filter seams while the fixed photos crossfade. */
+  body[data-screen="start"] {
+    --start-text-shadow:0 1px 2px rgba(4,12,28,.95),0 2px 6px rgba(4,12,28,.8);
+  }
+  body[data-screen="start"] :is(.planner-panel,.account-notice,.account-library,.resume-note,.empty-state,.app-message,.site-footer) {
+    background:rgba(255,255,255,.1);
+    border-color:rgba(255,255,255,.65);
+    box-shadow:inset 0 0 0 100vmax rgba(8,18,36,.58),0 0 0 1px rgba(5,15,35,.28),0 8px 24px rgba(5,15,35,.15);
+    -webkit-backdrop-filter:none;
+    backdrop-filter:none;
+    text-shadow:var(--start-text-shadow);
+  }
+  body[data-screen="start"] :is(.planner-panel,.account-notice,.account-library,.resume-note,.empty-state,.app-message,.site-footer) :is(p,strong,label,h2,small,a,.step-label,.field-hint,.account-notice-copy,.account-plan-meta,.account-library-message,.account-library-copy) { text-shadow:inherit; }
+  body[data-screen="start"] .site-footer { color:#fff; }
+  body[data-screen="start"] .intro-main::before { content:none; display:none; }
+  body[data-screen="start"] :is(.wordmark,.wordmark small,.eyebrow,.intro h1,.intro h1 em,.intro-copy,.account-user) { color:#fff; text-shadow:var(--start-text-shadow); }
+  body[data-screen="start"] .intro h1,
+  body[data-screen="start"] .intro h1 em { text-shadow:0 2px 4px rgba(4,12,28,.72),0 5px 16px rgba(4,12,28,.3); }
+  body[data-screen="start"] .intro h1 em { color:inherit; font-style:normal; background:none; box-shadow:none; }
+  body[data-screen="start"] .intro h1 em::after { content:none; display:none; }
+  body[data-screen="start"] .backdrop-story {
+    width:fit-content;
+    max-width:100%;
+    padding:8px 0;
+    background:transparent;
+    border:0;
+    box-shadow:none;
+    -webkit-backdrop-filter:none;
+    backdrop-filter:none;
+    text-shadow:var(--start-text-shadow);
+  }
+  body[data-screen="start"] .backdrop-story p { font-size:12px; line-height:1.7; }
+  body[data-screen="start"] :is(.field-hint,.form-footer p,.account-notice-copy,.resume-note p,.account-plan-meta,.site-footer) { font-size:12px; line-height:1.7; }
+  body[data-screen="start"] .field label { font-weight:650; }
+  body[data-screen="start"] .form-footer { border-color:rgba(255,255,255,.55); }
+  body[data-screen="start"] .planner-panel :is(.field>input,.field>select,.select-trigger,.date-trigger),
+  body[data-screen="start"] :is(.button,.site-header .account-button,.account-library .account-button) {
+    border-color:rgba(255,255,255,.95);
+    background:rgba(255,255,255,.1);
+    box-shadow:0 0 0 1px rgba(5,15,35,.32),inset 0 1px 0 rgba(255,255,255,.15);
+    text-shadow:var(--start-text-shadow);
+    font-weight:600;
+  }
+  body[data-screen="start"] .site-header .account-button {
+    box-shadow:inset 0 0 0 100vmax rgba(8,18,36,.58),0 0 0 1px rgba(5,15,35,.32);
+    -webkit-backdrop-filter:none;
+    backdrop-filter:none;
+  }
+  body[data-screen="start"] .account-plan-card { border-color:rgba(255,255,255,.55); background:rgba(255,255,255,.1); }
+  body[data-screen="start"] .planner-panel :is(.select-trigger,.date-trigger):hover:enabled,
+  body[data-screen="start"] .button:hover:enabled,
+  body[data-screen="start"] .site-header .account-button:hover:enabled { background:rgba(255,255,255,.16); border-color:#fff; }
+  body[data-screen="start"] .planner-panel .select-trigger:disabled,
+  body[data-screen="start"] .button:disabled,
+  body[data-screen="start"] .site-header .account-button:disabled { opacity:1; color:#e5edfc; border-color:rgba(255,255,255,.65); border-style:dashed; background:rgba(255,255,255,.06); }
+  body[data-screen="start"] .planner-panel :is(.select-trigger,.date-trigger):focus-visible,
+  body[data-screen="start"] :is(.button,.site-header .account-button,.account-library .account-button):focus-visible { outline:3px solid #c5daff; outline-offset:3px; box-shadow:0 0 0 6px rgba(5,15,35,.7); }
+  body[data-screen="start"] .data-status { color:#fff; background:rgba(255,255,255,.1); border-color:rgba(255,255,255,.65); text-shadow:var(--start-text-shadow); font-size:12px; }
+  body[data-screen="start"] .app-message.is-error { border-color:#ffc3b1; border-left-width:3px; }
+  /* Menus stay opaque and use dark text, even inside a filtered glass panel. */
+  body[data-screen="start"] .planner-panel :is(.select-popover,.date-calendar) { color:#203758; background:#fff; text-shadow:none; -webkit-backdrop-filter:none; backdrop-filter:none; }
+  body[data-screen="start"] .planner-panel :is(.select-popover,.date-calendar) * { text-shadow:none; }
+  .site-header { -webkit-backdrop-filter:none; backdrop-filter:none; }
+  /* White paper and a calm, clear blue, with no photo behind the note. */
+  body[data-screen="note"] { --paper:#edf4ff; --card:#fff; --ink:#203758; --muted:#546782; --line:#d2dff2; --teal:#3e67ad; --teal-dark:#2d4f89; --mint-soft:#eaf2ff; --lemon:#eaf2ff; background:linear-gradient(160deg,#f5f8ff,#edf4ff); background-attachment:fixed; }
+  body[data-screen="note"] .travel-backdrop, body[data-screen="note"] .backdrop-controls, body[data-screen="note"] .backdrop-story { display:none; }
+  body[data-screen="note"] .site-header { border-color:transparent; background:transparent; }
+  body[data-screen="note"] .wordmark, body[data-screen="note"] .note-page-title { color:#203758; text-shadow:none; }
+  body[data-screen="note"] .wordmark small, body[data-screen="note"] .account-user, body[data-screen="note"] .itinerary-heading p, body[data-screen="note"] .itinerary-heading .step-label { color:#546782; text-shadow:none; }
+  body[data-screen="note"] .itinerary-heading { align-items:center; gap:16px; margin-bottom:18px; padding:16px 2px 18px; border-bottom:1px solid #d2dff2; }
+  body[data-screen="note"] .note-page-title { font-weight:760; letter-spacing:-.05em; }
+  body[data-screen="note"] #trip-summary { color:#546782; line-height:1.85; }
+  body[data-screen="note"] .heading-actions { align-items:center; }
+  body[data-screen="note"] .heading-actions .button { min-height:44px; }
+  .note-timing-notice { margin:0 0 18px; padding:12px 16px; border:1px solid #d2dff2; border-left:3px solid #86a6d5; border-radius:12px; background:#eaf2ff; color:#34527b; font-size:12px; font-weight:500; line-height:1.85; overflow-wrap:anywhere; }
+  body[data-screen="note"] .account-save:not(:empty) { margin:0 0 20px; padding:0 2px; border:0; border-radius:0; background:none; box-shadow:none; -webkit-backdrop-filter:none; backdrop-filter:none; }
+  body[data-screen="note"] .account-save-actions { align-items:center; gap:8px 12px; }
+  body[data-screen="note"] .account-save-status { flex:1 1 260px; order:-1; margin:0; color:#586c89; font-size:11px; text-align:left; }
+  body[data-screen="note"] .day-list { gap:26px; }
+  body[data-screen="note"] .day-card { border-color:#d2dff2; background:#fff; box-shadow:0 8px 24px rgba(36,66,110,.05); -webkit-backdrop-filter:none; backdrop-filter:none; }
+  body[data-screen="note"] .day-card-header,
+  body[data-screen="note"] .day-card:nth-child(3n+2) .day-card-header,
+  body[data-screen="note"] .day-card:nth-child(3n) .day-card-header { border-bottom-color:#d2dff2; background:linear-gradient(105deg,#eaf2ff,#f7faff); }
+  body[data-screen="note"] .day-title strong { color:#3e67ad; }
+  body[data-screen="note"] .day-title span { color:#586c89; }
+  body[data-screen="note"] .day-card .timeline-time { color:#586c89; }
+  body[data-screen="note"] .timeline-row:not(:last-child)::before { background:#d2dff2; }
+  body[data-screen="note"] .timeline-time .timeline-reorder { --dot-fill:#8da8d2; --dot-ring:#eaf2ff; }
+  body[data-screen="note"] .timeline-time::before { background:#8da8d2; border-color:#eaf2ff; box-shadow:0 0 0 3px #fff; }
+  body[data-screen="note"] .timeline-dot::before { box-shadow:0 0 0 2px #fff; }
+  body[data-screen="note"] .timeline-dot:hover::before, body[data-screen="note"] .timeline-dot[aria-expanded="true"]::before { box-shadow:0 0 0 3px #eaf2ff; }
+  body[data-screen="note"] .place-row .timeline-content { border-color:#d2dff2; border-left-color:#b4c8e5; background:#fff; box-shadow:none; }
+  body[data-screen="note"] .meal-row .timeline-content { background:#f7faff; }
+  body[data-screen="note"] .transfer-row .timeline-content { border-color:#d2dff2; background:#f7faff; }
+  body[data-screen="note"] .departure-row .timeline-content,
+  body[data-screen="note"] .arrival-row .timeline-content { border-color:#d2dff2; background:#f7faff; }
+  body[data-screen="note"] .finish-row .timeline-content { border-color:#d2dff2; background:#f7faff; }
+  body[data-screen="note"] .day-card .event-title { color:#203758; }
+  body[data-screen="note"] .event-description,
+  body[data-screen="note"] .event-subtitle { color:#586c89; }
+  body[data-screen="note"] .meta-pill { background:#eaf2ff; color:#586c89; }
+  body[data-screen="note"] .day-footnote { margin:0 27px; padding:13px 0 18px 100px; border-top:1px dashed #eaf2ff; color:#586c89; }
+  body[data-screen="note"] .schedule-add { border-color:#d2dff2; background:#f7faff; }
+  body[data-screen="note"] .fine-print { border-color:#d2dff2; background:#f7faff; box-shadow:none; -webkit-backdrop-filter:none; backdrop-filter:none; }
+  body[data-screen="note"] .fine-print, body[data-screen="note"] .fine-print strong { color:#586c89; }
+  body[data-screen="note"] .site-footer { border-color:#d2dff2; background:rgba(255,255,255,.7); box-shadow:none; -webkit-backdrop-filter:none; backdrop-filter:none; }
+  /* Neutralize older warm component surfaces, including opened and read-only states. */
+  body[data-screen="note"] .step-number,
+  body[data-screen="note"] .day-origin-mode,
+  body[data-screen="note"] .local-transfer-recommendation { color:#546782; background:#eaf2ff; }
+  body[data-screen="note"] .day-card .place-sticker { background:#eaf2ff; }
+  body[data-screen="note"] .day-origin,
+  body[data-screen="note"] .restaurant-lookup,
+  body[data-screen="note"] .transport-lookup,
+  body[data-screen="note"] .connection-lookup,
+  body[data-screen="note"] .car-route-lookup,
+  body[data-screen="note"] .transit-route-lookup,
+  body[data-screen="note"] .event-editor { background:#f7faff; border-color:#d2dff2; }
+  body[data-screen="note"] .departure-row .day-timing { background:transparent; }
+  body[data-screen="note"] .car-route-compact,
+  body[data-screen="note"] .transit-route-compact { background:transparent; }
+  body[data-screen="note"] .restaurant-card,
+  body[data-screen="note"] .transport-trip,
+  body[data-screen="note"] .origin-result,
+  body[data-screen="note"] .car-route-result,
+  body[data-screen="note"] .transit-route-result { border-color:#d2dff2; background:#fff; }
+  body[data-screen="note"] .origin-selected,
+  body[data-screen="note"] .connection-preview { background:#eaf2ff; border-color:#d2dff2; }
+  body[data-screen="note"] .restaurant-body,
+  body[data-screen="note"] .transport-body,
+  body[data-screen="note"] .connection-body,
+  body[data-screen="note"] .car-route-body,
+  body[data-screen="note"] .transit-route-body,
+  body[data-screen="note"] .schedule-form { border-color:#d2dff2; }
+  body[data-screen="note"] .field input,
+  body[data-screen="note"] .field select,
+  body[data-screen="note"] .select-trigger,
+  body[data-screen="note"] .date-trigger,
+  body[data-screen="note"] .day-start-form .time-trigger,
+  body[data-screen="note"] .editor-field input,
+  body[data-screen="note"] .editor-field textarea,
+  body[data-screen="note"] .schedule-field input,
+  body[data-screen="note"] .schedule-field textarea,
+  body[data-screen="note"] .schedule-field select,
+  body[data-screen="note"] .schedule-duration input,
+  body[data-screen="note"] .duration-part,
+  body[data-screen="note"] .local-transfer-select,
+  body[data-screen="note"] .connection-gap,
+  body[data-screen="note"] .connection-date,
+  body[data-screen="note"] .transit-route-select,
+  body[data-screen="note"] .restaurant-manual-label input,
+  body[data-screen="note"] .restaurant-manual-label textarea,
+  body[data-screen="note"] .account-dialog-field input { color:#546782; border-color:#d2dff2; background:#fff; }
+  body[data-screen="note"] .duration-part input[type="number"] { background:transparent; }
+  body[data-screen="note"] .editor-field input[readonly],
+  body[data-screen="note"] .schedule-field input[readonly],
+  body[data-screen="note"] .select-trigger:disabled,
+  body[data-screen="note"] .time-trigger:disabled,
+  body[data-screen="note"] .departure-settings .origin-query:disabled,
+  body[data-screen="note"] .select-option:disabled { color:#91aacc; border-color:#d2dff2; background:#eaf2ff; }
+  body[data-screen="note"] .select-option:hover:enabled,
+  body[data-screen="note"] .select-option[aria-selected="true"]:enabled { color:#546782; border-color:#d2dff2; background:#eaf2ff; }
+  body[data-screen="note"] .select-popover,
+  body[data-screen="note"] .time-popover { border-color:#d2dff2; background:rgba(255,255,255,.98); }
+  body[data-screen="note"] .time-list { border-color:#d2dff2; background:#f7faff; }
+  body[data-screen="note"] :is(.button,.account-button,.event-edit-button,.swap-button,.map-link,.area-apply-button,.restaurant-refresh,.restaurant-more,.restaurant-map,.restaurant-select,.transport-more,.origin-search,.origin-clear,.connection-apply,.car-route-refresh,.car-route-apply,.transit-route-refresh,.transit-route-edit),
+  body[data-screen="note"] .editor-actions button,
+  body[data-screen="note"] .schedule-actions button,
+  body[data-screen="note"] .schedule-restore-list button,
+  body[data-screen="note"] .transport-controls button,
+  body[data-screen="note"] .restaurant-manual-actions button,
+  body[data-screen="note"] .day-start-form button,
+  body[data-screen="note"] .swap-picker button { color:#546782; border-color:#d2dff2; background:#fff; }
+  body[data-screen="note"] :is(.button,.account-button,.event-edit-button,.swap-button,.map-link,.area-apply-button,.restaurant-refresh,.restaurant-more,.restaurant-map,.restaurant-select,.transport-more,.origin-search,.origin-clear,.connection-apply,.car-route-refresh,.car-route-apply,.transit-route-refresh,.transit-route-edit):hover:enabled,
+  body[data-screen="note"] .editor-actions .editor-cancel:hover,
+  body[data-screen="note"] .day-start-form .time-option:hover:enabled,
+  body[data-screen="note"] .day-start-form .time-popover-footer .time-cancel:hover,
+  body[data-screen="note"] .swap-picker button:hover { border-color:#b4c8e5; background:#eaf2ff; }
+  body[data-screen="note"] .map-link:hover,
+  body[data-screen="note"] .restaurant-map:hover { color:#546782; border-color:#b4c8e5; background:#eaf2ff; }
+  body[data-screen="note"] .event-edit-button[aria-expanded="true"],
+  body[data-screen="note"] .account-dialog-tabs [aria-pressed="true"] { color:#546782; border-color:#b4c8e5; background:#eaf2ff; }
+  body[data-screen="note"] .account-button.is-primary,
+  body[data-screen="note"] .editor-actions .editor-save,
+  body[data-screen="note"] .schedule-actions .schedule-save,
+  body[data-screen="note"] .restaurant-manual-actions .restaurant-manual-save,
+  body[data-screen="note"] .day-start-form .time-option[aria-selected="true"],
+  body[data-screen="note"] .day-start-form .time-popover-footer .time-commit { color:#fff; border-color:#3e67ad; background:#3e67ad; }
+  body[data-screen="note"] .account-button.is-primary:hover,
+  body[data-screen="note"] .editor-actions .editor-save:hover,
+  body[data-screen="note"] .schedule-actions .schedule-save:hover,
+  body[data-screen="note"] .restaurant-manual-actions .restaurant-manual-save:hover,
+  body[data-screen="note"] .day-start-form .time-option[aria-selected="true"]:hover,
+  body[data-screen="note"] .day-start-form .time-popover-footer .time-commit:hover { color:#fff; border-color:#2d4f89; background:#2d4f89; }
+  body[data-screen="note"] .day-start-form .time-option[aria-selected="true"]::after { color:#d2dff2; }
+  body[data-screen="note"] .timeline-move-controls,
+  body[data-screen="note"] .timeline-move-controls .event-move-button { color:#546782; border-color:#d2dff2; background:#fff; }
+  body[data-screen="note"] .schedule-restore { color:#586c89; border-color:#d2dff2; background:#f7faff; }
+  body[data-screen="note"] .event-remove-button,
+  body[data-screen="note"] .account-button.is-danger { color:#9c6b64; border-color:#eadbd7; background:#fff7f5; }
+  body[data-screen="note"] :is(.editor-field,.duration-field legend,.duration-part>span,.editor-help,.schedule-field,.schedule-duration,.schedule-duration-part,.schedule-help,.schedule-place-hint,.schedule-duration-hint,.schedule-summary-mark,.day-start-form label,.day-timing-note,.departure-intro,.day-origin-heading,.day-origin-action,.restaurant-heading,.restaurant-introduction,.restaurant-meta,.restaurant-address,.restaurant-note,.restaurant-preview,.restaurant-manual-label,.transport-heading,.transport-summary-action,.transport-note,.transport-footnote,.connection-heading,.connection-note,.connection-date-hint,.connection-leg-label,.local-transfer-context,.local-transfer-field,.local-transfer-hint,.local-transfer-basis,.car-route-introduction,.transit-route-introduction,.transit-route-note,.swap-scope) { color:#586c89; }
+  body[data-screen="note"] :is(.restaurant-name,.origin-result strong,.origin-selection-copy strong,.has-origin .day-origin-name,.transport-preview,.transport-trip>strong,.connection-summary-preview,.connection-preview strong,.car-route-heading,.car-route-duration,.transit-route-heading,.transit-route-duration) { color:#546782; }
+  body[data-screen="note"] .app-message { color:#546782; border-color:#d2dff2; background:#f7faff; }
+  body[data-screen="note"] .app-message.is-error { color:#9c6b64; border-color:#eadbd7; background:#fff7f5; }
+  body[data-screen="note"] .site-footer,
+  body[data-screen="note"] .site-footer span:first-child,
+  body[data-screen="note"] .site-footer a { color:#546782; }
+  body[data-screen="note"] :is(.account-dialog-title,.account-library h2,.account-plan-title,.calendar-heading h3,.time-popover-heading h3) { color:#203758; }
+  body[data-screen="note"] :is(.account-dialog-copy,.account-dialog-field,.account-dialog-message,.account-plan-meta,.origin-result span,.origin-selection-copy>span,.origin-attribution,.time-popover-heading>span,.time-column-label,.restaurant-summary-action,.car-route-summary-action,.transit-route-summary-action,.transit-route-step-list,.event-meta a,.car-route-fallback) { color:#546782; }
+  body[data-screen="note"] .account-dialog-message.is-error { color:#9c6b64; }
+  body[data-screen="note"] .time-popover-footer,
+  body[data-screen="note"] .schedule-restore { border-color:#d2dff2; }
+  body[data-screen="note"] .account-dialog .account-dialog-tabs .account-button[aria-pressed="true"] { color:#34527b; border-color:#b7cdef; background:#eaf2ff; }
+  body[data-screen="note"] .select-option[aria-selected="true"]::before { color:#3e67ad; }
+  body[data-screen="note"] .timeline-dot:focus-visible::before,
+  body[data-screen="note"] .timeline-move-controls .event-move-button:focus-visible { outline-color:#7296cf; }
+  body[data-screen="note"] :is(.event-editor,.day-start-form,.account-nav,.account-dialog,.restaurant-lookup,.connection-lookup,.transport-lookup,.select-popover,.schedule-add,.local-transfer-controls) :focus-visible { outline-color:#7296cf; }
+  body[data-screen="note"] .duration-part:focus-within,
+  body[data-screen="note"] .select-trigger[aria-expanded="true"],
+  body[data-screen="note"] .day-start-form .time-trigger[aria-expanded="true"] { border-color:#8dabda; box-shadow:0 0 0 3px #e7effc; }
+  body[data-screen="note"] .editor-field input:focus,
+  body[data-screen="note"] .editor-field textarea:focus,
+  body[data-screen="note"] .account-dialog-field input:focus { border-color:#8dabda; }
   @media (max-width: 600px) {
+    .site-header { gap:10px; min-height:80px; padding:12px; }
+    .site-header .wordmark { gap:8px; }
+    .site-header .wordmark-mark { flex-basis:39px; }
+    .site-header .account-nav { gap:5px 6px; }
+    .site-header .account-button { padding:8px 10px; font-size:10px; }
+    .site-header .account-user { max-width:52px; }
     .intro { padding: 30px 0 25px; }
-    .day-card-header, .day-card:nth-child(3n+2) .day-card-header, .day-card:nth-child(3n) .day-card-header { padding: 18px; }
+    .day-card-header, .day-card:nth-child(3n+2) .day-card-header, .day-card:nth-child(3n) .day-card-header { padding:18px; border-radius:15px 15px 0 0; }
     .timeline { padding: 17px 14px; }
     .day-card { border-radius: 16px; }
     .event-title { font-size: 14px; }
     .note-page-title { font-size: 25px; }
-    .backdrop-controls { align-items: center; padding: 8px 20px; }
+    .note-timing-notice { padding:11px 13px; font-size:11px; }
+    body[data-screen="note"] .itinerary-heading { align-items:flex-start; padding-top:10px; }
+    body[data-screen="note"] .day-list { gap:20px; }
+    body[data-screen="note"] .day-footnote { margin:0 14px; padding:12px 0 16px 18px; }
+    .backdrop-controls { width:calc(100% - 32px); align-items:center; padding:8px 16px; }
     .backdrop-controls a { flex-basis: 100%; text-align: center; }
+  }
+  @media (max-width:600px), (pointer:coarse) {
+    .timeline-content .event-footer>.event-edit-button, .departure-row .event-edit-button,
+    .swap-button, .map-link, .area-apply-button, .editor-actions button,
+    .day-start-form .time-trigger, .day-start-form .time-option,
+    .day-start-form .time-popover-footer button,
+    .departure-row .day-start-form>button[type="submit"],
+    .custom-select-area .select-trigger, .custom-select-swap .select-trigger,
+    .select-option, .calendar-footer button { min-height:44px; }
+    .day-start-form .time-trigger { height:44px; }
+    .calendar-nav { width:44px; height:44px; }
+    .backdrop-controls a { display:inline-flex; align-items:center; justify-content:center; min-height:44px; }
   }
   @media (prefers-reduced-motion: reduce) { .travel-backdrop-photo { transition: none; } }
 }
 @media print { .travel-backdrop, .backdrop-controls { display: none !important; } }
+@media print { .note-timing-notice { margin:0 0 12px; padding:7px 10px; border:1px solid #d2dff2; color:#34527b; font-size:8pt; line-height:1.6; } }

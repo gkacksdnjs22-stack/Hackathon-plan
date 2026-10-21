@@ -3,5 +3,12 @@ cloudflare-upload/
 *.zip
 .env
 .env.*
+!.env.example
 .local/
 .wrangler/
+.dev.vars
+.dev.vars.*
+artifacts/
+*.log
+*.sqlite*
+AUTH_SECRET.txt

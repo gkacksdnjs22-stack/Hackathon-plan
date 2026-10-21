@@ -1,6 +1,6 @@
 길 — 계정별 여행 계획 저장 / Cloudflare 업로드 안내
 
-이번 업로드 파일: 길-Cloudflare-계정저장.zip
+이번 업로드 파일: 길-Cloudflare-사진-투명.zip
 이전 ‘교통연동.zip’, ‘업로드.zip’은 이번 수정이 포함되지 않은 파일입니다.
 
 이번에 처음 한 번만 설정할 것
@@ -32,7 +32,7 @@
    기존 DATA_GO_KR_SERVICE_KEY, KAKAO_REST_API_KEY 설정은 유지합니다.
    두 API 키도 가능한 Secret 유형으로 보관합니다.
 
-5. 배포 생성 → Production → ‘길-Cloudflare-계정저장.zip’ 업로드 → 저장 및 배포
+5. 배포 생성 → Production → ‘길-Cloudflare-사진-투명.zip’ 업로드 → 저장 및 배포
    프로젝트 전체 폴더, .env, .local, SQL 파일을 업로드하지 않습니다.
    Secret과 DB 연결은 설정을 저장한 뒤 만든 새 배포부터 적용됩니다.
    ZIP은 이미 빌드돼 있어 별도 빌드 명령이나 Node 호환 옵션은 필요하지 않습니다.

@@ -28,15 +28,17 @@
   function requestedScreen(){return /^#\/note\/?$/.test(window.location.hash)?'note':'start';}
   function syncScreen({focus=true}={}){
     let screen=requestedScreen();
+    let needsStartPrompt=false;
     if(screen==='note'&&!currentItinerary){
       if(startupPending)screen='loading';
       else{
         window.history.replaceState(null,'','#/start');
         screen='start';
-        if($('app-message').hidden)showMessage('먼저 여행 조건을 고르고 일정을 만들어 주세요.');
+        needsStartPrompt=true;
       }
     }
     const changed=screen!==activeScreen;
+    if(changed&&activeScreen!==null&&(messageKind==='info'||messageKind==='success'))hideMessage();
     if(changed&&activeScreen==='note'){
       closeReorderControls();
       $('itinerary-section').querySelectorAll('details[open]').forEach(details=>{details.open=false;});
@@ -50,6 +52,7 @@
     document.body.dataset.screen=screen;
     document.title=screen==='note'?'나만의 여행 노트 — 길':screen==='loading'?'여행 노트 불러오는 중 — 길':'길 — 마음이 향하는 국내 여행';
     activeScreen=screen;
+    if(needsStartPrompt&&$('app-message').hidden)showMessage('먼저 여행 조건을 고르고 일정을 만들어 주세요.');
     if(changed&&focus){
       $(screen==='note'?'itinerary-title':screen==='loading'?'loading-title':'title').focus({preventScroll:true});
       window.scrollTo({top:0,left:0,behavior:'instant'});
@@ -215,6 +218,8 @@
     $('itinerary-section').hidden=true;
     $('empty-state').hidden=false;
     $('day-list').replaceChildren();
+    $('note-timing-notice').hidden=true;
+    $('note-timing-notice').textContent='';
     syncScreen();
   }
   function discardItineraryForChangedConditions(){
@@ -250,8 +255,8 @@
     account?.detach();
     renderItinerary();
     const saved=saveItinerary();
-    showMessage(saved?'추천 장소를 여행 노트에 담았어요. 일정과 시간을 내 계획에 맞게 다듬어 보세요.':'추천 노트는 만들었지만 브라우저 저장에 실패했어요. 저장 공간 설정을 확인해 주세요.',saved?'success':'error');
     navigate('note');
+    showMessage(saved?'추천 장소를 여행 노트에 담았어요. 일정과 시간을 내 계획에 맞게 다듬어 보세요.':'추천 노트는 만들었지만 브라우저 저장에 실패했어요. 저장 공간 설정을 확인해 주세요.',saved?'success':'error');
   }
   function saveItinerary(itinerary=currentItinerary){
     try{
@@ -415,6 +420,11 @@
     const city=window.TRAVEL_DATA.cities[currentItinerary.cityId];
     if(!city)return;
     $('trip-summary').textContent=`${currentItinerary.countryName} ${currentItinerary.cityName} · ${currentItinerary.startDate}부터 ${currentItinerary.dayCount}일 · 현지 시간 ${city.timezone}`;
+    const timingNotice=$('note-timing-notice');
+    const provisional=currentItinerary.days.some(day=>day.timesProvisional);
+    const timingMessage=provisional?'출발지와 미정인 이동시간을 먼저 정해 주세요. 미정은 실제 이동 0분이 아니며, 도착·식사 시각은 달라질 수 있어요.':'';
+    timingNotice.hidden=!provisional;
+    if(timingNotice.textContent!==timingMessage)timingNotice.textContent=timingMessage;
     $('capacity-message').hidden=true;
     const list=$('day-list');
     destroyDepartureWidgets();
@@ -456,11 +466,6 @@
     controls.append(select,apply);
     head.append(title,controls);
     article.append(head);
-    if(day.timesProvisional){
-      const warning=document.createElement('p');warning.className='departure-hint';warning.setAttribute('role','status');
-      warning.textContent='임시 일정 · 출발지와 미정인 이동시간을 먼저 정해 주세요. 미정은 실제 이동 0분이 아니며, 아래 도착·식사 시각은 달라질 수 있어요.';
-      article.append(warning);
-    }
     const timeline=document.createElement('div');
     timeline.className='timeline';
     day.events.forEach(event=>timeline.append(renderEvent(event,index,city)));
@@ -500,7 +505,7 @@
     }
     const foot=document.createElement('div');
     foot.className='day-footnote';
-    foot.textContent=`${formatTime(day.start)} 출발 · ${formatTime(day.end)} 마무리${day.timesProvisional?' · 출발지와 필요한 이동시간을 정하면 시각이 조정돼요.':' · 입력한 소요시간 기준이에요.'}`;
+    foot.textContent=`${formatTime(day.start)} 출발 · ${formatTime(day.end)} 마무리${day.timesProvisional?'':' · 입력한 소요시간 기준이에요.'}`;
     article.append(foot);
     return article;
   }
@@ -752,10 +757,6 @@
       const meta=document.createElement('div');meta.className='event-meta';
       if(event.duration){const duration=document.createElement('span');duration.className='meta-pill';duration.textContent=`${currentItinerary.days[dayIndex].arrival?'교통편 예상':'첫 관광지까지'} ${formatDuration(event.duration)} · ${currentItinerary.days[dayIndex].transport?'선택한 시간표':'계획용 예상'}`;meta.append(duration);}
       if(meta.childNodes.length)content.append(meta);
-      if(currentItinerary.days[dayIndex].timesProvisional){
-        const day=currentItinerary.days[dayIndex];
-        const hint=document.createElement('p');hint.className='departure-hint';hint.textContent=!day.departure?'출발지와 예상 이동시간을 정하면 아래 시각이 조정돼요.':window.TravelPlanner.requiresArrival(day.departure.mode)&&!day.arrival?'도착역·터미널 등을 선택하고 두 구간의 예상 이동시간을 정해 주세요. 지금 시각은 임시 계획이에요.':day.arrival?'교통편과 도착지 → 첫 관광지의 예상시간을 각각 입력해 주세요. 미정인 구간이 있어 시각이 임시로 표시돼요.':'첫 관광지와 관광지 사이의 미정인 이동시간을 입력해 주세요. 지금 시각은 임시 계획이에요.';content.append(hint);
-      }
     }else if(event.type==='arrival'){
       const title=document.createElement('h3');title.className='event-title';title.textContent=eventName(event);
       const address=document.createElement('p');address.className='event-description';address.textContent=event.arrival.address;
@@ -868,6 +869,26 @@
       const day=currentItinerary.days[dayIndex];
       const mealIndex=day.events.findIndex(item=>item.id===event.id);
       const nearby=day.events.slice(0,mealIndex).reverse().find(item=>item.type==='place')?.place||day.events.find(item=>item.type==='place')?.place;
+      const manualHost=document.createElement('div');manualHost.className='meal-manual-container';
+      content.append(manualHost);
+      const mealLabel=event.meal||'식사';
+      const savedMeal=currentItinerary.eventEdits?.[dayIndex]?.[event.id]||(extra?event:null);
+      const manualName=event.title?.includes(' · ')?event.title.slice(event.title.indexOf(' · ')+3):(savedMeal?.title&&savedMeal.title!==mealLabel?savedMeal.title:'');
+      const saveManualMeal=(value,clear=false)=>{
+        if(currentItinerary?.cityId!==city.id)return {ok:false,reason:'현재 여행 노트에서 다시 입력해 주세요.'};
+        const selected=currentItinerary.days[dayIndex]?.events.find(entry=>entry.id===event.id&&entry.type==='meal');
+        if(!selected)return {ok:false,reason:'식사 일정을 확인한 뒤 다시 입력해 주세요.'};
+        const name=typeof value?.name==='string'?value.name.trim():'';
+        const description=typeof value?.description==='string'?value.description.trim():'';
+        if(!clear&&(!name||name.length>60||/[\u0000-\u001f\u007f]/.test(name)||description.length>500||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(description)))return {ok:false,reason:'식당 이름은 1~60자, 주소·메모는 500자 이내로 입력해 주세요.'};
+        const result=window.TravelPlanner.updateEvent({city,itinerary:currentItinerary,dayIndex,eventId:event.id,title:clear?(extra?'식사':undefined):`${selected.meal||'식사'} · ${name}`,resetTitle:clear&&!extra,description:clear?'':description});
+        if(!result.ok)return result;
+        if(!saveItinerary(result.itinerary))return {ok:false,reason:'식당 정보를 저장하지 못했어요. 기존 노트는 유지했어요.'};
+        currentItinerary=result.itinerary;renderItinerary();focusEvent(dayIndex,event.id);
+        showMessage(clear?'식당 정보를 지웠어요. 식사 시간은 그대로 유지했어요.':'입력한 식당을 저장했어요. 필요한 이동시간은 직접 추가해 주세요.','success');
+        return {ok:true};
+      };
+      departureWidgets.push(window.TravelRestaurants.mountManual(manualHost,{name:manualName,description:savedMeal?.description||'',onSave:value=>saveManualMeal(value),onClear:()=>saveManualMeal(null,true)}));
       const restaurants=document.createElement('div');restaurants.className='meal-restaurants-container';
       content.append(restaurants);
       departureWidgets.push(window.TravelRestaurants.mount(restaurants,{area:city.name,district:window.TravelRestaurants.districtFromAddress(nearby?.address),latitude:nearby?.latitude,longitude:nearby?.longitude,
