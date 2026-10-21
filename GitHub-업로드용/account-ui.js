@@ -227,6 +227,9 @@
         if (destroyed || version !== epoch) return;
         sessionFailed = true;
         const initial = !initialReported; initialReported = true;
+        // A failed guest setup check is not an identity change. Keep its working
+        // note and edit history; known account drafts still use the reset below.
+        if (!initial && !user) { sessionPending = false; render(); return; }
         await resetAccount(null, { initial, known: false });
       }
     }
