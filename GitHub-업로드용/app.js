@@ -338,7 +338,6 @@
     keepHistoryStep(editHistory[action==='undo'?'redo':'undo'],before);
     departureDraftModes={};
     currentItinerary=restored;
-    collapsedDays.clear();
     renderItinerary();
     showMessage(action==='undo'?'직전 편집을 되돌리고 일정 시각을 다시 계산했어요.':'되돌린 편집을 다시 실행하고 일정 시각을 다시 계산했어요.','success');
   }
@@ -447,6 +446,7 @@
     if(version!==requestVersion||!isCurrent())return false;
     departureDraftModes={};
     currentItinerary=restored;
+    collapsedDays.clear();
     resetEditHistory();
     let persistenceWarning='';
     if(remote){
