@@ -9,8 +9,9 @@
 .day-bookmark:hover,.day-bookmark:focus-visible { background:#cdddff; }
 .day-bookmark[aria-current="page"] { border-color:#3e67ad; background:#3e67ad; color:#fff; }
 .day-bookmark[aria-current="page"]:focus-visible { background:#284b83; }
-.day-bookmarks-bottom { margin-top:16px; margin-bottom:0; padding-top:0; padding-bottom:8px; }
-.day-bookmarks-bottom .day-bookmark { border-bottom:1px solid #b9cdeb; }
+.day-bookmarks-bottom { margin-top:-1px; margin-bottom:0; padding:0 18px 8px; }
+.day-bookmarks-bottom .day-bookmark { padding-top:16px; padding-bottom:10px; border-top:0; border-bottom:1px solid #b9cdeb; border-radius:0 0 10px 10px; clip-path:polygon(0 0,50% 12%,100% 0,100% 100%,0 100%); }
+.day-bookmarks-bottom .day-bookmark[aria-current="page"] { border-bottom-color:#3e67ad; }
 .day-title .day-index-label { font-size:12px; font-weight:700; letter-spacing:.025em; white-space:nowrap; }
 .day-card { scroll-margin-top:20px; }
 .day-card[hidden] { display:none!important; }
