@@ -5,6 +5,7 @@
   const country=$('country-select'),citySelect=$('city-select'),dateInput=$('start-date'),duration=$('day-count');
   let currentItinerary=null;
   const collapsedDays=new Set();
+  let activeDayIndex=0;
   const EDIT_HISTORY_LIMIT=20;
   const editHistory={undo:[],redo:[]};
   const editingKeys=['cityId','startDate','dayCount','dayAreaIds','selections','dayStarts','eventEdits','extraEvents','excludedEvents','eventOrders','departure','dayDepartures','dayArrivals','dayTransports'];
@@ -220,12 +221,14 @@
     departureDraftModes={};
     currentItinerary=null;
     collapsedDays.clear();
+    activeDayIndex=0;
     resetEditHistory();
     account?.detach();
     $('itinerary-section').hidden=true;
     $('empty-state').hidden=false;
     $('day-list').replaceChildren();
     $('day-bookmarks')?.replaceChildren();
+    $('day-bookmarks-bottom')?.replaceChildren();
     $('note-timing-notice').hidden=true;
     $('note-timing-notice').textContent='';
     syncScreen();
@@ -261,6 +264,7 @@
     departureDraftModes={};
     currentItinerary=result;
     collapsedDays.clear();
+    activeDayIndex=0;
     resetEditHistory();
     account?.detach();
     renderItinerary();
@@ -447,6 +451,7 @@
     departureDraftModes={};
     currentItinerary=restored;
     collapsedDays.clear();
+    activeDayIndex=0;
     resetEditHistory();
     let persistenceWarning='';
     if(remote){
@@ -504,26 +509,46 @@
     destroyDepartureWidgets();
     list.replaceChildren();
     currentItinerary.days.forEach((day,index)=>list.append(renderDay(day,index,city)));
-    const bookmarks=$('day-bookmarks');
-    if(bookmarks){
+    activeDayIndex=Math.min(activeDayIndex,currentItinerary.days.length-1);
+    for(const id of ['day-bookmarks','day-bookmarks-bottom']){
+      const bookmarks=$(id);
+      if(!bookmarks)continue;
       bookmarks.replaceChildren();
       currentItinerary.days.forEach((day,index)=>{
         const button=document.createElement('button');button.type='button';button.className='day-bookmark';
+        button.dataset.dayIndex=String(index);
         button.textContent=`Day ${String(day.index).padStart(2,'0')}`;
         button.setAttribute('aria-label',`${day.index}일차 ${day.date} 일정으로 이동`);
         button.setAttribute('aria-controls',`travel-day-${index}`);
-        button.addEventListener('click',()=>{
-          const card=document.getElementById(`travel-day-${index}`);
-          if(collapsedDays.has(index))card.querySelector('.day-collapse').click();
-          card.focus({preventScroll:true});
-          card.scrollIntoView({block:'start',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
-        });
+        button.addEventListener('click',()=>selectDayPage(index,{focus:true,scroll:true,expand:true}));
         bookmarks.append(button);
       });
     }
+    selectDayPage(activeDayIndex);
     window.TravelSelect?.refresh();
     window.TravelTimePicker?.refresh();
     syncScreen();
+  }
+  function selectDayPage(index,{focus=false,scroll=false,expand=false}={}){
+    if(!currentItinerary||!Number.isInteger(index)||index<0||index>=currentItinerary.days.length)return;
+    const changed=index!==activeDayIndex;
+    if(changed){
+      closeReorderControls();
+      const previous=document.getElementById(`travel-day-${activeDayIndex}`);
+      previous?.querySelectorAll('details[open]').forEach(details=>{details.open=false;});
+    }
+    activeDayIndex=index;
+    $('day-list').querySelectorAll('.day-card').forEach(card=>{card.hidden=Number(card.dataset.dayIndex)!==index;});
+    for(const id of ['day-bookmarks','day-bookmarks-bottom']){
+      $(id)?.querySelectorAll('.day-bookmark').forEach(button=>{
+        button.setAttribute('aria-current',Number(button.dataset.dayIndex)===index?'page':'false');
+      });
+    }
+    const card=document.getElementById(`travel-day-${index}`);
+    if(expand&&collapsedDays.has(index))card.querySelector('.day-collapse').click();
+    if(changed){window.TravelSelect?.refresh();window.TravelTimePicker?.refresh();}
+    if(focus)card.focus({preventScroll:true});
+    if(scroll)($('day-bookmarks')||card).scrollIntoView({block:'start',behavior:'instant'});
   }
   function refreshCountdown(){
     if(!currentItinerary)return;
@@ -542,6 +567,8 @@
     const title=document.createElement('div');
     title.className='day-title';
     const date=document.createElement('strong');date.textContent=day.date;title.append(date);
+    const dayLabel=document.createElement('span');dayLabel.className='day-index-label';
+    dayLabel.textContent=`Day ${String(day.index).padStart(2,'0')}`;title.append(dayLabel);
     const headingCopy=document.createElement('div');headingCopy.className='day-heading-copy';
     const summary=document.createElement('p');summary.className='day-summary';
     const totals=window.TravelNoteTools.daySummary(day);
@@ -641,6 +668,7 @@
     showMessage(`${message} 출발지와 출발 시각은 유지하고 관광 일정은 새 권역에 맞췄어요. 이동시간을 다시 확인해 주세요.`,'success');
   }
   function focusEvent(dayIndex,eventId){
+    selectDayPage(dayIndex);
     const article=$('day-list').querySelector(`[data-day-index="${dayIndex}"]`);
     const row=[...(article?.querySelectorAll('.timeline-row')||[])].find(item=>item.dataset.eventId===eventId);
     row?.querySelector('.event-edit-button')?.focus({preventScroll:true});
