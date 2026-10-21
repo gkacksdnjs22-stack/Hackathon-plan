@@ -81,7 +81,7 @@ export function createAppServer({ root = ROOT, backdropClient = createBackdropCl
       if (!pathname.startsWith('/') || pathname.includes('\\') || pathname.includes('\0') || pathname.split('/').some(part => part === '.' || part === '..')) {
         return send(response, method, 404, { error: { code: 'NOT_FOUND', message: '파일을 찾을 수 없습니다.' } });
       }
-      if (pathname.startsWith('/api/auth/') || pathname === '/api/plans' || pathname.startsWith('/api/plans/')) {
+      if (pathname.startsWith('/api/auth/') || pathname === '/api/plans' || pathname.startsWith('/api/plans/') || pathname === '/api/shared-plan') {
         const chunks=[];
         let size=0;
         for await (const chunk of request) {
@@ -121,6 +121,10 @@ export function createAppServer({ root = ROOT, backdropClient = createBackdropCl
       }
       if (pathname === '/api/tour/areas') {
         return send(response, method, 200, await client.getAreas());
+      }
+      if (pathname === '/api/tour/place-details') {
+        const query = new URL(request.url, 'http://127.0.0.1').searchParams;
+        return send(response, method, 200, await client.getPlaceDetails({ contentId: query.get('contentId'), contentTypeId: query.get('contentTypeId') }));
       }
       if (pathname === '/api/departures/search') {
         const url = new URL(request.url, 'http://127.0.0.1');

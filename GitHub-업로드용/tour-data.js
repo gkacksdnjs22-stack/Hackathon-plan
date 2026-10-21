@@ -68,6 +68,10 @@
   }
   function placeFrom(item,area){
     const address=typeof item.address==='string'?item.address.trim():'';
+    const theme=['nature','culture','rest'].includes(item.theme)?item.theme:String(item.contentTypeId)==='14'?'culture':null;
+    const metadata=item.classification;
+    const classification=metadata&&typeof metadata==='object'&&[1,2,3].every(level=>typeof metadata[`code${level}`]==='string'&&(!metadata[`code${level}`]||/^[A-Z][A-Z0-9]{1,15}$/.test(metadata[`code${level}`]))&&typeof metadata[`name${level}`]==='string'&&metadata[`name${level}`].length<=80)
+      ?{...Object.fromEntries([1,2,3].flatMap(level=>[[`code${level}`,metadata[`code${level}`]],[`name${level}`,metadata[`name${level}`]]]))}:null;
     return {
       id:`tourapi-${item.contentId}`,contentId:item.contentId,name:item.title.trim(),
       area:area.name,areaName:area.name,areaId:area.id,
@@ -76,7 +80,8 @@
       intro:address||'방문 전 시설의 운영시간과 예약 정보를 확인해 주세요.',
       address,latitude:item.latitude,longitude:item.longitude,
       mapQuery:`${item.latitude},${item.longitude}`,source:'한국관광공사 TourAPI',sourceUrl:SOURCE_URL,
-      stayBasis:'앱 추천 체류시간',hoursNotice:'방문 전 운영시간 확인',distanceToCenter:distance(item,area)
+      stayBasis:'앱 추천 체류시간',hoursNotice:'방문 전 운영시간 확인',distanceToCenter:distance(item,area),
+      contentTypeId:String(item.contentTypeId),...(theme?{theme}:{}),...(classification?{classification}:{})
     };
   }
   function sortPlaces(area){

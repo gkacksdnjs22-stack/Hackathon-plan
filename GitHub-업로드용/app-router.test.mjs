@@ -182,7 +182,7 @@ function timedNoteFixture(dayCount = 1) {
   return { ...fixture, note };
 }
 
-function runtime({ hash = '', search = '', socialReturn = false, raw = null, seedStorage = [], destinationsPromise, ensureCity, loadError, storageError, cityData = null, planner = null, withAccount = false, accountUser = null, accountReady, accountHandler, restoreAttachment, currentDateTime='2026-10-20T12:00:00' } = {}) {
+function runtime({ hash = '', search = '', socialReturn = false, raw = null, seedStorage = [], destinationsPromise, ensureCity, loadError, storageError, cityData = null, planner = null, withAccount = false, withOperating = false, accountUser = null, accountReady, accountHandler, restoreAttachment, currentDateTime='2026-10-20T12:00:00' } = {}) {
   const elements = new Map(), documentListeners = new Map(), documentCaptureListeners = new Map();
   const document = {
     title: '', activeElement: null,
@@ -211,6 +211,7 @@ function runtime({ hash = '', search = '', socialReturn = false, raw = null, see
     'city-note', 'duration-note', 'data-status', 'app-message', 'date-trigger', 'itinerary-section',
     'empty-state', 'day-list', 'day-bookmarks', 'day-bookmarks-bottom', 'trip-summary', 'note-timing-notice', 'pending-transfers', 'capacity-message', 'print-button', 'clear-button', 'undo-button', 'redo-button',
     'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'account-notice', 'saved-plans', 'account-save', 'draft-recovery', 'note-export', 'personal-tools', 'day-map'];
+  if(withOperating)ids.push('operating-tools');
   for (const id of ids) {
     const tag = ['city-select', 'day-count'].includes(id) ? 'select' : id === 'trip-form' ? 'form' : ['print-button','clear-button','undo-button','redo-button'].includes(id) ? 'button' : 'div';
     const element = document.createElement(tag); element.id = id; elements.set(id, element);
@@ -283,6 +284,11 @@ function runtime({ hash = '', search = '', socialReturn = false, raw = null, see
   window.TravelTransport = mountStub('transport');
   window.TravelSchedule = mountStub('schedule');
   window.TravelRestaurants = { ...mountStub('restaurant'), mountManual: mountStub('manual-restaurant').mount, districtFromAddress: () => '남구' };
+  const operating={options:null,refreshes:0,contexts:[]};
+  if(withOperating)window.TravelOperating={mount(host,options){
+    assert.ok(host,'operating tool host exists');operating.options=options;
+    return {refresh(){operating.refreshes++;operating.contexts.push(options.getContext());}};
+  }};
   const account={options:null,changes:0,detaches:0,attachment:null,attachmentVersion:0,restores:[]};
   if(withAccount&&!accountHandler)window.TravelAccount={mount(options){
     account.options=options;
@@ -340,7 +346,7 @@ function runtime({ hash = '', search = '', socialReturn = false, raw = null, see
   vm.runInContext(mapCode, context, { filename: 'day-map.js' });
   vm.runInContext(dragCode, context, { filename: 'timeline-drag.js' });
   vm.runInContext(code, context, { filename: 'app.js' });
-  return { $, window, document, stored, writes, removals, creations, behavior, scrolls, clock, mounts, account, downloads, revoked,
+  return { $, window, document, stored, writes, removals, creations, behavior, scrolls, clock, mounts, account, operating, downloads, revoked,
     async go(value) { location.hash = value; await settle(); },
     async create() { $('trip-form').dispatch('submit'); await settle(); },
     async clear() { $('clear-button').dispatch('click'); await settle(); }
@@ -442,11 +448,32 @@ test('new recommendations retain the previous personal note and unfinished field
   const previous = JSON.parse(app.stored.get(storageKey)).previous;
   assert.equal(previous.itinerary.eventEdits[0]['place-0'].description, '개인적으로 작성한 방문 메모');
   assert.equal(previous.editorDrafts['0:place-0'].description, '이전 노트에서 계속 쓰던 입력');
+  assert.equal(app.$('draft-recovery').hidden, true);
+  await app.go('#/start');
   assert.equal(app.$('draft-recovery').hidden, false);
   app.$('draft-recovery').querySelector('button').click(); await settle();
   assert.equal(noteParameters(app).eventEdits[0]['place-0'].description, '개인적으로 작성한 방문 메모');
   const restored = editRow(app); assert.equal(restored.querySelector('textarea').value, '이전 노트에서 계속 쓰던 입력');
   assert.equal(app.$('undo-button').disabled, true);
+});
+
+test('the previous-note recovery banner appears only on start while direct note loading and navigation preserve its backup', async () => {
+  const fixture=actualPlannerFixture(),previous=JSON.parse(ownerNote(noteWithMemo(fixture,'보관한 이전 노트'),null));
+  const raw=ownerNote(noteWithMemo(fixture,'지금 작성하는 노트'),null,{previous}),ready=deferred();
+  const app=runtime({...fixture,withAccount:true,hash:'#/note/day/1',raw,destinationsPromise:ready.promise});
+  assert.equal(app.$('draft-recovery').hidden,true,'loading must not show the recovery banner');
+  ready.resolve([fixture.cityData]);await settle();screen(app,'note');
+  assert.equal(app.$('draft-recovery').hidden,true);assert.equal(app.$('draft-recovery').children.length,0);
+  assert.equal(app.stored.get(storageKey),raw);assert.equal(app.writes.length,0);
+  await app.go('#/start');assert.equal(app.$('draft-recovery').hidden,false);
+  assert.match(app.$('draft-recovery').textContent,/이전 노트로 돌아가기/);
+  await app.go('#/note/day/1');assert.equal(app.$('draft-recovery').hidden,true);
+  assert.equal(noteParameters(app).eventEdits[0]['place-0'].description,'지금 작성하는 노트');
+  app.window.history.back();await settle();screen(app,'start');assert.equal(app.$('draft-recovery').hidden,false);
+  app.$('draft-recovery').querySelector('button').click();await settle();screen(app,'note');
+  assert.equal(app.$('draft-recovery').hidden,true);assert.equal(noteParameters(app).eventEdits[0]['place-0'].description,'보관한 이전 노트');
+  assert.equal(JSON.parse(app.stored.get(storageKey)).previous.itinerary.eventEdits[0]['place-0'].description,'지금 작성하는 노트');
+  await app.go('#/start');assert.equal(app.$('draft-recovery').hidden,false,'returning to start still permits recovering the other preserved note');
 });
 
 test('a failed previous-note write rejects regeneration or cloud replacement without replacing the note, storage or open map', async () => {
@@ -471,7 +498,8 @@ test('previous-note recovery is isolated to its account owner', async () => {
   const fixture = actualPlannerFixture(), app = runtime({ ...fixture, withAccount: true }); await settle(); await app.create();
   await app.account.options.onUserChange({ id: 'owner-a', username: 'alice' }, { initial: false });
   const row = editRow(app); inputMemo(row, 'Alice의 개인 메모'); row.querySelector('.event-editor').dispatch('submit');
-  await app.create(); assert.equal(app.$('draft-recovery').hidden, false);
+  await app.create(); assert.equal(app.$('draft-recovery').hidden, true);
+  await app.go('#/start');assert.equal(app.$('draft-recovery').hidden, false);
   await app.account.options.onUserChange({ id: 'owner-b', username: 'bob' }, { initial: false });
   assert.equal(app.$('draft-recovery').hidden, true); assert.equal(app.account.options.getDocument(), null);
   assert.equal(app.document.body.textContent.includes('Alice의 개인 메모'), false);
@@ -491,6 +519,7 @@ test('sign-in preserves both the guest draft and an existing owner draft with ex
   assert.equal(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).ownerId, owner.id);
   assert.equal(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).previous.itinerary.eventEdits[0]['place-0'].description, '계정에 전에 쓰던 메모');
   assert.equal(app.stored.has(storageKey), false);
+  await app.go('#/start');
   app.$('draft-recovery').querySelector('button').click(); await settle();
   assert.equal(noteParameters(app).eventEdits[0]['place-0'].description, '계정에 전에 쓰던 메모');
   assert.equal(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).previous.itinerary.eventEdits[0]['place-0'].description, '로그인 전에 쓰던 메모');
@@ -505,7 +534,8 @@ test('a social callback adopts the guest note on initial account discovery and b
   assert.equal(noteParameters(app).eventEdits[0]['place-0'].description, '소셜 로그인 중 보존한 노트');
   assert.equal(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).previous.itinerary.eventEdits[0]['place-0'].description, '이전 계정 노트');
   assert.equal(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).ownerId, owner.id);
-  assert.equal(app.stored.has(storageKey), false); assert.equal(app.$('draft-recovery').hidden, false);
+  assert.equal(app.stored.has(storageKey), false); assert.equal(app.$('draft-recovery').hidden, true);
+  await app.go('#/start');assert.equal(app.$('draft-recovery').hidden, false);
 });
 
 test('a social success query without an account-verified pending attempt cannot replace an existing owner draft', async () => {
@@ -525,6 +555,7 @@ test('recovering an unlinked note detaches the previously open cloud plan before
   const app = runtime({ ...fixture, withAccount: true, accountUser: owner, hash: '#/note',
     seedStorage: [[`${storageKey}:${owner.id}`, ownerNote(noteWithMemo(fixture, '현재 계정 계획'), owner.id, { attachment, previous })]] });
   await settle(); assert.equal(app.account.attachment.plan.id, 'plan-current');
+  await app.go('#/start');
   app.$('draft-recovery').querySelector('button').click(); await settle();
   assert.equal(app.account.attachment, null); assert.equal(JSON.parse(app.stored.get(`${storageKey}:${owner.id}`)).attachment, null);
   assert.equal(noteParameters(app).eventEdits[0]['place-0'].description, '계정에 연결하지 않은 이전 메모');
@@ -538,7 +569,7 @@ test('a delayed recovery attachment result cannot clear the replacement account 
     seedStorage: [[`${storageKey}:${ownerA.id}`, ownerNote(noteWithMemo(fixture, 'Alice 현재 노트'), ownerA.id, { attachment: link(ownerA, 'current-plan'), previous })],
       [`${storageKey}:${ownerB.id}`, ownerNote(noteWithMemo(fixture, 'Bob의 새 노트'), ownerB.id, { attachment: link(ownerB, 'bob-plan') })]],
     restoreAttachment: snapshot => snapshot.plan.id === 'pending-plan' ? gate.promise : Promise.resolve({ ok: true }) });
-  await settle(); app.$('draft-recovery').querySelector('button').click(); await settle();
+  await settle();await app.go('#/start');app.$('draft-recovery').querySelector('button').click();await settle();
   await app.account.options.onUserChange(ownerB, { initial: false });
   const raw = app.stored.get(`${storageKey}:${ownerB.id}`), messages = app.$('app-message').textContent;
   gate.resolve({ ok: false, reason: 'invalid' }); await settle();
@@ -698,6 +729,7 @@ test('personalization saves and previous-note recovery retain an unfinished edit
   assert.equal(editRow(restored, 'lunch').querySelector('textarea').value, '아직 작성 중인 식사 예약 메모');
   await restored.create();
   assert.equal(personalData(restored), undefined);
+  await restored.go('#/start');
   restored.$('draft-recovery').querySelector('button').click(); await settle();
   assert.deepEqual(JSON.parse(JSON.stringify(personalData(restored))), personal);
   assert.equal(editRow(restored, 'lunch').querySelector('textarea').value, '아직 작성 중인 식사 예약 메모');
@@ -795,6 +827,7 @@ test('recovering a previous note restores its visitor map and unfinished memo af
   await app.create(); assert.equal(maps.maps[0].removed, true); assert.equal(panel.open, false);
   openDayMap(app); assert.match(panel.querySelector('.day-map-places').textContent, /추천 관광지 a/);
   assert.doesNotMatch(panel.querySelector('.day-map-places').textContent, /추천 관광지 d/);
+  await app.go('#/start');
   app.$('draft-recovery').querySelector('button').click(); await settle();
   assert.equal(maps.maps[1].removed, true); assert.equal(panel.open, false);
   openDayMap(app); assert.match(panel.querySelector('.day-map-places').textContent, /추천 관광지 d/);
@@ -814,7 +847,7 @@ test('account switching clears former map places and callbacks while preserving 
   const maps = leafletFixture(); app.window.L = maps.L;
   const panel = openDayMap(app), oldJump = maps.markers[0].popup.querySelector('button');
   inputMemo(editRow(app), 'Alice만 보관하는 미완성 메모');
-  assert.equal(app.$('draft-recovery').hidden, false);
+  assert.equal(app.$('draft-recovery').hidden, true);
   await app.account.options.onUserChange(ownerB, { initial: false }); await app.go('#/note');
   assert.equal(maps.maps[0].removed, true); assert.equal(panel.open, false);
   assert.equal(app.$('draft-recovery').hidden, true);
@@ -829,7 +862,7 @@ test('account switching clears former map places and callbacks while preserving 
   await app.account.options.onUserChange(ownerA, { initial: false }); await app.go('#/note'); openDayMap(app);
   assert.equal(maps.maps[1].removed, true); assert.match(panel.querySelector('.day-map-places').textContent, /추천 관광지 a/);
   assert.doesNotMatch(panel.querySelector('.day-map-places').textContent, /추천 관광지 d/);
-  assert.equal(app.$('draft-recovery').hidden, false);
+  assert.equal(app.$('draft-recovery').hidden, true);
   assert.equal(editRow(app).querySelector('textarea').value, 'Alice만 보관하는 미완성 메모');
 });
 
@@ -1028,7 +1061,7 @@ for (const entry of ['notice', 'dialog']) {
     await click(retryRoot(), '다시 확인');
     assert.deepEqual(noteParameters(app), edited);
     assert.equal(app.$('undo-button').disabled, false);
-    assert.match(app.$('account-nav').textContent, /로그인 · 회원가입/);
+    assert.match(app.$('account-nav').textContent, /소셜 로그인/);
     app.account.controller.destroy();
   });
 }
@@ -2265,8 +2298,8 @@ function previewMount(app, kind, eventId, dayIndex = 0) {
   assert.ok(record, `${kind} lookup mounted for day ${dayIndex}, event ${eventId}`);
   return record;
 }
-function previewRuntime(fixture) {
-  return runtime({ ...fixture, withAccount: true, hash: '#/note',
+function previewRuntime(fixture, options={}) {
+  return runtime({ ...fixture, withAccount: true, hash: '#/note', ...options,
     raw: JSON.stringify({ version: 8, itinerary: fixture.note }) });
 }
 
@@ -2317,6 +2350,41 @@ test('a live arrival transfer moves the first visit from a 09:00 station arrival
   lookup.options.onPreviewTransitDuration(null);
   assert.match(previewClock(app, 'place-0'), /09:00/);
   assert.equal(footnote.textContent, originalFootnote);
+});
+
+test('operating checks follow the visible live transit clock while stored and cloud note inputs stay canonical', async () => {
+  const fixture=transitPreviewFixture({dayCount:2,arrival:true,startTime:'07:30',duration:90});
+  const localDay=fixture.planner.setDayDeparture({city:fixture.cityData,itinerary:fixture.note,dayIndex:1,departure:{...fixture.note.dayDepartures[1],mode:'local-bus'}});
+  assert.equal(localDay.ok,true);fixture.note=localDay.itinerary;
+  const app=previewRuntime(fixture,{withOperating:true});await settle();
+  const getContext=()=>app.operating.options.getContext(),visit=(state,dayIndex)=>state.itinerary.days[dayIndex].events.find(event=>event.id==='place-0');
+  const before=getContext(),originalItinerary=JSON.stringify(before.itinerary),fixtureOriginal=JSON.stringify(fixture.note);
+  const cloud=noteParameters(app),stored=app.stored.get(storageKey),writes=app.writes.length,changes=app.account.changes;
+  const arrivalTransfer=previewMount(app,'local-transfer','arrival-transfer'),second=previewMount(app,'transit','departure',1);
+  assert.equal(before.dayIndex,0);assert.equal(visit(before,0).start,540);
+  const refreshes=app.operating.refreshes;
+  arrivalTransfer.options.onPreviewTransitDuration(53);
+  const projected=getContext();
+  assert.match(previewClock(app,'place-0'),/09:53/);assert.equal(visit(projected,0).start,593);
+  assert.equal(projected.itinerary.days[0].events.find(event=>event.id==='arrival-transfer').duration,53);
+  assert.equal(visit(projected,1).start,visit(before,1).start,'only the active day is projected');
+  assert.ok(app.operating.refreshes>refreshes,'a live clock change invalidates operating results');
+  assert.equal(visit(app.operating.contexts.at(-1),0).start,593);
+  assert.equal(JSON.stringify(before.itinerary),originalItinerary,'operating projection never mutates the canonical itinerary');
+  arrivalTransfer.options.onPreviewTransitDuration(null);
+  assert.equal(visit(getContext(),0).start,540);assert.match(previewClock(app,'place-0'),/09:00/);
+  arrivalTransfer.options.onPreviewTransitDuration(53);
+  app.$('day-bookmarks-bottom').children[1].click();await settle();selectedDay(app,1);
+  const secondCanonical=getContext();assert.equal(secondCanonical.dayIndex,1);assert.equal(visit(secondCanonical,0).start,540);
+  const dayTwoStart=visit(secondCanonical,1).start;
+  arrivalTransfer.options.onPreviewTransitDuration(90);
+  assert.equal(getContext().dayIndex,1);assert.equal(visit(getContext(),1).start,dayTwoStart,'hidden-day route callbacks cannot project into another operating check');
+  second.options.onPreviewDuration(40);
+  assert.equal(visit(getContext(),1).start,580);assert.match(previewClock(app,'place-0',1),/09:40/);
+  app.$('day-bookmarks').children[0].click();await settle();selectedDay(app,0);
+  assert.equal(getContext().dayIndex,0);assert.equal(visit(getContext(),0).start,540);assert.equal(visit(getContext(),1).start,dayTwoStart);
+  assert.deepEqual(noteParameters(app),cloud);assert.equal(app.stored.get(storageKey),stored);assert.equal(app.writes.length,writes);assert.equal(app.account.changes,changes);
+  assert.equal(JSON.stringify(before.itinerary),originalItinerary);assert.equal(JSON.stringify(fixture.note),fixtureOriginal);
 });
 
 test('departure route changes replace the original duration and preserve working reorder controls', async () => {

@@ -71,8 +71,14 @@ test('a real first local transfer mode and manual duration save to the account D
   const handle=createAccountHandler({db,secret:'synthetic-plan-roundtrip-account-secret-2026'}),origin='https://plan.example';
   const send=(path,method='GET',body,cookie)=>handle(new Request(origin+path,{method,headers:{Origin:origin,
     ...(body?{'Content-Type':'application/json'}:{}),...(cookie?{Cookie:cookie}:{})},...(body?{body:JSON.stringify(body)}:{})}));
-  const signup=await send('/api/auth/signup','POST',{username:'first_transfer_owner',password:'synthetic-roundtrip-password'});
-  assert.equal(signup.status,201);const cookie=signup.headers.get('set-cookie').split(';')[0];
+  const userId=crypto.randomUUID(),token=Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url');
+  const tokenHash=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token))).toString('base64url');
+  await db.batch([
+    db.prepare('INSERT INTO gil_users(id,username,password_salt,password_hash,created_at) VALUES(?,?,?,?,?)').bind(userId,'kakao_first_transfer','unused','social-only-v1',Date.now()),
+    db.prepare('INSERT INTO gil_oauth_identities(provider,subject_hash,user_id,created_at) VALUES(?,?,?,?)').bind('kakao','synthetic-first-transfer',userId,Date.now()),
+    db.prepare('INSERT INTO gil_sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)').bind(tokenHash,userId,Date.now()+86400000,Date.now())
+  ]);
+  const cookie='gil_session='+token;
   for(const [travelMode,duration]of [['walk',12],['local-bus',53],['subway',35],['car',20]]){
     let current=planner.createItinerary({city,startDate:'2026-10-20',dayCount:1,dayDepartures:{0:stop()},dayArrivals:{0:stop('TO')},eventEdits:{0:{departure:{duration:60}}}});
     assert.equal(current.ok,true,current.reason);

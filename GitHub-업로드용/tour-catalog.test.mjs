@@ -57,7 +57,8 @@ test('unclustered places use the same normalized fields and source with a self-c
   assert.equal(place.address, '세종특별자치시 문화로 5'); assert.equal(place.intro, place.address);
   assert.equal(place.source, '한국관광공사 TourAPI'); assert.equal(place.sourceUrl, 'https://www.data.go.kr/data/15101578/openapi.do');
   assert.equal(place.mapQuery, `${items[4].latitude},${items[4].longitude}`);
-  assert.deepEqual(Object.keys(place).sort(), Object.keys(areas[0].places[0]).sort());
+  assert.deepEqual(Object.keys(place).filter(key=>key!=='theme').sort(), Object.keys(areas[0].places[0]).sort());
+  assert.equal(place.contentTypeId,'14');assert.equal(place.theme,'culture');
 });
 
 test('ensureCity adds the full catalog without expanding recommended areas or supported travel days', async () => {
@@ -79,4 +80,16 @@ test('a previously loaded city without a catalog is upgraded, and a mismatched r
   const before = JSON.stringify(wrong.city);
   await assert.rejects(wrong.api.ensureCity(wrong.city.id), /지역코드가 다릅니다/);
   assert.equal(JSON.stringify(wrong.city), before); assert.equal(wrong.city.catalogPlaces, undefined);
+});
+
+test('verified optional themes and classification survive clustering and the full catalog without title guesses',()=>{
+  const {api}=runtime(),items=sampleItems();
+  items[0]={...items[0],title:'자연휴양림이라는 이름만 있는 관광지'};
+  items[1]={...items[1],theme:'nature',classification:{code1:'NA',code2:'NA01',code3:'NA010100',name1:'자연관광',name2:'자연경관',name3:'산'}};
+  items[2]={...items[2],theme:'rest'};items[3]={...items[3],theme:'invalid',classification:{code1:'NA',code2:'',code3:'',name1:1,name2:'',name3:''}};
+  const areas=api.buildAreas(items,'8'),catalog=api.buildCatalog(items,'8','세종',areas);
+  assert.equal(catalog[0].theme,undefined);assert.equal(catalog[1].theme,'nature');assert.equal(catalog[2].theme,'rest');
+  assert.equal(catalog[1].classification.name1,'자연관광');assert.equal(catalog[1],areas[0].places[1]);
+  assert.equal(catalog[3].theme,undefined);assert.equal(catalog[3].classification,undefined);
+  assert.equal(catalog.find(place=>place.id==='tourapi-5').theme,'culture');
 });

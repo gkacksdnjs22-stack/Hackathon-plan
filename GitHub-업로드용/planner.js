@@ -416,27 +416,31 @@
     return {ok:true,area,events,hiddenEvents,start:startMinutes(startTime),end:clock,
       needsTravelTime:needsTravelTime||needsLocalTravelTime,timesProvisional:!departure||needsTravelTime||needsLocalTravelTime};
   }
-  function defaultSelection(area,excluded=new Set()){
+  const validVisitPoint=place=>Number.isFinite(place?.latitude)&&Number.isFinite(place?.longitude)
+    &&place.latitude>=33&&place.latitude<=39.5&&place.longitude>=124&&place.longitude<=132;
+  function visitDistance(from,to){
+    const radians=value=>value*Math.PI/180,lat=radians(to.latitude-from.latitude),lon=radians(to.longitude-from.longitude);
+    const h=Math.sin(lat/2)**2+Math.cos(radians(from.latitude))*Math.cos(radians(to.latitude))*Math.sin(lon/2)**2;
+    return 6371000*2*Math.asin(Math.min(1,Math.sqrt(h)));
+  }
+  const preferredPlace=(place,preferences)=>preferences.includes(['nature','culture','rest'].includes(place.theme)?place.theme
+    :String(place.contentTypeId)==='14'?'culture':null);
+  function defaultSelection(area,excluded=new Set(),preferences=[]){
     const candidates=area.places.filter(place=>!excluded.has(place.id));
     if(candidates.length<3)return null;
-    const validPoint=place=>Number.isFinite(place.latitude)&&Number.isFinite(place.longitude)
-      &&place.latitude>=33&&place.latitude<=39.5&&place.longitude>=124&&place.longitude<=132;
+    const matching=candidates.filter(place=>preferredPlace(place,preferences));
+    if(matching.length)candidates.sort((a,b)=>Number(preferredPlace(b,preferences))-Number(preferredPlace(a,preferences)));
     // Only new recommendations use straight-line proximity. Saved selections
     // and manual visit orders take separate paths and keep their exact order.
-    if(candidates.every(validPoint)){
+    if(candidates.every(validVisitPoint)){
       const remaining=candidates.slice(1);
       const places=[candidates[0]];
-      const radians=value=>value*Math.PI/180;
-      const meters=(from,to)=>{
-        const lat=radians(to.latitude-from.latitude),lon=radians(to.longitude-from.longitude);
-        const h=Math.sin(lat/2)**2+Math.cos(radians(from.latitude))*Math.cos(radians(to.latitude))*Math.sin(lon/2)**2;
-        return 6371000*2*Math.asin(Math.min(1,Math.sqrt(h)));
-      };
       while(places.length<3){
-        let closest=0,distance=meters(places.at(-1),remaining[0]);
+        let closest=0,distance=visitDistance(places.at(-1),remaining[0]);
         for(let index=1;index<remaining.length;index++){
-          const candidateDistance=meters(places.at(-1),remaining[index]);
-          if(candidateDistance<distance-0.000001){closest=index;distance=candidateDistance;}
+          const candidateDistance=visitDistance(places.at(-1),remaining[index]);
+          const candidatePreferred=preferredPlace(remaining[index],preferences),currentPreferred=preferredPlace(remaining[closest],preferences);
+          if(candidatePreferred&&!currentPreferred||candidatePreferred===currentPreferred&&candidateDistance<distance-0.000001){closest=index;distance=candidateDistance;}
         }
         places.push(remaining.splice(closest,1)[0]);
       }
@@ -487,11 +491,13 @@
     return {ok:true,personalization:{checklist:checklist.map(item=>({...item,text:item.text.trim()})),favoritePlaceIds:[...favorites],
       eventTags:Object.fromEntries(Object.entries(tags).map(([day,entries])=>[day,{...entries}]))}};
   }
-  function createItinerary({city,startDate,dayCount,dayAreaIds,selections={},dayStarts={},eventEdits={},departure=null,dayDepartures={},dayArrivals={},dayTransports={},extraEvents={},excludedEvents={},eventOrders={},personalization}={}){
+  function createItinerary({city,startDate,dayCount,dayAreaIds,selections={},dayStarts={},eventEdits={},departure=null,dayDepartures={},dayArrivals={},dayTransports={},extraEvents={},excludedEvents={},eventOrders={},personalization,preferences=[]}={}){
     const validation=validateCity(city);
     if(!validation.ok)return {ok:false,reason:validation.reason,days:[],maxDays:0};
     const maxDays=Math.min(MAX_TRIP_DAYS,city.supportedDays,city.areas.length);
     const count=Number(dayCount);
+    if(!Array.isArray(preferences)||preferences.length>3||new Set(preferences).size!==preferences.length||preferences.some(value=>!['nature','culture','rest'].includes(value)))
+      return {ok:false,reason:'여행 취향을 목록에서 선택해 주세요.',days:[],maxDays};
     if(!validDate(startDate))return {ok:false,reason:'여행 시작일을 올바르게 선택해 주세요.',days:[],maxDays};
     if(!Number.isInteger(count)||count<1||count>MAX_TRIP_DAYS)return {ok:false,reason:`여행 기간은 1~${MAX_TRIP_DAYS}일 중에서 선택해 주세요.`,days:[],maxDays};
     const personal=normalizePersonalization(personalization,count);
@@ -524,7 +530,7 @@
     const used=new Set(extras.placeIds),days=[],recommended={};
     for(let index=0;index<count;index++){
       const area=city.areas.find(item=>item.id===chosenAreaIds[index]);
-      const ids=selections[index]===undefined?defaultSelection(area,used):selections[index];
+      const ids=selections[index]===undefined?defaultSelection(area,used,preferences):selections[index];
       if(!ids)return {ok:false,reason:`${area.name}에는 서로 다른 장소 3곳으로 구성할 수 있는 일정이 부족합니다.`,days,maxDays:index};
       if(!Array.isArray(ids)||ids.length!==3||ids.some(id=>typeof id!=='string')||new Set(ids).size!==3)
         return {ok:false,reason:`${area.name}의 일정에는 서로 다른 장소 3곳이 필요합니다.`,days,maxDays:index};
@@ -684,6 +690,53 @@
     ids.splice(position,1);ids.splice(destination,0,eventId);
     const next=preserveUnchangedTravel(city,current,rebuild(city,current,{eventOrders:{...current.eventOrders,[dayIndex]:ids}}),dayIndex);
     return next.ok?{ok:true,itinerary:next,eventId}:{ok:false,reason:next.reason};
+  }
+  function proposeVisitOrder({city,itinerary,dayIndex,mode='distance',costs}={}){
+    if(!['distance','car'].includes(mode))return {ok:false,reason:'가까운 순서 또는 차량 경로 비교를 선택해 주세요.'};
+    const current=editableItinerary(city,itinerary,dayIndex);
+    if(!current.ok)return {ok:false,reason:current.reason};
+    const events=current.days[dayIndex].events,visits=placeEvents(current.days[dayIndex]);
+    if(visits.length<2||visits.length>5)return {ok:false,reason:'방문 장소가 2~5곳인 날짜에서 순서를 비교할 수 있어요.'};
+    if(visits.some(event=>!validVisitPoint(event.place)))return {ok:false,reason:'모든 방문 장소의 확인 가능한 좌표가 필요해요.'};
+    const beforeIds=visits.map(event=>event.id);
+    if(new Set(beforeIds).size!==beforeIds.length)return {ok:false,reason:'방문 일정의 식별자가 중복되어 순서를 비교할 수 없어요.'};
+    const graph=new Map();
+    for(const from of visits)for(const to of visits){
+      if(from.id===to.id)continue;
+      const key=`${from.id}>${to.id}`,value=mode==='distance'?visitDistance(from.place,to.place)
+        :costs instanceof Map?costs.get(key):record(costs)&&Object.hasOwn(costs,key)?costs[key]:undefined;
+      if(!Number.isFinite(value)||value<0||mode==='car'&&(value<=0||value>1440))return {ok:false,reason:'방문 장소 사이의 모든 방향별 차량 경로를 확인한 뒤 비교해 주세요.'};
+      graph.set(key,value);
+    }
+    const score=ids=>ids.slice(1).reduce((sum,id,index)=>sum+graph.get(`${ids[index]}>${id}`),0);
+    const beforeCost=score(beforeIds),booked=new Set(Object.entries(current.personalization?.eventTags?.[dayIndex]??{}).filter(([,tag])=>tag==='booked').map(([id])=>id));
+    const segments=new Map();let segment=0;
+    for(const event of events){
+      if(booked.has(event.id)){if(event.type==='place')segments.set(event.id,`fixed:${event.id}`);segment++;}
+      else if(event.type==='place')segments.set(event.id,segment);
+    }
+    const candidates=[];
+    function permute(ids,remaining){
+      if(!remaining.length){candidates.push(ids);return;}
+      const expected=segments.get(beforeIds[ids.length]);
+      for(let index=0;index<remaining.length;index++)if(segments.get(remaining[index])===expected)
+        permute([...ids,remaining[index]],remaining.filter((_,position)=>position!==index));
+    }
+    permute([],beforeIds);
+    let best=current,afterIds=[...beforeIds],afterCost=beforeCost;
+    const epsilon=0.000001;
+    for(const ids of candidates){
+      const cost=score(ids);if(cost>=afterCost-epsilon)continue;
+      let at=0;
+      const order=events.map(event=>event.type==='place'?ids[at++]:event.id).filter(id=>!PROTECTED_IDS.includes(id));
+      const next=preserveUnchangedTravel(city,current,rebuild(city,current,{eventOrders:{...current.eventOrders,[dayIndex]:order}}),dayIndex);
+      if(!next.ok)continue;
+      // Booked meals, activities and arrival markers also act as barriers.
+      // Resetting changed travel estimates must not shift a booked time.
+      if(events.some(event=>booked.has(event.id)&&(()=>{const after=next.days[dayIndex].events.find(item=>item.id===event.id);return !after||event.start!==after.start||event.end!==after.end;})()))continue;
+      best=next;afterIds=[...ids];afterCost=cost;
+    }
+    return {ok:true,changed:afterCost<beforeCost-epsilon,itinerary:best,beforeIds:[...beforeIds],afterIds,beforeCost,afterCost,unit:mode==='car'?'minutes':'meters'};
   }
   function updateEvent({city,itinerary,dayIndex,eventId,title,description,duration,beforeId,placeId,resetTitle=false}={}){
     const current=editableItinerary(city,itinerary,dayIndex);
@@ -958,5 +1011,5 @@
     const next=rebuild(city,itinerary,{personalization});
     return next.ok?{ok:true,itinerary:next}:{ok:false,reason:next.reason};
   }
-  window.TravelPlanner={createItinerary,getAlternatives,replacePlace,replaceTouristEvent,changeDayArea,addEvent,removeEvent,restoreEvent,moveEvent,updateEvent,updatePersonalization,setTransferMode,getTransferSuggestion,setDayStart,setDeparture,setDayDeparture,setDayArrival,setDayTransport,setDayConnection,buildConnection,requiresArrival,validateCity,allPlaces,formatTime,areaIdsFromItinerary};
+  window.TravelPlanner={createItinerary,proposeVisitOrder,getAlternatives,replacePlace,replaceTouristEvent,changeDayArea,addEvent,removeEvent,restoreEvent,moveEvent,updateEvent,updatePersonalization,setTransferMode,getTransferSuggestion,setDayStart,setDeparture,setDayDeparture,setDayArrival,setDayTransport,setDayConnection,buildConnection,requiresArrival,validateCity,allPlaces,formatTime,areaIdsFromItinerary};
 })();

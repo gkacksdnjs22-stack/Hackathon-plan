@@ -209,20 +209,8 @@
         busy(value) { if (version === dialogVersion) { dialogBusy = value; dialogControls.forEach(control => { control.disabled = value; }); dialog.setAttribute('aria-busy', String(value)); } },
         current() { return !destroyed && version === dialogVersion; },
         input(form, caption, className, type = 'text') {
-          const label = node(type === 'password' ? 'div' : 'label', 'account-dialog-field'), input = node('input', className); input.type = type;
-          if (type === 'password') {
-            input.id = `${id}-${className}`;
-            const captionLabel = node('label', '', caption); captionLabel.setAttribute('for', input.id);
-            const control = node('div', 'account-password-control');
-            const toggle = button('보기', () => {
-              const showing = input.type === 'password'; input.type = showing ? 'text' : 'password';
-              toggle.textContent = showing ? '숨기기' : '보기';
-              toggle.setAttribute('aria-label', `${caption} ${showing ? '숨기기' : '보기'}`);
-              toggle.setAttribute('aria-pressed', String(showing));
-            }, 'account-password-toggle');
-            toggle.setAttribute('aria-label', `${caption} 보기`); toggle.setAttribute('aria-pressed', 'false'); toggle.setAttribute('aria-controls', input.id);
-            control.append(input, toggle); label.append(captionLabel, control); dialogControls.push(toggle);
-          } else label.append(node('span', '', caption), input);
+          const label = node('label', 'account-dialog-field'), input = node('input', className); input.type = type;
+          label.append(node('span', '', caption), input);
           form.append(label); dialogControls.push(input); return input;
         },
         action(host, text, callback, className = '') { const result = button(text, callback, className); host.append(result); dialogControls.push(result); return result; }
@@ -232,7 +220,7 @@
       nav.replaceChildren();
       if (sessionPending) { const pending = button('계정 확인 중…', () => {}); pending.disabled = true; nav.append(pending); return; }
       if (user) { nav.append(node('span', 'account-user', user.username), button('로그아웃', logout)); return; }
-      nav.append(button(sessionFailed ? '계정 다시 확인' : configured === false ? '계정 저장 준비 중' : '로그인 · 회원가입', () => sessionFailed ? initialize() : authDialog('login')));
+      nav.append(button(sessionFailed ? '계정 다시 확인' : configured === false ? '계정 저장 준비 중' : '소셜 로그인', () => sessionFailed ? initialize() : authDialog()));
     }
     function renderSave() {
       saveActions.replaceChildren();
@@ -261,7 +249,7 @@
           const copy=node('p','account-notice-copy',sessionPending?'계정을 확인하고 있어요.':configured===false?'계정 저장을 준비 중이에요. 이 기기에서는 계속 편집할 수 있어요.':sessionFailed?'계정에 연결하지 못했어요. 잠시 후 다시 확인해 주세요.':'로그인하면 다른 기기에서도 내 계획을 불러올 수 있어요.');
           copy.setAttribute('role','status');
           notice.append(copy);
-          if(!sessionPending)notice.append(button(sessionFailed||configured===false?'다시 확인':'로그인',()=>sessionFailed||configured===false?initialize():authDialog('login'),'account-notice-link'));
+          if(!sessionPending)notice.append(button(sessionFailed||configured===false?'다시 확인':'로그인',()=>sessionFailed||configured===false?initialize():authDialog(),'account-notice-link'));
           noticeRoot.append(notice);
           return;
         }
@@ -380,11 +368,15 @@
     async function socialOptions(view, host) {
       try {
         const data = await api('/api/auth/providers');
-        if (!view.current() || data?.configured !== true || !Array.isArray(data.providers) || data.providers.length > 3) return;
+        if (!view.current()) return;
+        if (typeof data?.configured !== 'boolean' || !Array.isArray(data.providers) || data.providers.length > 3) throw { code: 'INVALID_RESPONSE' };
         const labels = { google: 'Google', kakao: '카카오', naver: '네이버' }, seen = new Set();
         for (const provider of data.providers) {
-          if (!provider || !Object.hasOwn(labels, provider.id) || seen.has(provider.id) || provider.startUrl !== `/api/auth/oauth/${provider.id}/start`) return;
+          if (!provider || !Object.hasOwn(labels, provider.id) || seen.has(provider.id) || provider.startUrl !== `/api/auth/oauth/${provider.id}/start`) throw { code: 'INVALID_RESPONSE' };
           seen.add(provider.id);
+        }
+        if (!data.configured || data.providers.length === 0) {
+          view.error('지금은 소셜 로그인을 준비 중이에요. 이 기기에서는 계속 편집할 수 있어요.'); return;
         }
         for (const provider of data.providers) {
           view.action(host, `${labels[provider.id]}로 계속하기`, () => {
@@ -399,8 +391,13 @@
             }
           }, `account-social-button account-social-${provider.id}`);
         }
-        host.hidden = data.providers.length === 0;
-      } catch (_error) { /* Optional social sign-in never blocks the password form. */ }
+        host.hidden = false;
+        view.message.textContent = '처음 로그인하면 여행 계정이 자동으로 만들어져요.';
+        view.message.className = 'account-dialog-message';
+        host.querySelector('button')?.focus({ preventScroll: true });
+      } catch (error) {
+        if (view.current()) view.error(errorText(error, '로그인 방법을 불러오지 못했어요. 다시 확인해 주세요. 이 기기에서는 계속 편집할 수 있어요.'));
+      } finally { if (view.current()) host.setAttribute('aria-busy', 'false'); }
     }
     function consumeSocialResult() {
       try {
@@ -411,11 +408,11 @@
         const remaining = query.toString();
         if (result === 'success' && user) announceSession();
         window.history.replaceState(window.history.state, '', `${window.location.pathname || '/'}${remaining ? `?${remaining}` : ''}${window.location.hash || ''}`);
-        notify(result === 'success' && user ? '로그인했어요.' : '소셜 로그인을 완료하지 못했어요. 다시 시도하거나 아이디로 로그인해 주세요.', result === 'success' && user ? 'success' : 'error');
+        notify(result === 'success' && user ? '로그인했어요.' : '소셜 로그인을 완료하지 못했어요. 다시 시도해 주세요.', result === 'success' && user ? 'success' : 'error');
       } catch (_error) { /* A blocked history update must not interrupt account initialization. */ }
     }
-    function authDialog(mode = 'login', afterLogin = null) {
-      const view = openDialog(mode === 'signup' ? '회원가입' : '로그인', '내 계정으로 여행 계획을 저장하고 다른 기기에서 불러와요.'); if (!view) return;
+    function authDialog() {
+      const view = openDialog('소셜 로그인', '소셜 계정으로 내 여행 계획을 저장하고 다른 기기에서 불러와요.'); if (!view) return;
       if (configured === false) {
         view.error('계정 저장을 준비 중이에요. 지금은 이 기기에서 계속 편집해 주세요.');
         const actions = node('div', 'account-dialog-actions');
@@ -426,46 +423,16 @@
           if (!view.current()) return;
           if (user) { closeDialog(true); return; }
           if (sessionFailed) { view.error('계정에 연결하지 못했어요. 잠시 후 다시 확인해 주세요.'); view.busy(false); return; }
-          authDialog(mode, afterLogin);
+          authDialog();
         });
         dialog.append(view.message, actions);
         return;
       }
-      const tabs = node('div', 'account-dialog-tabs');
-      for (const [key, label] of [['login', '로그인'], ['signup', '회원가입']]) {
-        const tab = view.action(tabs, label, () => { if (!dialogBusy) authDialog(key, afterLogin); }); tab.setAttribute('aria-pressed', String(mode === key));
-      }
-      const form = node('form', 'account-dialog-form'); form.noValidate = true;
-      const name = view.input(form, '아이디', 'account-username'); name.autocomplete = 'username'; name.maxLength = 24; name.spellcheck = false; name.autocapitalize = 'none';
-      const password = view.input(form, '비밀번호', 'account-password', 'password'); password.autocomplete = mode === 'signup' ? 'new-password' : 'current-password'; password.maxLength = 128;
-      const confirmation = mode === 'signup' ? view.input(form, '비밀번호 확인', 'account-password-confirm', 'password') : null;
-      if (confirmation) { confirmation.autocomplete = 'new-password'; confirmation.maxLength = 128; }
-      if (mode === 'signup') form.append(node('p', 'account-dialog-copy', '아이디는 영문·숫자·밑줄 3~24자, 비밀번호는 10자 이상으로 정해 주세요.'));
-      const actions = node('div', 'account-dialog-actions'), submit = view.action(actions, mode === 'signup' ? '가입하고 시작하기' : '로그인', () => {}, 'is-primary'); submit.type = 'submit'; form.append(actions);
-      form.addEventListener('submit', async event => {
-        event.preventDefault(); if (!view.current() || dialogBusy) return;
-        const username = name.value.trim().toLowerCase(), secret = password.value;
-        if (!usernameValid(username)) { view.error('아이디는 영문·숫자·밑줄 3~24자로 입력해 주세요.'); name.focus(); return; }
-        if (secret.length < 10 || secret.length > 128) { view.error('비밀번호는 10~128자로 입력해 주세요.'); password.focus(); return; }
-        if (confirmation && secret !== confirmation.value) { view.error('비밀번호 확인이 일치하지 않아요.'); confirmation.focus(); return; }
-        const account = epoch; view.busy(true);
-        try {
-          const data = await api(`/api/auth/${mode}`, 'POST', { username, password: secret });
-          if (!view.current() || account !== epoch) return;
-          if (!validUser(data?.user)) throw { code: 'INVALID_RESPONSE' };
-          password.value = ''; if (confirmation) confirmation.value = '';
-          if (!await resetAccount(data.user)) return;
-          announceSession();
-          closeDialog(true); notify(mode === 'signup' ? '회원가입했어요.' : '로그인했어요.', 'success');
-          if (afterLogin) afterLogin();
-        } catch (error) {
-          if (!view.current() || account !== epoch) return;
-          view.error(error.status === 409 ? '이미 사용 중인 아이디예요. 다른 아이디를 입력해 주세요.'
-            : error.status === 401 ? '아이디나 비밀번호를 확인해 주세요.' : errorText(error, '계정에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.'));
-        } finally { view.busy(false); }
-      });
-      const social = node('div', 'account-social-options'); social.hidden = true; social.setAttribute('aria-label', '소셜 계정으로 로그인');
-      dialog.append(social, tabs, form, view.message); socialOptions(view, social); name.focus({ preventScroll: true });
+      const social = node('div', 'account-social-options'); social.hidden = true; social.setAttribute('aria-label', '소셜 계정으로 로그인'); social.setAttribute('aria-busy', 'true');
+      const actions = node('div', 'account-dialog-actions');
+      view.action(actions, '다시 확인', () => { if (view.current()) authDialog(); });
+      view.message.textContent = '로그인 방법을 확인하고 있어요…';
+      dialog.append(social, view.message, actions); socialOptions(view, social);
     }
     async function logout() {
       if (!user || destroyed) return;
@@ -475,7 +442,7 @@
     }
     async function saveDialog(asNew) {
       if (destroyed || savePending) return;
-      if (!user) { authDialog('login', () => saveDialog(asNew)); return; }
+      if (!user) { authDialog(); return; }
       if (!asNew && currentPlan) {
         if (attachmentState === 'checking') return;
         if (attachmentState === 'unavailable') {

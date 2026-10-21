@@ -150,7 +150,7 @@ export function createSocialAuthHandler({ db, env = {}, configured = false, cryp
       if (!allowed.includes(request.method)) return json(request, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: '허용되지 않은 요청 방식입니다.' } }, { Allow: allowed.join(', ') });
       if (path === '/api/auth/providers') {
         // A missing additive migration keeps the buttons hidden until setup is
-        // complete, while the existing password login continues to work.
+        // complete. Local guest editing remains independent of login setup.
         if (enabled && url.origin === base) {
           await db.prepare('SELECT state_hash FROM gil_oauth_states LIMIT 1').first();
           await db.prepare('SELECT subject_hash FROM gil_oauth_identities LIMIT 1').first();

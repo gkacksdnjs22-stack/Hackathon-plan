@@ -11,10 +11,15 @@ const document={version:8,itinerary:{cityId:'sejong',startDate:'2026-10-20',dayC
 
 async function exercise(send,origin){
   const mutation=(method,body,cookie)=>({method,headers:{Origin:origin,'Content-Type':'application/json',...(cookie?{Cookie:cookie}:{})},body:JSON.stringify(body)});
-  const signup=await send('/api/auth/signup',mutation('POST',{username:'integration',password:'test-password-2026'}));
-  assert.equal(signup.status,201);
-  assert.match(signup.headers.get('set-cookie'),/HttpOnly/);
-  const cookie=signup.headers.get('set-cookie').split(';')[0];
+  for(const endpoint of ['/api/auth/signup','/api/auth/login'])assert.equal((await send(endpoint,mutation('POST',{username:'retired',password:'test-password-2026'}))).status,410);
+  const start=await send('/api/auth/oauth/kakao/start',{redirect:'manual'});
+  assert.equal(start.status,303);
+  const state=new URL(start.headers.get('location')).searchParams.get('state');
+  const login=await send(`/api/auth/oauth/kakao/callback?code=synthetic-code&state=${state}`,{redirect:'manual',headers:{Cookie:start.headers.getSetCookie()[0].split(';')[0]}});
+  assert.equal(login.status,303);
+  const sessionHeader=login.headers.getSetCookie().find(value=>value.startsWith('gil_session='));
+  assert.match(sessionHeader,/HttpOnly/);
+  const cookie=sessionHeader.split(';')[0];
   const created=await send('/api/plans',mutation('POST',{title:'계정 여행 노트',document},cookie));
   assert.equal(created.status,201);
   const {plan}=await created.json();
@@ -58,17 +63,19 @@ async function exercise(send,origin){
 }
 
 test('Node account routes retain cookies, enforce origin and keep database files private',async t=>{
-  const db=createLocalDatabase(),server=createAppServer({accountHandler:createAccountHandler({db,secret})});
+  const db=createLocalDatabase();let accountHandler;
+  const server=createAppServer({accountHandler:request=>accountHandler(request)});
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   t.after(async()=>{await new Promise(resolve=>server.close(resolve));db.close();});
   const origin=`http://127.0.0.1:${server.address().port}`;
+  accountHandler=createAccountHandler({db,secret,oauthEnv:socialSettings(origin),fetchImpl:socialFetch});
   await exercise((path,options)=>fetch(origin+path,options),origin);
 });
 
 test('Cloudflare Worker uses its D1 binding for the same authenticated account API',async t=>{
   const db=createLocalDatabase();t.after(()=>db.close());
-  const worker=createPagesWorker(),origin='https://gil-test.pages.dev';
-  await exercise((path,options)=>worker.fetch(new Request(origin+path,options),{DB:db,AUTH_SECRET:secret}),origin);
+  const worker=createPagesWorker({authFetch:socialFetch}),origin='https://gil-test.pages.dev';
+  await exercise((path,options)=>worker.fetch(new Request(origin+path,options),{DB:db,AUTH_SECRET:secret,...socialSettings(origin)}),origin);
 });
 
 test('missing deployment DB settings leave tourism intact and report account setup without secrets',async()=>{
