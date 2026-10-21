@@ -1563,7 +1563,7 @@
     apply.type='button';
     apply.textContent='교체 적용';
     apply.addEventListener('click',()=>{
-      const result=window.TravelPlanner.replaceTouristEvent({city,itinerary:currentItinerary,dayIndex,eventId:selectedEvent.id,replacementId:select.value});
+      const result=window.TravelPlanner.replaceTouristEvent({city,itinerary:currentItinerary,dayIndex,eventId:selectedEvent.id,replacementId:select.value,reservedEventIds:reservedExtraEventIds(dayIndex)});
       if(!result.ok){showMessage(result.reason,'error');return;}
       if(!saveEditedItinerary(result.itinerary)){
         showMessage('장소 교체를 저장하지 못했어요. 기존 일정과 저장본을 그대로 유지했습니다.','error');

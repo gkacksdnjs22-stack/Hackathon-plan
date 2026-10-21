@@ -1826,6 +1826,45 @@ test('an unmoved deleted extra restored from undo keeps its identity after a rep
   assert.equal(row('extra-2'),null);
 });
 
+for(const saved of [false,true])test(`cross-area replacement keeps its identity after a moved extra is deleted (account saved=${saved})`,async()=>{
+  const fixture=timedNoteFixture(2),reply=data=>({ok:true,status:200,json:async()=>data});
+  const app=runtime({...fixture,withAccount:true,accountHandler:async(path,options)=>{
+    if(path==='/api/auth/session')return reply({configured:true,user:{id:'owner-a',username:'alice'}});
+    if(path==='/api/plans'&&options.method==='GET')return reply({plans:[]});
+    if(path==='/api/plans'&&options.method==='POST')return reply({plan:{id:'plan-one',title:'내 계획',cityId:'test-city',startDate:'2026-10-20',dayCount:1,revision:1,
+      createdAt:'2026-10-20T00:00:00Z',updatedAt:'2026-10-20T00:00:00Z'}});
+    throw Error('Unexpected request '+path);
+  }});await app.account.controller.ready;await settle();app.$('day-count').value='1';await app.create();
+  const row=(app,id)=>app.$('day-list').querySelector(`[data-event-id="${id}"]`),replacement=fixture.cityData.areas[1].places[0];
+  const swap=app=>{
+    row(app,'place-0').querySelector('.swap-button').click();
+    const picker=row(app,'place-0').querySelector('.swap-picker'),select=picker.querySelector('select');
+    assert.ok(select.options.some(option=>option.value===replacement.id),'a different area is offered by the real picker');
+    select.value=replacement.id;picker.querySelector('button').click();
+  };
+  currentSchedule(app).options.onAdd({type:'free',title:'삭제할 일정',duration:20});
+  row(app,'extra-1').querySelectorAll('.event-move-button')[0].click();assert.equal(row(app,'extra-1').dataset.moved,'true');
+  if(saved){
+    app.$('account-save').querySelector('button').click();app.document.querySelector('.account-dialog form').dispatch('submit');await settle();
+    assert.match(app.$('account-save').textContent,/계정에 저장했어요/);assert.equal(row(app,'extra-1').dataset.moved,undefined);
+  }
+  row(app,'extra-1').querySelector('.event-remove-button').click();
+  const deletedRaw=app.stored.get(`${storageKey}:owner-a`);swap(app);
+  const extra=app.account.options.getDocument().itinerary.extraEvents[0][0];
+  assert.equal(extra.placeId,replacement.id);assert.equal(row(app,extra.id).dataset.moved,undefined);
+  app.$('undo-button').click();assert.ok(row(app,'place-0'));assert.equal(row(app,extra.id),null);
+  app.$('undo-button').click();assert.equal(row(app,'extra-1').dataset.moved,saved?undefined:'true');
+  app.$('redo-button').click();app.$('redo-button').click();assert.equal(row(app,extra.id).dataset.moved,undefined);
+  const reloaded=runtime({...fixture,withAccount:true,accountUser:{id:'owner-a',username:'alice'},
+    seedStorage:[[`${storageKey}:owner-a`,app.stored.get(`${storageKey}:owner-a`)]],hash:'#/note'});await settle();
+  assert.equal(row(reloaded,extra.id).dataset.moved,undefined);
+  const beforeSwapReload=runtime({...fixture,withAccount:true,accountUser:{id:'owner-a',username:'alice'},
+    seedStorage:[[`${storageKey}:owner-a`,deletedRaw]],hash:'#/note'});await settle();swap(beforeSwapReload);
+  const reloadedExtra=beforeSwapReload.account.options.getDocument().itinerary.extraEvents[0][0];
+  assert.equal(reloadedExtra.placeId,replacement.id);assert.equal(row(beforeSwapReload,reloadedExtra.id).dataset.moved,undefined);
+  app.account.controller.destroy();
+});
+
 test('a direct note without a saved itinerary redirects before slower city preparation completes', async () => {
   const cityLoading = deferred(), app = runtime({ hash: '#/note', ensureCity: () => cityLoading.promise });
   await settle(); screen(app, 'start');

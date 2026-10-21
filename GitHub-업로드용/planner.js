@@ -887,7 +887,7 @@
     if(new Set(ids).size!==ids.length)return {ok:false,reason:'교체 후 일정의 장소 중복을 확인하지 못했습니다.'};
     return {ok:true,itinerary:next,oldPlace:validationPlace(city,placeId),newPlace:replacement};
   }
-  function replaceTouristEvent({city,itinerary,dayIndex,eventId,replacementId}={}){
+  function replaceTouristEvent({city,itinerary,dayIndex,eventId,replacementId,reservedEventIds=[]}={}){
     const current=editableItinerary(city,itinerary,dayIndex);
     if(!current.ok)return {ok:false,reason:current.reason};
     const event=current.days[dayIndex].events.find(item=>item.id===eventId),replacement=validationPlace(city,replacementId);
@@ -905,7 +905,7 @@
       const result=replacePlace({city,itinerary:current,dayIndex,placeId:event.place.id,replacementId});
       return result.ok?{...result,eventId}:result;
     }
-    const added=addEvent({city,itinerary:current,dayIndex,type:'place',placeId:replacement.id,beforeId:eventId,
+    const added=addEvent({city,itinerary:current,dayIndex,type:'place',placeId:replacement.id,beforeId:eventId,reservedEventIds,
       duration:replacement.stayMinutes,description:(replacement.intro??'').slice(0,500)});
     if(!added.ok)return added;
     const removed=removeEvent({city,itinerary:added.itinerary,dayIndex,eventId});
