@@ -47,7 +47,7 @@
   const eventLocation=event=>event?.place||event?.location||event?.departure||event?.arrival||null;
   const visitEvent=event=>Boolean(event?.type!=='transfer'&&(event?.type==='place'||event?.location||event?.restaurantRef||event?.type==='meal'&&event.title?.includes(' · ')||/^extra-/.test(event?.id)&&['free','rest','meal'].includes(event.type)||event?.departure||event?.arrival));
   const mealRestaurantName=event=>event?.title?.includes(' · ')?event.title.slice(event.title.indexOf(' · ')+3).trim():event?.title&&event.title!==(event.meal||'식사')?event.title.trim():event?.restaurantRef?.name||'';
-  const compactDays=new Set();
+  const detailedDays=new Set();
   let activeReorder=null;
   function closeReorderControls(restoreFocus=false){
     const opened=activeReorder;
@@ -804,7 +804,7 @@
     selectDayPage(dayIndex,{expand:true});
     focusEvent(dayIndex,eventId);
     const row=[...$(`travel-day-${dayIndex}`).querySelectorAll('.timeline-row')].find(row=>row.dataset.eventId===eventId);
-    if(row&&compactDays.has(dayIndex))setCompactExpanded(row,true);
+    if(row&&!detailedDays.has(dayIndex))setCompactExpanded(row,true);
     row?.scrollIntoView({block:'center',behavior:'instant'});
   }
   function renderPendingTransfers(){
@@ -1014,11 +1014,11 @@
     const headerActions=document.createElement('div');headerActions.className='day-header-actions';headerActions.append(controls,toggle);
     const view=document.createElement('button');view.type='button';view.className='day-view-toggle';
     function syncView(){
-      const compact=compactDays.has(index);article.classList.toggle('is-compact',compact);
+      const compact=!detailedDays.has(index);article.classList.toggle('is-compact',compact);
       view.textContent=compact?'자세히 편집':'간단히 보기';view.setAttribute('aria-pressed',String(compact));
       if(compact)for(const row of article.querySelectorAll('.timeline-row'))if(row.querySelector('.event-editor'))setCompactExpanded(row,true);
     }
-    view.addEventListener('click',()=>{if(compactDays.has(index))compactDays.delete(index);else compactDays.add(index);syncView();});syncView();headerActions.append(view);
+    view.addEventListener('click',()=>{if(detailedDays.has(index))detailedDays.delete(index);else detailedDays.add(index);syncView();});syncView();headerActions.append(view);
     head.append(headingCopy,headerActions);
     article.append(head);
     const guide=document.createElement('aside');guide.className='timeline-guide';guide.setAttribute('aria-label','일정 순서 변경 안내');
@@ -1105,7 +1105,7 @@
     selectDayPage(dayIndex);
     const article=$('day-list').querySelector(`[data-day-index="${dayIndex}"]`);
     const row=[...(article?.querySelectorAll('.timeline-row')||[])].find(item=>item.dataset.eventId===eventId);
-    if(row&&compactDays.has(dayIndex))setCompactExpanded(row,true);
+    if(row&&!detailedDays.has(dayIndex))setCompactExpanded(row,true);
     const target=row?.querySelector('.event-edit-button');
     if(target&&!target.disabled)target.focus({preventScroll:true});else if(row){row.tabIndex=-1;row.focus({preventScroll:true});}
   }
