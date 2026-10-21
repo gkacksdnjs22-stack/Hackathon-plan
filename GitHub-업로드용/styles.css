@@ -83,7 +83,7 @@ button,input,select{font:inherit}button,select{cursor:pointer}button:disabled{cu
 .timeline-row:not(:last-child)::before{position:absolute;z-index:0;top:33px;bottom:-10px;left:7px;width:1px;background:repeating-linear-gradient(to bottom,#d5dfcc 0,#d5dfcc 4px,transparent 4px,transparent 8px);content:""}
 .timeline-time{position:relative;z-index:1;display:grid;grid-template-columns:14px 1fr;align-content:start;align-items:start;column-gap:11px;row-gap:3px;padding-top:20px;color:#677b5f;font-size:11px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
 .timeline-time::before{grid-column:1;grid-row:1 / span 3;display:inline-block;width:14px;height:14px;margin-top:0;border:4px solid #e5f1de;border-radius:50%;background:#69965a;box-shadow:0 0 0 2px #fff;content:""}
-.timeline-time span{grid-column:2}.timeline-time .time-divider{color:#b3bca7;font-size:8px;line-height:6px}
+.timeline-time span{grid-column:2}.timeline-time-labels{display:contents}.timeline-time .time-divider{color:#b3bca7;font-size:8px;line-height:6px}
 .timeline-content{min-width:0}.place-row .timeline-content{padding:19px 20px;border:1px solid #e3e9dc;border-radius:18px;background:#fafcf6}
 .event-top{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}.event-place-heading{display:flex;align-items:center;gap:11px;min-width:0}
 .place-sticker{display:grid;place-items:center;flex:0 0 auto;width:40px;height:40px;border-radius:12px;background:#e5f2df;font-size:21px;transform:rotate(-5deg)}.day-card:nth-child(3n+2) .place-sticker{background:#ffedc9}.day-card:nth-child(3n) .place-sticker{background:#ece0fa}

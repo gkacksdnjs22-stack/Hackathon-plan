@@ -16,7 +16,7 @@
   };
   const distanceLabel = meters => meters < 1000 ? `${meters}m` : `${(meters / 1000).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}km`;
 
-  function mount(host, { origin = null, destination = null, mode = null, compact = false, onEdit = null } = {}) {
+  function mount(host, { origin = null, destination = null, mode = null, compact = false, onEdit = null, onPreviewDuration = null } = {}) {
     const ready = Boolean(validPoint(origin) && validPoint(destination) && ['local-bus', 'subway'].includes(mode));
     const from = ready ? { latitude: origin.latitude, longitude: origin.longitude } : null;
     const to = ready ? { latitude: destination.latitude, longitude: destination.longitude } : null;
@@ -27,7 +27,7 @@
     const summary = document.createElement('summary');
     const heading = document.createElement('strong'); heading.className = 'transit-route-heading'; heading.textContent = '대중교통 예상시간';
     const preview = document.createElement('span'); preview.className = 'transit-route-preview'; preview.textContent = `${originName} → ${destinationName}`;
-    const action = document.createElement('span'); action.className = 'transit-route-summary-action'; action.textContent = '조회';
+    const action = document.createElement('span'); action.className = 'transit-route-summary-action'; action.textContent = '경로 조회';
     if (compact) summary.append(heading, action); else summary.append(heading, preview, action);
     const body = document.createElement('div'); body.className = 'transit-route-body';
     const controls = document.createElement('div'); controls.className = 'transit-route-controls';
@@ -50,7 +50,10 @@
     const steps = document.createElement('ol'); steps.className = 'transit-route-step-list'; stepsDetails.append(stepsSummary, steps);
     result.append(metrics, stepsDetails);
     const manual = document.createElement('button'); manual.type = 'button'; manual.className = 'transit-route-edit'; manual.textContent = '일정 시간 수정'; manual.hidden = !canEdit;
-    const note = document.createElement('p'); note.className = 'transit-route-note'; note.textContent = '조회한 시간은 참고용이에요. 일정 시간은 직접 수정해 주세요.';
+    const note = document.createElement('p'); note.className = 'transit-route-note';
+    note.textContent = typeof onPreviewDuration === 'function'
+      ? '선택한 경로의 시간은 현재 타임라인에만 미리 보여줘요. 조회를 닫으면 원래 시간으로 돌아오며, 저장할 일정 시간은 직접 수정해 주세요.'
+      : '조회한 시간은 참고용이에요. 일정 시간은 직접 수정해 주세요.';
     body.append(controls, message, choices, result, manual, note); details.append(summary, body); host.replaceChildren(details);
 
     const fallback = document.createElement('a'); fallback.className = 'transit-route-fallback';
@@ -59,12 +62,18 @@
     if (ready) fallback.href = `https://map.kakao.com/link/by/traffic/${encodeURIComponent('출발지')},${from.latitude},${from.longitude}/${encodeURIComponent('도착지')},${to.latitude},${to.longitude}`;
     body.append(fallback);
 
-    let destroyed = false, userIntent = false, version = 0, editing = false, routes = [], pending = null, timeout = null;
+    let destroyed = false, userIntent = false, version = 0, editing = false, routes = [], pending = null, timeout = null, previewing = false;
+    function clearPreview() {
+      if (!previewing) return;
+      previewing = false;
+      if (typeof onPreviewDuration === 'function') onPreviewDuration(null);
+    }
     function showMessage(value, error = false) { fallback.hidden = !error || !ready; message.textContent = value; message.classList.toggle('is-error', error); }
     function initialMessage() {
       showMessage(ready ? '펼쳐서 현재 대중교통 경로를 조회해 보세요.' : '좌표가 있는 출발지와 도착지를 선택해 주세요.');
     }
     function resetResults() {
+      clearPreview();
       routes = []; select.replaceChildren(); choices.hidden = true; result.hidden = true;
       duration.textContent = ''; distance.textContent = ''; type.textContent = ''; transfers.textContent = '';
       steps.replaceChildren(); stepsDetails.open = false;
@@ -99,7 +108,7 @@
     }
     function renderRoute() {
       if (destroyed || !details.open || pending) return;
-      const selected = routes[Number(select.value)]; if (!selected) return;
+      const selected = routes[Number(select.value)]; if (!selected) { clearPreview(); return; }
       duration.textContent = `예상 ${durationLabel(selected.durationMinutes)}`;
       distance.textContent = `거리 ${distanceLabel(selected.distanceMeters)}`;
       type.textContent = routeTypes[selected.type]; transfers.textContent = selected.transfers === 0 ? '환승 없음' : `환승 ${selected.transfers}회`;
@@ -115,6 +124,10 @@
         row.append(heading, stops); steps.append(row);
       }
       result.hidden = false; showMessage('');
+      if (typeof onPreviewDuration === 'function') {
+        previewing = true;
+        onPreviewDuration(selected.durationMinutes);
+      }
     }
     async function search() {
       if (destroyed || !details.open || !ready || pending || editing) return;
@@ -176,6 +189,7 @@
     function activate(event) { if (event.type === 'click' || event.key === 'Enter' || event.key === ' ') userIntent = true; }
     function toggle(event) {
       if (event.target && event.target !== details) return;
+      action.textContent = details.open ? '접기' : '경로 조회';
       if (details.open) { if (userIntent && !pending) search(); }
       else { cancel(); resetResults(); initialMessage(); }
       userIntent = false;

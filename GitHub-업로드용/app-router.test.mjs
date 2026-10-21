@@ -207,7 +207,7 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
   $('country-select').value = 'KR'; $('app-message').hidden = true; $('note-timing-notice').hidden = true;
   $('start-screen').append($('title'), $('trip-form'), $('resume-note'), $('empty-state'));
   $('resume-note').append($('resume-summary'));
-  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('undo-button'), $('redo-button'), $('note-timing-notice'), $('day-list'));
+  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('undo-button'), $('redo-button'), $('note-timing-notice'), $('day-bookmarks'), $('day-list'), $('day-bookmarks-bottom'));
   $('screen-loading').append($('loading-title'));
   document.body.append($('app-message'), $('screen-loading'), $('start-screen'), $('itinerary-section'));
   const submit = document.createElement('button'); submit.type = 'submit'; submit.append(document.createElement('span'));
@@ -245,17 +245,27 @@ function runtime({ hash = '', raw = null, destinationsPromise, ensureCity, loadE
     TravelPlanner: {
       ...planner,
       createItinerary(input) { creations.push(input); return behavior.createError ? { ok: false, reason: behavior.createError } : planner ? planner.createItinerary(input) : itinerary(input); },
-      formatTime: minutes => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`
+      formatTime: planner?.formatTime || (minutes => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`)
     }
   };
   function mountStub(kind) {
     return { mount(host, options) {
       const details = document.createElement('details'); details.append(document.createElement('summary')); host.append(details);
+      if (kind === 'transit') details.className = 'transit-route-lookup';
       const record = { kind, host, options, destroyed: false }; mounts.push(record);
-      return { set() {}, destroy() { record.destroyed = true; host.replaceChildren(); } };
+      return { set() {}, destroy() {
+        if (record.destroyed) return;
+        record.destroyed = true;
+        if (kind === 'transit') options.onPreviewDuration?.(null);
+        if (kind === 'local-transfer') options.onPreviewTransitDuration?.(null);
+        host.replaceChildren();
+      } };
     } };
   }
   window.TravelDeparture = mountStub('departure');
+  window.TravelTransitRouting = mountStub('transit');
+  window.TravelLocalTransfer = mountStub('local-transfer');
+  window.TravelTransport = mountStub('transport');
   window.TravelSchedule = mountStub('schedule');
   window.TravelRestaurants = { ...mountStub('restaurant'), mountManual: mountStub('manual-restaurant').mount, districtFromAddress: () => '남구' };
   const account={options:null,changes:0,detaches:0};
@@ -318,6 +328,16 @@ function screen(app, expected) {
   assert.equal(app.$('start-screen').hidden, expected !== 'start');
   assert.equal(app.$('itinerary-section').hidden, expected !== 'note');
   assert.equal(app.$('screen-loading').hidden, expected !== 'loading');
+}
+function selectedDay(app, index) {
+  const days = app.$('day-list').children;
+  assert.ok(days[index], `day ${index + 1} exists`);
+  assert.deepEqual(days.map(day => day.hidden), days.map((_, at) => at !== index), 'only the requested day is visible');
+  for (const id of ['day-bookmarks', 'day-bookmarks-bottom']) {
+    assert.equal(app.$(id).children.length, days.length);
+    assert.deepEqual(app.$(id).children.map(button => button.getAttribute('aria-current')),
+      days.map((_, at) => at === index ? 'page' : 'false'), `${id} marks the same current day`);
+  }
 }
 
 test('account storage exports only canonical editing parameters and restores them through the real planner',async()=>{
@@ -456,19 +476,103 @@ test('bookmarks reopen and focus the target day while collapse survives another 
   let first = app.$('day-list').children[0];
   assert.equal(first.querySelector('.day-title strong').textContent, '10월 20일 (화)');
   assert.deepEqual(app.$('day-bookmarks').children.map(button => button.textContent), ['Day 01', 'Day 02']);
+  assert.deepEqual(app.$('day-bookmarks-bottom').children.map(button => button.textContent), ['Day 01', 'Day 02']);
   const saved = app.stored.get(storageKey), writes = app.writes.length;
   first.querySelector('.day-collapse').click();
   assert.equal(first.querySelector('.day-card-body').hidden, true);
   assert.equal(first.querySelector('.day-collapse').getAttribute('aria-expanded'), 'false');
   assert.equal(app.stored.get(storageKey), saved); assert.equal(app.writes.length, writes);
+  app.$('day-bookmarks').children[1].click(); await settle();
   manualMeal(app).options.onSave({ name: '둘째 날 식당', description: '' });
   first = app.$('day-list').children[0]; assert.equal(first.querySelector('.day-card-body').hidden, true);
   const beforeJump = app.writes.length;
-  app.$('day-bookmarks').children[0].click();
+  app.$('day-bookmarks').children[0].click(); await settle();
   assert.equal(first.querySelector('.day-card-body').hidden, false);
   assert.equal(app.document.activeElement, first); assert.equal(app.$('day-bookmarks').lastScrollIntoView.block, 'start');
-  assert.equal(app.window.location.hash, '#/note'); assert.equal(app.writes.length, beforeJump);
+  assert.equal(app.window.location.hash, '#/note/day/1'); assert.equal(app.writes.length, beforeJump);
   assert.equal(app.$('day-list').children[1].querySelector('.day-card-body').hidden, false);
+  app.$('day-bookmarks').children[1].click(); await settle();
+  const second=app.$('day-list').children[1];second.querySelector('.day-collapse').click();
+  app.$('day-bookmarks-bottom').children[1].click(); await settle();
+  assert.equal(second.querySelector('.day-card-body').hidden,false);
+  assert.equal(app.document.activeElement,second);
+  assert.equal(app.$('day-bookmarks').lastScrollIntoView.block,'start');
+  assert.equal(app.writes.length,beforeJump);
+  app.$('clear-button').click();
+  assert.equal(app.$('day-bookmarks').children.length,0);
+  assert.equal(app.$('day-bookmarks-bottom').children.length,0);
+});
+
+test('top and bottom day bookmarks show separate day pages while preserving every saved editing parameter', async () => {
+  const app = runtime({ ...timedNoteFixture(3), withAccount: true }); await settle();
+  app.$('day-count').value = '3'; await app.create();
+  selectedDay(app, 0);
+  const cards = [...app.$('day-list').children], raw = app.stored.get(storageKey), parameters = noteParameters(app);
+  const writes = app.writes.length, changes = app.account.changes;
+  for (const [id, index] of [['day-bookmarks-bottom', 1], ['day-bookmarks', 2], ['day-bookmarks-bottom', 0]]) {
+    app.$(id).children[index].click(); await settle();
+    screen(app, 'note'); selectedDay(app, index);
+    assert.equal(app.window.location.hash, `#/note/day/${index + 1}`);
+    assert.deepEqual(app.$('day-list').children, cards, 'day navigation preserves existing cards and widgets');
+    assert.equal(cards[index].querySelector('.day-card-body').hidden, false);
+    assert.equal(app.document.activeElement, cards[index]); assert.equal(app.$('day-bookmarks').lastScrollIntoView.block, 'start');
+    assert.equal(app.$('day-bookmarks').lastScrollIntoView.behavior, 'instant');
+    assert.equal(app.stored.get(storageKey), raw); assert.equal(app.writes.length, writes);
+    assert.deepEqual(noteParameters(app), parameters); assert.equal(app.account.changes, changes);
+    assert.equal(app.$('undo-button').disabled, true); assert.equal(app.$('redo-button').disabled, true);
+  }
+});
+
+test('a direct day permalink waits for note restoration and opens the requested day without rewriting its draft', async () => {
+  const fixture = timedNoteFixture(3), pending = deferred(), raw = JSON.stringify({ version: 8, itinerary: fixture.note });
+  const app = runtime({ ...fixture, raw, hash: '#/note/day/2', destinationsPromise: pending.promise });
+  screen(app, 'loading');
+  assert.equal(app.window.location.hash, '#/note/day/2');
+  pending.resolve([fixture.cityData]); await settle();
+  screen(app, 'note'); selectedDay(app, 1);
+  assert.equal(app.window.location.hash, '#/note/day/2');
+  assert.equal(app.stored.get(storageKey), raw); assert.equal(app.writes.length, 0);
+  const defaultPage = runtime({ ...fixture, raw, hash: '#/note' }); await settle();
+  screen(defaultPage, 'note'); selectedDay(defaultPage, 0);
+});
+
+test('day permalinks clamp to available days and browser back and forward restore the visible day', async () => {
+  const fixture = timedNoteFixture(2), raw = JSON.stringify({ version: 8, itinerary: fixture.note });
+  const clamped = runtime({ ...fixture, raw, hash: '#/note/day/7' }); await settle();
+  screen(clamped, 'note'); selectedDay(clamped, 1);
+  assert.equal(clamped.stored.get(storageKey), raw); assert.equal(clamped.writes.length, 0);
+  const app = runtime({ ...fixture, raw, hash: '#/note' }); await settle();
+  await app.go('#/note/day/2'); selectedDay(app, 1);
+  await app.go('#/note/day/1'); selectedDay(app, 0);
+  app.window.history.back(); await settle();
+  assert.equal(app.window.location.hash, '#/note/day/2'); selectedDay(app, 1);
+  app.window.history.back(); await settle();
+  assert.equal(app.window.location.hash, '#/note'); selectedDay(app, 0);
+  app.window.history.forward(); await settle(); selectedDay(app, 1);
+  assert.equal(app.stored.get(storageKey), raw); assert.equal(app.writes.length, 0);
+});
+
+test('a day permalink without a saved note redirects to setup after startup completes', async () => {
+  const pending = deferred(), app = runtime({ hash: '#/note/day/2', destinationsPromise: pending.promise });
+  screen(app, 'loading');
+  pending.resolve([{ id: 'test-city' }]); await settle();
+  screen(app, 'start'); assert.equal(app.window.location.hash, '#/start');
+  assert.match(app.$('app-message').textContent, /먼저 여행 조건/);
+  assert.equal(app.$('day-bookmarks').children.length, 0);
+  assert.equal(app.$('day-bookmarks-bottom').children.length, 0);
+  assert.equal(app.writes.length, 0);
+});
+
+test('loading or creating another note resets the current day without persisting day page presentation state', async () => {
+  const app = runtime({ ...timedNoteFixture(2), withAccount: true }); await settle();
+  app.$('day-count').value = '2'; await app.create();
+  const saved = app.account.options.getDocument();
+  app.$('day-bookmarks-bottom').children[1].click(); await settle(); selectedDay(app, 1);
+  assert.equal(await app.account.options.loadDocument(saved), true); await settle(); selectedDay(app, 0);
+  const document = app.account.options.getDocument();
+  assert.equal(document.itinerary.activeDayIndex, undefined); assert.equal(document.itinerary.selectedDay, undefined);
+  app.$('day-bookmarks').children[1].click(); await settle(); selectedDay(app, 1);
+  await app.create(); selectedDay(app, 0);
 });
 
 test('top and bottom bookmarks show one day at a time without saving or discarding an unfinished memo', async () => {
@@ -492,7 +596,7 @@ test('top and bottom bookmarks show one day at a time without saving or discardi
   assert.deepEqual(visible(), ['1']); assert.equal(row.querySelector('textarea'), memo);
   assert.equal(memo.value, '저장하기 전 둘째 날 메모');
   assert.deepEqual(app.$('day-list').children, cards); assert.equal(app.writes.length, writes); assert.equal(app.stored.get(storageKey), saved);
-  assert.equal(app.window.location.hash, '#/note');
+  assert.equal(app.window.location.hash, '#/note/day/2');
 });
 
 test('the selected page and collapsed day remain selected through editing, undo and redo', async () => {
@@ -1239,6 +1343,220 @@ function editEntry(app,eventId,{title,description,duration}={}){
   editor.dispatch('submit');
   return editor;
 }
+
+function transitPreviewFixture({ dayCount = 1, arrival = false, startTime = '09:00', duration = 0 } = {}) {
+  const fixture = timedNoteFixture(dayCount), base = fixture.note;
+  const dayDepartures = Object.fromEntries(Object.entries(base.dayDepartures).map(([key, point]) => [key, {
+    ...point, mode: arrival ? 'train' : 'local-bus'
+  }]));
+  const dayArrivals = arrival ? { 0: {
+    ...dayDepartures[0], id: 'osm-node-2', name: '서울역', address: '서울특별시 용산구 한강대로',
+    latitude: 37.5547, longitude: 126.9707, sourceUrl: 'https://www.openstreetmap.org/node/2'
+  } } : {};
+  const eventEdits = JSON.parse(JSON.stringify(base.eventEdits));
+  eventEdits[0].departure.duration = duration;
+  if (arrival) eventEdits[0]['arrival-transfer'] = { duration: 0 };
+  const note = fixture.planner.createItinerary({ city: fixture.cityData, startDate: base.startDate,
+    dayCount, dayAreaIds: base.dayAreaIds, selections: base.selections,
+    dayDepartures, dayArrivals, eventEdits, dayStarts: { 0: startTime } });
+  assert.equal(note.ok, true, note.reason);
+  return { ...fixture, note };
+}
+function previewRow(app, eventId, dayIndex = 0) {
+  return app.$('day-list').querySelector(`[data-day-index="${dayIndex}"]`).querySelector(`[data-event-id="${eventId}"]`);
+}
+function previewClock(app, eventId, dayIndex = 0) {
+  const labels = previewRow(app, eventId, dayIndex).querySelector('.timeline-time-labels');
+  assert.ok(labels, 'timeline times have their own wrapper without replacing reorder controls');
+  return labels.textContent.replace(/<\/small>/g, ' ').replace(/<[^>]*>/g, '');
+}
+function previewMount(app, kind, eventId, dayIndex = 0) {
+  const record = app.mounts.findLast(item => item.kind === kind && !item.destroyed
+    && item.host.closest('.timeline-row')?.dataset.eventId === eventId
+    && item.host.closest('.day-card')?.dataset.dayIndex === String(dayIndex));
+  assert.ok(record, `${kind} lookup mounted for day ${dayIndex}, event ${eventId}`);
+  return record;
+}
+function previewRuntime(fixture) {
+  return runtime({ ...fixture, withAccount: true, hash: '#/note',
+    raw: JSON.stringify({ version: 8, itinerary: fixture.note }) });
+}
+
+test('a live arrival transfer moves the first visit from a 09:00 station arrival to 09:53 without saving API values', async () => {
+  const fixture = transitPreviewFixture({ arrival: true, startTime: '07:30', duration: 90 });
+  const app = previewRuntime(fixture); await settle();
+  const lookup = previewMount(app, 'local-transfer', 'arrival-transfer');
+  assert.equal(lookup.options.origin.name, '서울역');
+  assert.equal(lookup.options.destination.id, fixture.note.days[0].events.find(event => event.type === 'place').place.id);
+  const raw = app.stored.get(storageKey), parameters = noteParameters(app), writes = app.writes.length;
+  const changes = app.account.changes, undo = app.$('undo-button').disabled, redo = app.$('redo-button').disabled;
+  const day = app.$('day-list').children[0], footnote = day.querySelector('.day-footnote'), originalFootnote = footnote.textContent;
+  assert.match(previewClock(app, 'arrival'), /09:00/);
+  lookup.options.onPreviewTransitDuration(53);
+  assert.match(previewClock(app, 'arrival'), /09:00/);
+  assert.match(previewClock(app, 'arrival-transfer'), /09:00.*09:53/);
+  assert.match(previewClock(app, 'place-0'), /09:53/);
+  assert.match(previewRow(app, 'arrival-transfer').querySelector('.event-duration').textContent, /53분/);
+  assert.match(footnote.textContent, /미리보기/);
+  assert.match(footnote.textContent, new RegExp(fixture.planner.formatTime(fixture.note.days[0].end + 53)));
+  assert.equal(app.$('day-list').children[0], day, 'live projection keeps the queried widget mounted');
+  assert.equal(app.stored.get(storageKey), raw); assert.equal(app.writes.length, writes);
+  assert.deepEqual(noteParameters(app), parameters); assert.equal(app.account.changes, changes);
+  assert.equal(app.$('undo-button').disabled, undo); assert.equal(app.$('redo-button').disabled, redo);
+  lookup.options.onPreviewTransitDuration(null);
+  assert.match(previewClock(app, 'place-0'), /09:00/);
+  assert.equal(footnote.textContent, originalFootnote);
+});
+
+test('departure route changes replace the original duration and preserve working reorder controls', async () => {
+  const fixture = transitPreviewFixture({ duration: 30 }), app = previewRuntime(fixture); await settle();
+  const lookup = previewMount(app, 'transit', 'departure');
+  const row = previewRow(app, 'place-0'), reorder = row.querySelector('.timeline-dot');
+  const originalFootnote = app.$('day-list').children[0].querySelector('.day-footnote').textContent;
+  assert.match(previewClock(app, 'place-0'), /09:30/);
+  lookup.options.onPreviewDuration(53); assert.match(previewClock(app, 'place-0'), /09:53/);
+  lookup.options.onPreviewDuration(40); assert.match(previewClock(app, 'place-0'), /09:40/);
+  assert.equal(previewRow(app, 'place-0'), row); assert.equal(row.querySelector('.timeline-dot'), reorder);
+  reorder.click(); assert.equal(row.querySelector('.timeline-move-controls').hidden, false);
+  lookup.options.onPreviewDuration(null); assert.match(previewClock(app, 'place-0'), /09:30/);
+  assert.equal(app.$('day-list').children[0].querySelector('.day-footnote').textContent, originalFootnote);
+});
+
+test('simultaneous live transit durations compose per day and clearing one keeps the remaining preview', async () => {
+  const fixture = transitPreviewFixture({ dayCount: 2 }), app = previewRuntime(fixture); await settle();
+  const departure = previewMount(app, 'transit', 'departure');
+  const transfer = previewMount(app, 'local-transfer', 'transfer-0');
+  const untouchedDay = app.$('day-list').children[1].textContent;
+  departure.options.onPreviewDuration(53); transfer.options.onPreviewTransitDuration(40);
+  assert.match(previewClock(app, 'place-0'), /09:53/);
+  const originalSecond = fixture.note.days[0].events.find(event => event.id === 'place-1').start;
+  assert.match(previewClock(app, 'place-1'), new RegExp(fixture.planner.formatTime(originalSecond + 53 + 20)));
+  departure.options.onPreviewDuration(null);
+  assert.match(previewClock(app, 'place-0'), /09:00/);
+  assert.match(previewClock(app, 'place-1'), new RegExp(fixture.planner.formatTime(originalSecond + 20)));
+  assert.equal(app.$('day-list').children[1].textContent, untouchedDay);
+  transfer.options.onPreviewTransitDuration(null);
+  assert.match(previewClock(app, 'place-1'), new RegExp(fixture.planner.formatTime(originalSecond)));
+});
+
+test('manual editing keeps canonical time and a later saved edit invalidates live callbacks without adding a history step', async () => {
+  const fixture = transitPreviewFixture({ duration: 30 }), app = previewRuntime(fixture); await settle();
+  const lookup = previewMount(app, 'transit', 'departure'), canonical = noteParameters(app);
+  lookup.options.onPreviewDuration(53);
+  previewRow(app, 'departure').querySelector('.event-edit-button').click();
+  const editor = previewRow(app, 'departure').querySelector('.event-editor');
+  const minuteInput = editor.querySelectorAll('input').find(input => /분$/.test(input.getAttribute('aria-label') || ''));
+  assert.equal(minuteInput.value, '30', 'the API preview never prepopulates persisted duration fields');
+  editor.querySelector('textarea').value = '직접 남긴 메모'; editor.dispatch('submit');
+  const saved = JSON.parse(app.stored.get(storageKey)).itinerary;
+  assert.equal(saved.eventEdits[0].departure.duration, 30);
+  assert.match(previewClock(app, 'place-0'), /09:30/);
+  lookup.options.onPreviewDuration(90); assert.match(previewClock(app, 'place-0'), /09:30/);
+  app.$('undo-button').click(); assert.deepEqual(noteParameters(app), canonical);
+  assert.equal(app.$('undo-button').disabled, true, 'only the manual memo edit created an undo step');
+});
+
+test('leaving the note clears its live transit preview and closes the lookup without changing saved times', async () => {
+  const fixture = transitPreviewFixture(), app = previewRuntime(fixture); await settle();
+  const lookup = previewMount(app, 'transit', 'departure'), raw = app.stored.get(storageKey);
+  const details = lookup.host.querySelector('.transit-route-lookup'); details.open = true;
+  lookup.options.onPreviewDuration(53); assert.match(previewClock(app, 'place-0'), /09:53/);
+  await app.go('#/start'); lookup.options.onPreviewDuration(90);
+  assert.equal(details.open, false);
+  await app.go('#/note');
+  assert.match(previewClock(app, 'place-0'), /09:00/);
+  assert.doesNotMatch(app.$('day-list').children[0].querySelector('.day-footnote').textContent, /미리보기/);
+  assert.equal(app.stored.get(storageKey), raw);
+});
+
+test('collapsing a day closes its lookup and clears its live preview while hidden dates ignore route callbacks', async () => {
+  const fixture=transitPreviewFixture({dayCount:2}),app=previewRuntime(fixture);await settle();
+  const first=app.$('day-list').children[0],lookup=previewMount(app,'transit','departure');
+  const other=previewMount(app,'transit','departure',1),raw=app.stored.get(storageKey);
+  const details=lookup.host.querySelector('.transit-route-lookup');details.open=true;
+  const otherClock=previewClock(app,'place-0',1);
+  lookup.options.onPreviewDuration(53);other.options.onPreviewDuration(40);
+  assert.equal(previewClock(app,'place-0',1),otherClock);
+  first.querySelector('.day-collapse').click();
+  assert.equal(details.open,false);assert.equal(first.querySelector('.day-card-body').hidden,true);
+  assert.match(previewClock(app,'place-0'),/09:00/);
+  assert.equal(previewClock(app,'place-0',1),otherClock);
+  app.$('day-bookmarks-bottom').children[0].click();await settle();
+  assert.equal(first.querySelector('.day-card-body').hidden,false);
+  assert.equal(app.document.activeElement,first);assert.equal(details.open,false);
+  assert.equal(app.stored.get(storageKey),raw);
+});
+
+test('switching day pages clears the old live preview and permits route projection only on the visible date', async () => {
+  const fixture = transitPreviewFixture({ dayCount: 2 }), app = previewRuntime(fixture); await settle();
+  const first = previewMount(app, 'transit', 'departure'), second = previewMount(app, 'transit', 'departure', 1);
+  const details = first.host.querySelector('.transit-route-lookup'); details.open = true;
+  const raw = app.stored.get(storageKey), writes = app.writes.length, parameters = noteParameters(app);
+  const secondOriginal = previewClock(app, 'place-0', 1);
+  first.options.onPreviewDuration(53); second.options.onPreviewDuration(40);
+  assert.match(previewClock(app, 'place-0'), /09:53/);
+  assert.equal(previewClock(app, 'place-0', 1), secondOriginal);
+  app.$('day-bookmarks-bottom').children[1].click(); await settle(); selectedDay(app, 1);
+  assert.equal(details.open, false); assert.match(previewClock(app, 'place-0'), /09:00/);
+  first.options.onPreviewDuration(90); assert.match(previewClock(app, 'place-0'), /09:00/);
+  second.options.onPreviewDuration(40); assert.match(previewClock(app, 'place-0', 1), /09:40/);
+  app.$('day-bookmarks').children[0].click(); await settle(); selectedDay(app, 0);
+  assert.equal(previewClock(app, 'place-0', 1), secondOriginal);
+  assert.equal(app.stored.get(storageKey), raw); assert.equal(app.writes.length, writes);
+  assert.deepEqual(noteParameters(app), parameters);
+});
+
+test('bookmark and browser-history navigation preserve a working memo while clearing outgoing transit previews', async () => {
+  const app = previewRuntime(transitPreviewFixture({ dayCount: 2 })); await settle();
+  const cards = [...app.$('day-list').children], raw = app.stored.get(storageKey), writes = app.writes.length;
+  const parameters = noteParameters(app), changes = app.account.changes;
+  const row = previewRow(app, 'place-0'); row.querySelector('.event-edit-button').click();
+  const memo = row.querySelector('textarea'); memo.value = '날짜를 오가며 작성 중인 메모'; memo.dispatch('input');
+  const first = previewMount(app, 'transit', 'departure'), second = previewMount(app, 'transit', 'departure', 1);
+  const firstDetails = first.host.querySelector('.transit-route-lookup'), secondDetails = second.host.querySelector('.transit-route-lookup');
+  const firstOriginal = previewClock(app, 'place-0'), secondOriginal = previewClock(app, 'place-0', 1);
+  firstDetails.open = true; first.options.onPreviewDuration(53);
+  assert.match(previewClock(app, 'place-0'), /09:53/);
+  app.$('day-bookmarks-bottom').children[1].click(); await settle(); selectedDay(app, 1);
+  assert.equal(app.window.location.hash, '#/note/day/2'); assert.equal(firstDetails.open, false);
+  secondDetails.open = true; second.options.onPreviewDuration(40);
+  assert.match(previewClock(app, 'place-0', 1), /09:40/);
+  app.window.history.back(); await settle(); selectedDay(app, 0);
+  assert.equal(secondDetails.open, false); assert.equal(previewClock(app, 'place-0'), firstOriginal);
+  assert.equal(previewClock(app, 'place-0', 1), secondOriginal);
+  second.options.onPreviewDuration(90); assert.equal(previewClock(app, 'place-0', 1), secondOriginal);
+  assert.equal(row.querySelector('textarea'), memo); assert.equal(memo.value, '날짜를 오가며 작성 중인 메모');
+  app.window.history.forward(); await settle(); selectedDay(app, 1);
+  assert.equal(app.window.location.hash, '#/note/day/2');
+  assert.equal(app.$('day-bookmarks').lastScrollIntoView.behavior, 'instant');
+  assert.deepEqual(app.$('day-list').children, cards); assert.deepEqual(noteParameters(app), parameters);
+  assert.equal(app.stored.get(storageKey), raw); assert.equal(app.writes.length, writes); assert.equal(app.account.changes, changes);
+});
+
+test('browser printing restores canonical times and closes the active transit lookup', async () => {
+  const fixture = transitPreviewFixture({ duration: 30 }), app = previewRuntime(fixture); await settle();
+  const lookup = previewMount(app, 'transit', 'departure'), raw = app.stored.get(storageKey);
+  const details = lookup.host.querySelector('.transit-route-lookup'); details.open = true;
+  lookup.options.onPreviewDuration(53); assert.match(previewClock(app, 'place-0'), /09:53/);
+  app.window.dispatch('beforeprint', { type: 'beforeprint' });
+  assert.match(previewClock(app, 'place-0'), /09:30/);
+  assert.equal(details.open, false, 'the transit widget cancels and clears its live response when closed');
+  assert.doesNotMatch(app.$('day-list').children[0].querySelector('.day-footnote').textContent, /미리보기/);
+  assert.equal(app.stored.get(storageKey), raw);
+});
+
+test('live time projection supports crossing midnight and a valid route longer than the manual transfer limit', async () => {
+  const fixture = transitPreviewFixture({ startTime: '23:50' }), app = previewRuntime(fixture); await settle();
+  const departure = previewMount(app, 'transit', 'departure');
+  departure.options.onPreviewDuration(53);
+  assert.match(previewClock(app, 'place-0'), /다음 날.*00:43/);
+  const transfer = previewMount(app, 'local-transfer', 'transfer-0');
+  transfer.options.onPreviewTransitDuration(1200);
+  const originalSecond = fixture.note.days[0].events.find(event => event.id === 'place-1').start;
+  const expected = fixture.planner.formatTime(originalSecond + 53 + 1200 - 20);
+  assert.match(previewClock(app, 'place-1'), new RegExp(expected));
+  assert.equal(JSON.parse(app.stored.get(storageKey)).itinerary.eventEdits[0]['transfer-0'].duration, 20);
+});
 
 test('editing history undoes and redoes title, memo, overnight times, ordering and removal as separate saved operations',async()=>{
   const app=runtime({...actualPlannerFixture(),withAccount:true});await settle();await app.create();

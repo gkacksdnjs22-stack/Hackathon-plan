@@ -87,6 +87,40 @@ test('closing clears all displayed route data and reopening or retrying makes a 
   assert.equal(app.timers.size, 0); app.widget.destroy();
 });
 
+test('the active selected route previews only its minutes and clears them on close, retry and destruction', async () => {
+  const previews = [], edits = [];
+  const longer = route({ id: 'transit-2', durationSeconds: 3180, durationMinutes: 53 });
+  const app = runtime(async () => ok(payload('local-bus', [longer, route()])), {
+    onPreviewDuration: value => previews.push(value), onEdit: (...args) => edits.push(args)
+  });
+  assert.deepEqual(previews, []);
+  await app.open(); assert.deepEqual(previews, [26]);
+  const select = app.find('transit-route-select'); select.value = '1'; select.dispatch('change');
+  assert.deepEqual(previews, [26, 53]);
+  app.find('transit-route-edit').dispatch('click'); await settle(); assert.deepEqual(edits, [[]]);
+  assert.match(app.find('transit-route-note').textContent, /현재 타임라인.*조회.*닫으면/);
+  app.find('transit-route-refresh').dispatch('click'); await settle();
+  assert.deepEqual(previews, [26, 53, null, 26]);
+  app.close(); assert.equal(previews.at(-1), null);
+  select.dispatch('change'); assert.equal(previews.at(-1), null);
+  await app.open(); assert.equal(previews.at(-1), 26);
+  app.widget.destroy(); assert.equal(previews.at(-1), null);
+  select.dispatch('change'); assert.equal(previews.at(-1), null);
+});
+
+test('a failed retry and late response after close cannot leave a route duration in the timeline', async () => {
+  const previews = []; let count = 0, finish;
+  const app = runtime(() => ++count === 1 ? Promise.resolve(ok()) : count === 2
+    ? Promise.resolve({ ok: false, status: 503, json: async () => ({}) })
+    : new Promise(resolve => { finish = resolve; }), { onPreviewDuration: value => previews.push(value) });
+  await app.open(); assert.deepEqual(previews, [26]);
+  app.find('transit-route-refresh').dispatch('click'); await settle();
+  assert.deepEqual(previews, [26, null]);
+  app.find('transit-route-refresh').dispatch('click'); await settle();
+  app.close(); finish(ok()); await settle(); assert.deepEqual(previews, [26, null]);
+  app.widget.destroy();
+});
+
 test('fastest route is recommended first and mixed bus-subway choices show their type, transfer count and optional steps', async () => {
   const mixed = route({ id: 'transit-2', type: 'BUS_AND_SUBWAY', durationSeconds: 1200, durationMinutes: 20, transfers: 1,
     steps: [step('WALKING', { durationSeconds: 120, distanceMeters: 150 }), step('BUS'), step('SUBWAY')] });

@@ -1,5 +1,5 @@
 @media screen {
-  .schedule-add-container { box-sizing:border-box; width:100%; min-width:0; padding:0 27px 0 127px; }
+  .schedule-add-container { box-sizing:border-box; width:100%; min-width:0; margin-bottom:16px; padding:0 27px 0 127px; }
   .schedule-add { width:fit-content; min-width:0; max-width:100%; margin:12px 0 0; border:1px solid #e4ddcf; border-radius:10px; background:#fffdf7; }
   .schedule-add[open] { width:100%; max-width:620px; }
   .schedule-add>summary { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:38px; padding:6px 12px; color:#667497; font-size:11px; list-style:none; cursor:pointer; }

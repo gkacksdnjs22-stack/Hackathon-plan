@@ -12,6 +12,7 @@
 .day-bookmark[aria-current="page"] { border-color:#3e67ad; background:#3e67ad; color:#fff; clip-path:polygon(0 0,100% 0,100% 100%,50% 88%,0 100%); }
 .day-bookmark[aria-current="page"]:focus-visible { background:#284b83; }
 .day-bookmarks-bottom { margin-top:-1px; margin-bottom:0; padding:0 18px 8px; }
+.day-bookmarks-bottom:empty { display:none; }
 .day-bookmarks-bottom .day-bookmark { padding-top:16px; padding-bottom:10px; border-top:0; border-bottom:1px solid #b9cdeb; border-radius:0 0 10px 10px; }
 .day-bookmarks-bottom .day-bookmark[aria-current="page"] { border-bottom-color:#3e67ad; clip-path:polygon(0 0,50% 12%,100% 0,100% 100%,0 100%); }
 .day-title .day-index-label { font-size:12px; font-weight:700; letter-spacing:.025em; white-space:nowrap; }
@@ -28,6 +29,9 @@ body[data-screen="note"] .day-card.is-collapsed .day-card-header { border-bottom
 .account-sort { display:flex; align-items:center; gap:8px; margin-top:13px; color:#586c89; font-size:11px; }
 .account-sort select { min-height:44px; min-width:0; max-width:100%; padding:8px 11px; border:1px solid #cbd9ed; border-radius:9px; background:#fff; color:#365879; font:inherit; }
 .day-bookmarks :focus-visible,.day-card :focus-visible,.address-copy :focus-visible { outline:3px solid #8798c5; outline-offset:2px; }
+@media screen and (min-width:901px) {
+  .day-bookmark { font-size:14px; }
+}
 @media (max-width:760px) {
   .day-card-header { flex-wrap:wrap; }
   .day-header-actions { width:100%; justify-content:space-between; }
