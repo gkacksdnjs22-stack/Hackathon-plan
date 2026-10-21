@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createTourClient, createAppServer, normalizeAreas, normalizeItems, normalizeServiceKey, resolveServiceKey, loadEnvFile } from './server.mjs';
@@ -233,6 +233,10 @@ test('정적 파일·API만 제공하고 키·백엔드·압축파일·경로 �
   const directory = await mkdtemp(path.join(tmpdir(), 'travel-public-'));
   await writeFile(path.join(directory, 'index.html'), '<!doctype html><title>여행</title>');
   await writeFile(path.join(directory, '.env'), `TOURAPI_SERVICE_KEY=${secret}`);
+  await mkdir(path.join(directory, 'vendor', 'leaflet', 'images'), { recursive: true });
+  await writeFile(path.join(directory, 'vendor', 'leaflet', 'leaflet.js'), '/* pinned map library */');
+  await writeFile(path.join(directory, 'vendor', 'leaflet', 'images', 'marker-icon.png'), Buffer.from('PNG fixture'));
+  await writeFile(path.join(directory, 'vendor', 'leaflet', '.env'), secret);
   let fail = false;
   const stopQueries = [], tripQueries = [], restaurantQueries=[];
   const server = createAppServer({ root: directory, client: { getPlaces: async city => {
@@ -277,6 +281,14 @@ test('정적 파일·API만 제공하고 키·백엔드·압축파일·경로 �
   });
   try {
     assert.equal((await request('/')).status, 200);
+    const nested = await request('/vendor/leaflet/leaflet.js?v=1.9.4');
+    assert.equal(nested.status, 200); assert.equal(nested.body, '/* pinned map library */');
+    assert.equal(nested.headers['content-type'], 'text/javascript; charset=utf-8');
+    const nestedImage = await request('/vendor/leaflet/images/marker-icon.png');
+    assert.equal(nestedImage.status, 200); assert.equal(nestedImage.headers['content-type'], 'image/png');
+    for (const pathname of ['/vendor/leaflet/.env', '/vendor/leaflet/private.js', '/vendor/leaflet/../../../.env', '/vendor/leaflet/%2e%2e/leaflet.js']) {
+      const blocked = await request(pathname); assert.equal(blocked.status, 404); assert.equal(blocked.body.includes(secret), false);
+    }
     const head = await request('/index.html?v=1', 'HEAD');
     assert.equal(head.status, 200);
     assert.equal(head.body, '');

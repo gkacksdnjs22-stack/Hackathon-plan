@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { leafletFixture } from './leaflet-fixture.mjs';
 
 const code = readFileSync(new URL('app.js', import.meta.url), 'utf8');
 const plannerCode = readFileSync(new URL('planner.js', import.meta.url), 'utf8');
@@ -9,6 +10,7 @@ const accountCode = readFileSync(new URL('account-ui.js', import.meta.url), 'utf
 const noteToolsCode = readFileSync(new URL('note-tools.js', import.meta.url), 'utf8');
 const exportCode = readFileSync(new URL('itinerary-export.js', import.meta.url), 'utf8');
 const personalCode = readFileSync(new URL('personalization-ui.js', import.meta.url), 'utf8');
+const mapCode = readFileSync(new URL('day-map.js', import.meta.url), 'utf8');
 const storageKey = 'travel-weave-itinerary-v1';
 const settle = async () => { for (let index = 0; index < 20; index++) await Promise.resolve(); };
 function deferred() {
@@ -201,7 +203,7 @@ function runtime({ hash = '', search = '', socialReturn = false, raw = null, see
   const ids = ['country-select', 'city-select', 'start-date', 'day-count', 'trip-form', 'destinations-retry',
     'city-note', 'duration-note', 'data-status', 'app-message', 'date-trigger', 'itinerary-section',
     'empty-state', 'day-list', 'day-bookmarks', 'day-bookmarks-bottom', 'trip-summary', 'note-timing-notice', 'pending-transfers', 'capacity-message', 'print-button', 'clear-button', 'undo-button', 'redo-button',
-    'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'account-notice', 'saved-plans', 'account-save', 'draft-recovery', 'note-export', 'personal-tools'];
+    'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'account-notice', 'saved-plans', 'account-save', 'draft-recovery', 'note-export', 'personal-tools', 'day-map'];
   for (const id of ids) {
     const tag = ['city-select', 'day-count'].includes(id) ? 'select' : id === 'trip-form' ? 'form' : ['print-button','clear-button','undo-button','redo-button'].includes(id) ? 'button' : 'div';
     const element = document.createElement(tag); element.id = id; elements.set(id, element);
@@ -210,7 +212,7 @@ function runtime({ hash = '', search = '', socialReturn = false, raw = null, see
   $('country-select').value = 'KR'; $('app-message').hidden = true; $('note-timing-notice').hidden = true;
   $('start-screen').append($('title'), $('trip-form'), $('resume-note'), $('empty-state'));
   $('resume-note').append($('resume-summary'));
-  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('undo-button'), $('redo-button'), $('note-timing-notice'), $('pending-transfers'), $('note-export'), $('personal-tools'), $('day-bookmarks'), $('day-list'), $('day-bookmarks-bottom'));
+  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('undo-button'), $('redo-button'), $('note-timing-notice'), $('pending-transfers'), $('note-export'), $('personal-tools'), $('day-map'), $('day-bookmarks'), $('day-list'), $('day-bookmarks-bottom'));
   $('screen-loading').append($('loading-title'));
   document.body.append($('app-message'), $('draft-recovery'), $('screen-loading'), $('start-screen'), $('itinerary-section'));
   const submit = document.createElement('button'); submit.type = 'submit'; submit.append(document.createElement('span'));
@@ -327,6 +329,7 @@ function runtime({ hash = '', search = '', socialReturn = false, raw = null, see
   vm.runInContext(noteToolsCode, context, { filename: 'note-tools.js' });
   vm.runInContext(exportCode, context, { filename: 'itinerary-export.js' });
   vm.runInContext(personalCode, context, { filename: 'personalization-ui.js' });
+  vm.runInContext(mapCode, context, { filename: 'day-map.js' });
   vm.runInContext(code, context, { filename: 'app.js' });
   return { $, window, document, stored, writes, removals, creations, behavior, scrolls, clock, mounts, account, downloads, revoked,
     async go(value) { location.hash = value; await settle(); },
@@ -437,14 +440,22 @@ test('new recommendations retain the previous personal note and unfinished field
   assert.equal(app.$('undo-button').disabled, true);
 });
 
-test('a failed previous-note write rejects regeneration without replacing the current note or storage', async () => {
+test('a failed previous-note write rejects regeneration or cloud replacement without replacing the note, storage or open map', async () => {
   const storageError = {}, app = runtime({ ...actualPlannerFixture(), withAccount: true, storageError }); await settle(); await app.create();
   const original = noteParameters(app), raw = app.stored.get(storageKey), card = app.$('day-list').children[0];
+  const maps = leafletFixture(); app.window.L = maps.L;
+  const panel = openDayMap(app), places = panel.querySelector('.day-map-places').textContent;
+  const remote = app.account.options.getDocument();
   storageError.set = key => key === storageKey;
   await app.create();
   assert.deepEqual(noteParameters(app), original); assert.equal(app.stored.get(storageKey), raw);
   assert.equal(app.$('day-list').children[0], card); assert.equal(app.$('draft-recovery').hidden, true);
   assert.match(app.$('app-message').textContent, /새 노트로 바꾸지 않았어요/);
+  assert.equal(await app.account.options.loadDocument(remote), false);
+  assert.deepEqual(noteParameters(app), original); assert.equal(app.stored.get(storageKey), raw);
+  assert.equal(app.$('day-list').children[0], card); assert.equal(panel.open, true);
+  assert.equal(panel.querySelector('.day-map-places').textContent, places);
+  assert.equal(maps.maps.length, 1); assert.equal(maps.maps[0].removed, false);
 });
 
 test('previous-note recovery is isolated to its account owner', async () => {
@@ -760,6 +771,154 @@ test('personalization rejects invalid and oversized inputs, preserves failed sav
   await okay.account.options.onUserChange(undefined);
   assert.equal(okay.$('personal-tools').hidden,true);assert.equal(personalInput(okay).value,'');assert.doesNotMatch(okay.$('personal-tools').textContent,/내 준비물|미완성 입력/);
   await okay.create();assert.equal(personalData(okay),undefined);
+});
+
+function openDayMap(app) { const panel=app.$('day-map');panel.open=true;panel.dispatch('toggle');return panel; }
+
+test('recovering a previous note restores its visitor map and unfinished memo after recommendation replacement', async () => {
+  const fixture = timedNoteFixture();
+  const note = fixture.planner.createItinerary({ city: fixture.cityData, startDate: '2026-10-20', dayCount: 1,
+    selections: { 0: ['d', 'b', 'c'] }, eventEdits: { 0: { 'place-0': { description: '이전 노트의 저장한 메모' } } } });
+  const app = runtime({ ...fixture, withAccount: true, raw: savedNote(note), hash: '#/note' }); await settle();
+  const maps = leafletFixture(); app.window.L = maps.L;
+  const panel = openDayMap(app); assert.match(panel.querySelector('.day-map-places').textContent, /추천 관광지 d/);
+  inputMemo(editRow(app), '지도에서 일정을 보며 아직 작성 중인 메모');
+  await app.create(); assert.equal(maps.maps[0].removed, true); assert.equal(panel.open, false);
+  openDayMap(app); assert.match(panel.querySelector('.day-map-places').textContent, /추천 관광지 a/);
+  assert.doesNotMatch(panel.querySelector('.day-map-places').textContent, /추천 관광지 d/);
+  app.$('draft-recovery').querySelector('button').click(); await settle();
+  assert.equal(maps.maps[1].removed, true); assert.equal(panel.open, false);
+  openDayMap(app); assert.match(panel.querySelector('.day-map-places').textContent, /추천 관광지 d/);
+  assert.doesNotMatch(panel.querySelector('.day-map-places').textContent, /추천 관광지 a/);
+  assert.equal(noteParameters(app).eventEdits[0]['place-0'].description, '이전 노트의 저장한 메모');
+  assert.equal(editRow(app).querySelector('textarea').value, '지도에서 일정을 보며 아직 작성 중인 메모');
+});
+
+test('account switching clears former map places and callbacks while preserving each owner draft and recovery', async () => {
+  const fixture = timedNoteFixture(), ownerA = { id: 'owner-a', username: 'alice' }, ownerB = { id: 'owner-b', username: 'bob' };
+  const bobNote = fixture.planner.createItinerary({ city: fixture.cityData, startDate: '2026-10-20', dayCount: 1, selections: { 0: ['d', 'b', 'c'] } });
+  const previous = JSON.parse(ownerNote(noteWithMemo(fixture, 'Alice 이전 노트'), ownerA.id));
+  const app = runtime({ ...fixture, withAccount: true, accountUser: ownerA, hash: '#/note', seedStorage: [
+    [`${storageKey}:${ownerA.id}`, ownerNote(fixture.note, ownerA.id, { previous })],
+    [`${storageKey}:${ownerB.id}`, ownerNote(bobNote, ownerB.id)]
+  ] }); await settle();
+  const maps = leafletFixture(); app.window.L = maps.L;
+  const panel = openDayMap(app), oldJump = maps.markers[0].popup.querySelector('button');
+  inputMemo(editRow(app), 'Alice만 보관하는 미완성 메모');
+  assert.equal(app.$('draft-recovery').hidden, false);
+  await app.account.options.onUserChange(ownerB, { initial: false }); await app.go('#/note');
+  assert.equal(maps.maps[0].removed, true); assert.equal(panel.open, false);
+  assert.equal(app.$('draft-recovery').hidden, true);
+  openDayMap(app); assert.match(panel.querySelector('.day-map-places').textContent, /추천 관광지 d/);
+  assert.doesNotMatch(panel.querySelector('.day-map-places').textContent, /추천 관광지 a/);
+  assert.doesNotMatch(app.document.body.textContent, /Alice만 보관하는 미완성 메모|Alice 이전 노트/);
+  const focused = app.document.activeElement, status = panel.querySelector('.day-map-status').textContent, raw = app.stored.get(`${storageKey}:${ownerB.id}`);
+  oldJump.click(); maps.tiles[0].emit('tileerror'); maps.tiles[0].emit('loading');
+  assert.equal(app.document.activeElement, focused); assert.equal(panel.querySelector('.day-map-status').textContent, status);
+  assert.equal(app.stored.get(`${storageKey}:${ownerB.id}`), raw);
+  assert.equal(JSON.parse(app.stored.get(`${storageKey}:${ownerA.id}`)).editorDrafts['0:place-0'].description, 'Alice만 보관하는 미완성 메모');
+  await app.account.options.onUserChange(ownerA, { initial: false }); await app.go('#/note'); openDayMap(app);
+  assert.equal(maps.maps[1].removed, true); assert.match(panel.querySelector('.day-map-places').textContent, /추천 관광지 a/);
+  assert.doesNotMatch(panel.querySelector('.day-map-places').textContent, /추천 관광지 d/);
+  assert.equal(app.$('draft-recovery').hidden, false);
+  assert.equal(editRow(app).querySelector('textarea').value, 'Alice만 보관하는 미완성 메모');
+});
+
+test('the map stays dormant until opened, groups coincident visits, and popup links reveal the exact collapsed event without saving', async()=>{
+  const fixture=timedNoteFixture(2),app=runtime({...fixture,raw:savedNote(fixture.note),hash:'#/note',withAccount:true});await settle();
+  const maps=leafletFixture();app.window.L=maps.L;
+  assert.equal(maps.maps.length,0);assert.match(app.$('day-map').querySelector('summary').textContent,/Day 01.*3곳/);
+  const panel=openDayMap(app);assert.equal(maps.maps.length,1);assert.equal(maps.tiles.length,1);
+  assert.equal(maps.markers.length,1);assert.match(maps.markers[0].options.icon.html,/1·2·3/);
+  const day=app.document.getElementById('travel-day-0'),row=day.querySelector('[data-event-id="place-1"]');
+  day.querySelector('[data-event-id="lunch"] .event-edit-button').click();
+  const memo=day.querySelector('textarea');memo.value='지도 이동 중에도 유지할 메모';day.querySelector('.day-collapse').click();
+  const before=app.stored.get(storageKey),writes=app.writes.length,changes=app.account.changes;
+  maps.markers[0].popup.querySelectorAll('button')[1].click();await settle();
+  assert.equal(day.querySelector('.day-card-body').hidden,false);assert.equal(app.document.activeElement,row.querySelector('.event-edit-button'));
+  assert.equal(row.lastScrollIntoView.block,'center');assert.equal(memo.value,'지도 이동 중에도 유지할 메모');
+  assert.equal(app.stored.get(storageKey),before);assert.equal(app.writes.length,writes);assert.equal(app.account.changes,changes);
+  panel.querySelector('.day-map-places button').click();assert.equal(maps.markers[0].opens,1);
+});
+
+test('day bookmarks and browser history synchronize marker order while harmless edits retain the map view', async()=>{
+  const fixture=timedNoteFixture(2),app=runtime({...fixture,raw:savedNote(fixture.note),hash:'#/note'});await settle();
+  const maps=leafletFixture();app.window.L=maps.L;const panel=openDayMap(app);
+  const first=maps.markers[0],views=maps.maps[0].views.length;
+  editEntry(app,'lunch',{description:'시간과 무관한 메모'});
+  assert.equal(maps.markers.length,1);assert.equal(maps.maps[0].views.length,views);
+  app.$('day-bookmarks').querySelectorAll('button')[1].click();await settle();
+  assert.match(panel.querySelector('summary').textContent,/Day 02/);assert.equal(maps.maps.length,1);assert.equal(maps.markers.length,2);
+  assert.match(maps.markers[1].options.title,/추천 관광지 a/);
+  const current=app.document.activeElement;first.popup.querySelector('button').click();assert.equal(app.document.activeElement,current,'a detached former-day popup cannot navigate');
+  app.window.history.back();await settle();assert.match(panel.querySelector('summary').textContent,/Day 01/);
+  const day=app.document.getElementById('travel-day-0');
+  day.querySelector('[data-event-id="place-1"] .event-remove-button').click();
+  assert.equal(panel.querySelector('.day-map-places').children.length,2);
+  app.$('undo-button').click();assert.equal(panel.querySelector('.day-map-places').children.length,3);
+});
+
+test('map numbers follow manual place ordering, adding a catalog visit and restoring the saved note', async()=>{
+  const fixture=timedNoteFixture(),app=runtime({...fixture,raw:savedNote(fixture.note),hash:'#/note'});await settle();
+  const maps=leafletFixture();app.window.L=maps.L;const panel=openDayMap(app);
+  for(let index=0;index<3;index++)app.$('day-list').querySelector('[data-event-id="place-2"] .event-move-button').click();
+  const expected=JSON.parse(app.stored.get(storageKey)).itinerary.days[0].events.filter(event=>event.type==='place').map(event=>event.place.name);
+  assert.deepEqual(panel.querySelectorAll('.day-map-place-copy strong').map(item=>item.textContent),expected.map((name,index)=>`${index+1}. ${name}`));
+  assert.equal(currentSchedule(app).options.onAdd({type:'place',placeId:'d'}).ok,true);
+  assert.equal(panel.querySelector('.day-map-places').children.length,4);
+  const restored=runtime({...fixture,raw:app.stored.get(storageKey),hash:'#/note'});await settle();
+  assert.equal(restored.$('day-map').querySelector('.day-map-places').children.length,4);
+  assert.equal(restored.$('day-map').open,false);
+});
+
+test('tile errors and timeouts expose a usable list, retry is explicit, and hidden maps ignore obsolete tile events', async()=>{
+  const fixture=timedNoteFixture(),app=runtime({...fixture,raw:savedNote(fixture.note),hash:'#/note'});await settle();
+  const maps=leafletFixture();app.window.L=maps.L;const panel=openDayMap(app),status=panel.querySelector('.day-map-status');
+  maps.tiles[0].emit('loading');app.clock.advance(15000);assert.match(status.textContent,/배경 지도를 불러오지 못한/);
+  assert.equal(maps.tiles.length,1,'no automatic tile retry');maps.tiles[0].emit('load');assert.equal(status.textContent,'');
+  maps.tiles[0].emit('tileerror');maps.tiles[0].emit('load');assert.match(status.textContent,/아래 장소 목록/);
+  panel.querySelector('.day-map-actions').children[1].click();assert.equal(maps.maps[0].removed,true);assert.equal(maps.tiles.length,2);
+  const retryStatus=status.textContent;maps.tiles[0].emit('tileerror');assert.equal(status.textContent,retryStatus);
+  app.window.dispatch('resize');assert.ok(maps.maps[1].sizes.length>=2);
+  await app.go('#/start');assert.equal(maps.maps[1].removed,true);const timers=app.clock.pending.size;maps.tiles[1].emit('loading');assert.equal(app.clock.pending.size,timers);
+  await app.go('#/note');assert.equal(maps.maps.length,3);
+  app.window.dispatch('beforeprint');assert.equal(maps.maps[2].removed,true);app.window.dispatch('afterprint');assert.equal(maps.maps.length,4);
+  await app.clear();assert.equal(panel.hidden,true);assert.equal(panel.textContent.includes('추천 관광지'),false);
+});
+
+for(const failure of ['tileerror','timeout'])test(`map ${failure} status survives marker-only reorder and coincident-place removal until a new tile load or explicit retry`,async()=>{
+  const fixture=timedNoteFixture(),app=runtime({...fixture,raw:savedNote(fixture.note),hash:'#/note'});await settle();
+  const maps=leafletFixture();app.window.L=maps.L;
+  const panel=openDayMap(app),status=panel.querySelector('.day-map-status'),retry=panel.querySelector('.day-map-actions').children[1];
+  maps.tiles[0].emit('loading');
+  if(failure==='tileerror'){maps.tiles[0].emit('tileerror');maps.tiles[0].emit('load');}
+  else app.clock.advance(15000);
+  const failureMessage=status.textContent;assert.match(failureMessage,/배경 지도를 불러오지 못한/);assert.equal(retry.hidden,false);
+  const originalPoint=Array.from(maps.markers[0].point);
+  for(let count=0;count<3;count++)app.$('day-list').querySelector('[data-event-id="place-2"] .event-move-button').click();
+  assert.equal(status.textContent,failureMessage);assert.equal(retry.hidden,false);
+  assert.equal(maps.maps.length,1);assert.equal(maps.tiles.length,1,'marker changes do not start a fresh tile layer');
+  app.$('day-list').querySelector('[data-event-id="place-0"] .event-remove-button').click();
+  assert.equal(panel.querySelector('.day-map-places').children.length,2);
+  assert.deepEqual(Array.from(maps.groups[0].markers[0].point),originalPoint);
+  assert.equal(status.textContent,failureMessage);assert.equal(retry.hidden,false);assert.equal(maps.tiles.length,1);
+  // A real new loading cycle owns the next status update, even on the same map.
+  maps.tiles[0].emit('loading');assert.match(status.textContent,/불러오는 중/);assert.equal(retry.hidden,true);
+  maps.tiles[0].emit('tileerror');maps.tiles[0].emit('load');assert.equal(retry.hidden,false);
+  retry.click();assert.equal(maps.maps[0].removed,true);assert.equal(maps.tiles.length,2);assert.equal(retry.hidden,true);
+  const retryMessage=status.textContent;maps.tiles[0].emit('tileerror');maps.tiles[0].emit('load');
+  assert.equal(status.textContent,retryMessage,'late callbacks from the retired tile layer stay ignored');
+  maps.tiles[1].emit('loading');maps.tiles[1].emit('load');assert.equal(status.textContent,'');assert.equal(retry.hidden,true);
+  panel.querySelector('.day-map-jump').click();await settle();
+  assert.equal(app.document.activeElement,app.$('day-list').querySelector('[data-event-id="place-2"] .event-edit-button'));
+});
+
+test('missing map library does not break the itinerary and the list still focuses its event', async()=>{
+  const fixture=timedNoteFixture(),app=runtime({...fixture,raw:savedNote(fixture.note),hash:'#/note',withAccount:true});await settle();
+  const panel=openDayMap(app);assert.match(panel.querySelector('.day-map-status').textContent,/지도를 시작하지 못했어요/);
+  panel.querySelectorAll('.day-map-jump')[1].click();await settle();
+  assert.equal(app.document.activeElement,app.$('day-list').querySelector('[data-event-id="place-1"] .event-edit-button'));
+  await app.account.options.onUserChange(undefined);assert.equal(panel.hidden,true);assert.equal(panel.querySelector('.day-map-places').children.length,0);
 });
 
 test('account storage exports only canonical editing parameters and restores them through the real planner',async()=>{

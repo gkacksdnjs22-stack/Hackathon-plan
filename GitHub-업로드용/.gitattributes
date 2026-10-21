@@ -1,0 +1,4 @@
+# Preserve upstream distribution bytes so Leaflet's published SHA-256 hashes
+# remain valid on Windows checkouts as well as Linux deployments.
+vendor/leaflet/leaflet.js -text
+vendor/leaflet/leaflet.css -text
