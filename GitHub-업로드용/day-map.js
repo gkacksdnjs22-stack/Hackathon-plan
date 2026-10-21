@@ -133,8 +133,10 @@
         : `방문 순서대로 번호를 표시해요.${missing ? ` 좌표가 없는 ${missing}곳은 목록에서 확인해 주세요.` : ''} 지도를 펼치면 OpenStreetMap 배경을 불러와요.`;
       fit.disabled = !places.some(item => item.mapped); canvas.hidden = fit.disabled;
       if (next !== signature) {
-        signature = next; status.textContent = ''; retry.hidden = true; renderList();
-        if (fit.disabled) clearMap();
+        // Marker changes do not imply another tile request. Keep the current
+        // layer's error/retry state until its own loading events replace it.
+        signature = next; renderList();
+        if (fit.disabled) { clearMap(); status.textContent = ''; retry.hidden = true; }
       }
       paint();
     }

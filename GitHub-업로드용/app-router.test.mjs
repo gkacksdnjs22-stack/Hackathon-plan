@@ -560,6 +560,33 @@ test('tile errors and timeouts expose a usable list, retry is explicit, and hidd
   await app.clear();assert.equal(panel.hidden,true);assert.equal(panel.textContent.includes('추천 관광지'),false);
 });
 
+for(const failure of ['tileerror','timeout'])test(`map ${failure} status survives marker-only reorder and coincident-place removal until a new tile load or explicit retry`,async()=>{
+  const fixture=timedNoteFixture(),app=runtime({...fixture,raw:savedNote(fixture.note),hash:'#/note'});await settle();
+  const maps=leafletFixture();app.window.L=maps.L;
+  const panel=openDayMap(app),status=panel.querySelector('.day-map-status'),retry=panel.querySelector('.day-map-actions').children[1];
+  maps.tiles[0].emit('loading');
+  if(failure==='tileerror'){maps.tiles[0].emit('tileerror');maps.tiles[0].emit('load');}
+  else app.clock.advance(15000);
+  const failureMessage=status.textContent;assert.match(failureMessage,/배경 지도를 불러오지 못한/);assert.equal(retry.hidden,false);
+  const originalPoint=Array.from(maps.markers[0].point);
+  for(let count=0;count<3;count++)app.$('day-list').querySelector('[data-event-id="place-2"] .event-move-button').click();
+  assert.equal(status.textContent,failureMessage);assert.equal(retry.hidden,false);
+  assert.equal(maps.maps.length,1);assert.equal(maps.tiles.length,1,'marker changes do not start a fresh tile layer');
+  app.$('day-list').querySelector('[data-event-id="place-0"] .event-remove-button').click();
+  assert.equal(panel.querySelector('.day-map-places').children.length,2);
+  assert.deepEqual(Array.from(maps.groups[0].markers[0].point),originalPoint);
+  assert.equal(status.textContent,failureMessage);assert.equal(retry.hidden,false);assert.equal(maps.tiles.length,1);
+  // A real new loading cycle owns the next status update, even on the same map.
+  maps.tiles[0].emit('loading');assert.match(status.textContent,/불러오는 중/);assert.equal(retry.hidden,true);
+  maps.tiles[0].emit('tileerror');maps.tiles[0].emit('load');assert.equal(retry.hidden,false);
+  retry.click();assert.equal(maps.maps[0].removed,true);assert.equal(maps.tiles.length,2);assert.equal(retry.hidden,true);
+  const retryMessage=status.textContent;maps.tiles[0].emit('tileerror');maps.tiles[0].emit('load');
+  assert.equal(status.textContent,retryMessage,'late callbacks from the retired tile layer stay ignored');
+  maps.tiles[1].emit('loading');maps.tiles[1].emit('load');assert.equal(status.textContent,'');assert.equal(retry.hidden,true);
+  panel.querySelector('.day-map-jump').click();await settle();
+  assert.equal(app.document.activeElement,app.$('day-list').querySelector('[data-event-id="place-2"] .event-edit-button'));
+});
+
 test('missing map library does not break the itinerary and the list still focuses its event', async()=>{
   const fixture=timedNoteFixture(),app=runtime({...fixture,raw:savedNote(fixture.note),hash:'#/note',withAccount:true});await settle();
   const panel=openDayMap(app);assert.match(panel.querySelector('.day-map-status').textContent,/지도를 시작하지 못했어요/);
