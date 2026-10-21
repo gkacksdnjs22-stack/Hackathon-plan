@@ -40,6 +40,13 @@
     let destroyed = false, configured = null, sessionPending = true, sessionFailed = false, user = null;
     let epoch = 0, listVersion = 0, operation = 0, attachment = 0, draftVersion = 0, dirty = true;
     let currentPlan = null, plans = [], listPending = false, listError = '', savePending = false, initialReported = false;
+    let saveLink = null, saveEdited = null, saveFailureLink = null;
+    let savedDocumentKey=null;
+    function documentKey(value){
+      const sorted=item=>Array.isArray(item)?item.map(sorted):item&&typeof item==='object'?Object.fromEntries(Object.keys(item).sort().map(key=>[key,sorted(item[key])])):item;
+      try{return JSON.stringify(sorted(copyDocument(value)));}catch{return null;}
+    }
+    function differsFromSaved(value){const key=documentKey(value);return !key||!savedDocumentKey||key!==savedDocumentKey;}
     let attachmentState = 'none';
     let planSort = 'updated', planQuery = '';
     let dialogVersion = 0, dialogBusy = false, dialogControls = [], returnFocus = null;
@@ -145,6 +152,7 @@
         // Keep the revision used by the local draft. Adopting a newer revision
         // here would silently overwrite changes saved from another device.
         attachmentState = data.plan.revision === original.revision ? 'ready' : 'conflict';
+        if(attachmentState==='ready'&&data.plan.document){savedDocumentKey=documentKey(data.plan.document);dirty=differsFromSaved(getDocument());}
         renderSave();
         return { ok: attachmentState === 'ready', ...(attachmentState === 'ready' ? {} : { reason: 'conflict' }) };
       } catch (error) {
@@ -169,7 +177,7 @@
       if (destroyed || !user || !snapshot || snapshot.ownerId !== user.id || !validPlan(snapshot.plan)) {
         return { ok: false, reason: snapshot?.ownerId && snapshot.ownerId !== user?.id ? 'not-owned' : 'invalid' };
       }
-      attachment++; currentPlan = planMetadata(snapshot.plan); dirty = true;
+      attachment++; currentPlan = planMetadata(snapshot.plan); dirty = true;savedDocumentKey=null;
       return verifyAttachment();
     }
     function sameAccount(value) { return !destroyed && value === epoch && Boolean(user); }
@@ -179,6 +187,7 @@
       const transition = epoch;
       user = next ? { id: next.id, username: next.username } : null;
       currentPlan = null; attachmentState = 'none'; plans = []; planSort = 'updated'; planQuery = ''; dirty = true; savePending = false; listPending = false; listError = ''; sessionPending = true;
+      savedDocumentKey=null;saveFailureLink=null;
       render();
       try { await onUserChange(known ? user : undefined, { initial, previousUser, socialReturn }); }
       catch (_error) { if (!destroyed && transition === epoch) notify('이 기기 노트를 준비하지 못했어요. 새로고침 후 다시 확인해 주세요.', 'error'); }
@@ -227,10 +236,19 @@
       const save = button(currentPlan ? attachmentState === 'unavailable' ? '저장 연결 다시 확인' : '변경사항 저장' : configured === false ? '계정 저장 준비 중' : '계획표 저장', () => saveDialog(false), 'is-primary');
       save.disabled = sessionPending || savePending || attachmentState === 'checking'; saveActions.append(save);
       if (currentPlan) { const copy = button('새 계획으로 저장', () => saveDialog(true)); copy.disabled = savePending; saveActions.append(copy); }
-      const status = node('p', 'account-save-status', currentPlan ? attachmentState === 'checking' ? '원래 저장한 계획과 연결을 확인하고 있어요.'
-        : attachmentState === 'unavailable' ? '저장 연결을 확인하지 못했어요. 다시 확인하면 기존 계획에 이어 저장할 수 있어요.'
-          : attachmentState === 'conflict' ? '다른 기기에서 계획이 바뀌었어요. 저장하기 전에 최신 내용을 확인해 주세요.'
-            : dirty ? '계정에 저장하지 않은 수정이 있어요.' : '계정에 저장했어요.' : '이 기기 자동저장은 그대로 유지돼요.');
+      const saving=savePending&&saveLink===attachment;
+      const failed=saveFailureLink===attachment;
+      let state='unsaved',text=user?'계정에 아직 저장하지 않은 계획이에요.':'계정에 저장하지 않았어요. 로그인하면 계정에 저장할 수 있어요.';
+      if(saving){state='saving';text=`계정에 저장 중…${draftVersion!==saveEdited?' 이후 수정한 내용은 한 번 더 저장해야 해요.':''}`;}
+      else if(sessionPending||attachmentState==='checking'){state='checking';text='계정과 저장 연결을 확인하고 있어요.';}
+      else if(attachmentState==='unavailable'){state='error';text='저장 연결을 확인하지 못했어요. 다시 확인하면 기존 계획에 이어 저장할 수 있어요.';}
+      else if(attachmentState==='conflict'){state='conflict';text='다른 기기에서 계획이 바뀌었어요. 저장하기 전에 최신 내용을 확인해 주세요.';}
+      else if(failed){state='error';text='계정 저장에 실패했어요. 저장하지 않은 수정이 있어요. 다시 저장해 주세요.';}
+      else if(currentPlan&&!dirty){state='saved';text='계정에 저장했어요.';}
+      else if(currentPlan)text='계정에 저장하지 않은 수정이 있어요.';
+      const status=node('p','account-save-status',text);
+      status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+      status.setAttribute('data-state',state);
       saveActions.append(status);
     }
     function renderLibrary() {
@@ -468,7 +486,7 @@
         let snapshot;
         try { snapshot = copyDocument(getDocument()); } catch (error) { view.error(errorText(error, '여행 노트를 확인해 주세요.')); return; }
         const account = epoch, edited = draftVersion, link = attachment, previous = updating ? { ...currentPlan } : null;
-        savePending = true; renderSave(); view.busy(true);
+        savePending = true; saveLink=link;saveEdited=edited;saveFailureLink=null;renderSave(); view.busy(true);
         try {
           const data = await api(previous ? `/api/plans/${encodeURIComponent(previous.id)}` : '/api/plans', previous ? 'PUT' : 'POST',
             { title: title.value.trim(), document: snapshot, ...(previous ? { revision: previous.revision } : {}) });
@@ -476,8 +494,9 @@
           if (!validPlan(data?.plan)) throw { code: 'INVALID_RESPONSE' };
           let persisted = true;
           if (link === attachment) {
-            currentPlan = planMetadata(data.plan); attachmentState = 'ready'; dirty = draftVersion !== edited; persisted = attachmentChanged();
-            onSaved(snapshot);
+            currentPlan = planMetadata(data.plan); attachmentState = 'ready';savedDocumentKey=documentKey(snapshot);
+            dirty = draftVersion !== edited&&differsFromSaved(getDocument()); persisted = attachmentChanged();
+            try{onSaved(snapshot);}catch{persisted=false;}
           }
           closeDialog(true); renderSave(); refreshPlans();
           notify(!persisted ? '계정에는 저장했어요. 현재 화면의 저장 연결은 유지되지만 이 기기에 기록하지 못했어요. 새로고침 후에는 계정의 계획을 다시 불러와 주세요.'
@@ -490,6 +509,7 @@
           }
           if (error.status === 401) { closeDialog(true); await resetAccount(null); notify(errorText(error), 'error'); return; }
           if (error.status === 409 && previous) { attachmentState = 'conflict'; renderSave(); conflictDialog(previous); return; }
+          if(link===attachment)saveFailureLink=link;
           view.error(errorText(error, '계획표를 저장하지 못했어요. 현재 노트는 그대로예요.'));
         } finally { if (sameAccount(account)) { savePending = false; renderSave(); } view.busy(false); }
       });
@@ -520,7 +540,7 @@
           const restored = await loadDocument(snapshot, { isCurrent });
           if (!sameAccount(account) || task !== operation || !view.current()) return;
           if (restored !== true && restored?.ok !== true) { view.error('계획표를 불러오지 못했어요. 현재 노트는 그대로 유지했어요.'); return; }
-          attachment++; currentPlan = planMetadata(data.plan); attachmentState = 'ready'; dirty = false;
+          attachment++; currentPlan = planMetadata(data.plan); attachmentState = 'ready'; dirty = false;savedDocumentKey=documentKey(snapshot);
           const persisted = attachmentChanged();
           const warning = restored?.warning || (!persisted ? '계정의 계획을 열었어요. 현재 화면의 저장 연결은 유지되지만 이 기기에 기록하지 못했어요. 새로고침 후에는 계정의 계획을 다시 불러와 주세요.' : '');
           closeDialog(true); renderSave(); notify(warning || '계정에 저장한 계획표를 불러왔어요.', warning ? 'error' : 'success');
@@ -581,11 +601,11 @@
     return {
       ready,
       refreshDestinations() { if (!destroyed) renderLibrary(); },
-      changed() { if (!destroyed) { draftVersion++; dirty = true; renderSave(); } },
-      detach() { if (!destroyed) { attachment++; operation++; currentPlan = null; attachmentState = 'none'; dirty = true; attachmentChanged(); renderSave(); } },
+      changed(document) { if (!destroyed) { draftVersion++; dirty = document?differsFromSaved(document):true;if(!dirty)saveFailureLink=null;renderSave(); } },
+      detach() { if (!destroyed) { attachment++; operation++; currentPlan = null; attachmentState = 'none'; dirty = true;savedDocumentKey=null;attachmentChanged(); renderSave(); } },
       getAttachment,
       restoreAttachment,
-      setCurrentPlan(plan) { if (!destroyed && user && validPlan(plan)) { attachment++; currentPlan = planMetadata(plan); attachmentState = 'ready'; dirty = false; attachmentChanged(); renderSave(); } },
+      setCurrentPlan(plan) { if (!destroyed && user && validPlan(plan)) { attachment++; currentPlan = planMetadata(plan); attachmentState = 'ready'; dirty = false;savedDocumentKey=documentKey(getDocument());attachmentChanged(); renderSave(); } },
       destroy() {
         if (destroyed) return;
         destroyed = true; epoch++; operation++; abortRequests(); dialogVersion++;

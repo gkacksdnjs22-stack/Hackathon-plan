@@ -12,6 +12,8 @@ const exportCode = readFileSync(new URL('itinerary-export.js', import.meta.url),
 const personalCode = readFileSync(new URL('personalization-ui.js', import.meta.url), 'utf8');
 const mapCode = readFileSync(new URL('day-map.js', import.meta.url), 'utf8');
 const dragCode = readFileSync(new URL('timeline-drag.js', import.meta.url), 'utf8');
+const budgetCode = readFileSync(new URL('budget-ui.js', import.meta.url), 'utf8');
+const detailCode = readFileSync(new URL('place-detail-ui.js', import.meta.url), 'utf8');
 const storageKey = 'travel-weave-itinerary-v1';
 const settle = async () => { for (let index = 0; index < 20; index++) await Promise.resolve(); };
 function deferred() {
@@ -210,7 +212,7 @@ function runtime({ hash = '', search = '', socialReturn = false, raw = null, see
   const ids = ['country-select', 'city-select', 'start-date', 'day-count', 'trip-form', 'destinations-retry',
     'city-note', 'duration-note', 'data-status', 'app-message', 'date-trigger', 'itinerary-section',
     'empty-state', 'day-list', 'day-bookmarks', 'day-bookmarks-bottom', 'trip-summary', 'note-timing-notice', 'pending-transfers', 'capacity-message', 'print-button', 'clear-button', 'undo-button', 'redo-button',
-    'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'account-notice', 'saved-plans', 'account-save', 'draft-recovery', 'note-export', 'personal-tools', 'day-map'];
+    'start-screen', 'screen-loading', 'resume-note', 'resume-summary', 'title', 'itinerary-title', 'loading-title', 'account-nav', 'account-notice', 'saved-plans', 'account-save', 'draft-recovery', 'note-export', 'personal-tools', 'day-map', 'trip-budget', 'local-save-status'];
   if(withOperating)ids.push('operating-tools');
   for (const id of ids) {
     const tag = ['city-select', 'day-count'].includes(id) ? 'select' : id === 'trip-form' ? 'form' : ['print-button','clear-button','undo-button','redo-button'].includes(id) ? 'button' : 'div';
@@ -220,7 +222,7 @@ function runtime({ hash = '', search = '', socialReturn = false, raw = null, see
   $('country-select').value = 'KR'; $('app-message').hidden = true; $('note-timing-notice').hidden = true;
   $('start-screen').append($('title'), $('trip-form'), $('resume-note'), $('empty-state'));
   $('resume-note').append($('resume-summary'));
-  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('undo-button'), $('redo-button'), $('note-timing-notice'), $('pending-transfers'), $('note-export'), $('personal-tools'), $('day-map'), $('day-bookmarks'), $('day-list'), $('day-bookmarks-bottom'));
+  $('itinerary-section').append($('itinerary-title'), $('trip-summary'), $('undo-button'), $('redo-button'), $('note-timing-notice'), $('pending-transfers'), $('note-export'), $('personal-tools'), $('trip-budget'), $('day-map'), $('day-bookmarks'), $('day-list'), $('day-bookmarks-bottom'));
   $('screen-loading').append($('loading-title'));
   document.body.append($('app-message'), $('draft-recovery'), $('screen-loading'), $('start-screen'), $('itinerary-section'));
   const submit = document.createElement('button'); submit.type = 'submit'; submit.append(document.createElement('span'));
@@ -329,7 +331,7 @@ function runtime({ hash = '', search = '', socialReturn = false, raw = null, see
       now = until;
     }
   };
-  const context = vm.createContext({ window, document, localStorage, Date:AppDate, JSON, console, TextEncoder, AbortController, Blob,
+  const context = vm.createContext({ window, document, localStorage, Date:AppDate, JSON, console, TextEncoder, AbortController, Blob,URL,
     fetch: accountHandler, setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout });
   if(withAccount&&accountHandler){
     vm.runInContext(accountCode, context, { filename: 'account-ui.js' });
@@ -345,8 +347,10 @@ function runtime({ hash = '', search = '', socialReturn = false, raw = null, see
   vm.runInContext(personalCode, context, { filename: 'personalization-ui.js' });
   vm.runInContext(mapCode, context, { filename: 'day-map.js' });
   vm.runInContext(dragCode, context, { filename: 'timeline-drag.js' });
+  vm.runInContext(budgetCode, context, { filename: 'budget-ui.js' });
+  vm.runInContext(detailCode, context, { filename: 'place-detail-ui.js' });
   vm.runInContext(code, context, { filename: 'app.js' });
-  return { $, window, document, stored, writes, removals, creations, behavior, scrolls, clock, mounts, account, operating, downloads, revoked,
+  return { $, window, document, stored, writes, removals, creations, behavior, scrolls, clock, mounts, account, operating, downloads, revoked,context,
     async go(value) { location.hash = value; await settle(); },
     async create() { $('trip-form').dispatch('submit'); await settle(); },
     async clear() { $('clear-button').dispatch('click'); await settle(); }
@@ -2247,6 +2251,96 @@ test('manual restaurant input validates and supports added meal cards', async ()
 
 function noteParameters(app){return JSON.parse(JSON.stringify(app.account.options.getDocument().itinerary));}
 function currentSchedule(app){return app.mounts.findLast(record=>record.kind==='schedule'&&!record.destroyed);}
+
+function addBudgetCost(app,{day=0,category='food',title='점심',amount='20000'}={}){
+  const host=app.$('trip-budget');host.querySelector('.budget-day').value=String(day);host.querySelector('.budget-category').value=category;
+  host.querySelector('.budget-title').value=title;host.querySelector('.budget-amount').value=amount;host.querySelector('.budget-entry-form').dispatch('submit');
+}
+test('budget costs, daily totals, limits and edits survive history, itinerary edits, local and account restoration',async()=>{
+  const fixture=timedNoteFixture(2),app=runtime({...fixture,withAccount:true});await settle();app.$('day-count').value='2';await app.create();
+  addBudgetCost(app);addBudgetCost(app,{day:1,category:'stay',title:'숙소',amount:'90000'});
+  const host=app.$('trip-budget');assert.match(host.querySelector('.budget-totals').textContent,/110,000원/);
+  assert.match(host.querySelector('.budget-days').textContent,/Day 01 · 20,000원.*Day 02 · 90,000원/);
+  host.querySelector('.budget-limit').value='100000';host.querySelector('.budget-limit-form').dispatch('submit');assert.match(host.querySelector('.budget-totals').textContent,/10,000원 초과/);
+  host.querySelector('.budget-edit').click();host.querySelector('.budget-amount').value='25000';host.querySelector('.budget-entry-form').dispatch('submit');
+  assert.match(host.querySelector('.budget-totals').textContent,/115,000원/);
+  app.$('undo-button').click();assert.match(host.querySelector('.budget-totals').textContent,/110,000원/);
+  app.$('redo-button').click();assert.match(host.querySelector('.budget-totals').textContent,/115,000원/);
+  host.querySelectorAll('.budget-remove')[1].click();assert.match(host.querySelector('.budget-totals').textContent,/25,000원/);
+  app.$('undo-button').click();const budget=noteParameters(app).budget;
+  app.$('day-list').querySelector('[data-event-id="place-0"] .event-move-button').parentNode.querySelectorAll('button')[1].click();
+  assert.deepEqual(noteParameters(app).budget,budget);
+  const restored=runtime({...fixture,withAccount:true,raw:app.stored.get(storageKey),hash:'#/note'});await settle();
+  assert.deepEqual(noteParameters(restored).budget,budget);assert.match(restored.$('trip-budget').textContent,/115,000원/);
+  assert.equal(await restored.account.options.loadDocument(app.account.options.getDocument()),true);assert.deepEqual(noteParameters(restored).budget,budget);
+  await restored.create();assert.equal(noteParameters(restored).budget,undefined);assert.match(restored.$('trip-budget').querySelector('summary').textContent,/0원/);
+});
+
+test('budget validation and failed storage preserve inputs, canonical data and history; zero is a valid cost',async()=>{
+  const storageError={},app=runtime({...actualPlannerFixture(),withAccount:true,storageError});await settle();await app.create();
+  const host=app.$('trip-budget'),before=noteParameters(app);
+  for(const amount of ['','-1','1.5','1000000001','1e3']){addBudgetCost(app,{amount});assert.deepEqual(noteParameters(app),before);}
+  assert.equal(app.$('undo-button').disabled,true);
+  storageError.set=true;addBudgetCost(app,{title:'남아야 하는 입력',amount:'3000'});
+  assert.deepEqual(noteParameters(app),before);assert.equal(host.querySelector('.budget-title').value,'남아야 하는 입력');
+  assert.equal(app.$('local-save-status').dataset.state,'error');assert.match(host.querySelector('.budget-status').textContent,/저장하지 못했어요/);
+  storageError.set=false;host.querySelector('.budget-amount').value='0';host.querySelector('.budget-entry-form').dispatch('submit');
+  assert.equal(noteParameters(app).budget.items[0].amount,0);assert.equal(app.$('local-save-status').dataset.state,'saved');
+  assert.equal(host.querySelector('.budget-title').value,'');
+});
+
+test('budget metadata changes keep a live transit preview and an unfinished memo connected',async()=>{
+  const fixture=transitPreviewFixture({arrival:true,duration:90}),app=previewRuntime(fixture);await settle();
+  const row=previewRow(app,'place-0');row.querySelector('.event-edit-button').click();row.querySelector('textarea').value='작성 중 메모';row.querySelector('textarea').dispatch('input');
+  const lookup=previewMount(app,'local-transfer','arrival-transfer');lookup.options.onPreviewTransitDuration(53);addBudgetCost(app);
+  assert.equal(previewRow(app,'place-0'),row);assert.equal(row.querySelector('textarea').value,'작성 중 메모');
+  lookup.options.onPreviewTransitDuration(70);assert.match(previewRow(app,'arrival-transfer').querySelector('.event-duration').textContent,/1시간 10분/);
+  lookup.options.onPreviewTransitDuration(null);assert.equal(noteParameters(app).budget.items.length,1);
+});
+
+test('place details are lazy, render safe data and missing fields, retry failures and leave the note unchanged',async()=>{
+  const fixture=actualPlannerFixture(),place=fixture.cityData.areas[0].places[0];place.contentId='101';place.contentTypeId='12';
+  const app=runtime({...fixture,withAccount:true});await settle();await app.create();let calls=0,fail=true;
+  const before=noteParameters(app),writes=app.writes.length;
+  app.context.fetch=async()=>{calls++;if(fail)throw Error('private');return {ok:true,json:async()=>({contentId:'101',contentTypeId:'12',title:place.name,overview:'<script>not executed</script>',hours:'09:00~18:00',homepage:'javascript:alert(1)',imageUrl:'javascript:alert(1)',fetchedAt:'2026-10-21T00:00:00Z'})};};
+  const detail=app.$('day-list').querySelector('.place-detail');assert.equal(calls,0);detail.open=true;detail.dispatch('toggle');await settle();
+  assert.equal(calls,1);assert.match(detail.querySelector('.place-detail-status').textContent,/불러오지 못했어요/);
+  fail=false;detail.querySelector('.place-detail-retry').click();await settle();assert.equal(calls,2);
+  assert.match(detail.querySelector('.place-detail-result').textContent,/09:00~18:00.*정보 미제공/);
+  assert.equal(detail.querySelector('img'),null);assert.equal(detail.querySelectorAll('script').length,0);
+  detail.open=false;detail.dispatch('toggle');detail.open=true;detail.dispatch('toggle');await settle();assert.equal(calls,2);
+  assert.deepEqual(noteParameters(app),before);assert.equal(app.writes.length,writes);
+});
+
+for(const action of ['close','rerender'])test(`a pending place detail cannot update a ${action==='close'?'closed':'replaced'} card`,async()=>{
+  const fixture=actualPlannerFixture();fixture.cityData.areas[0].places[0].contentId='101';
+  const app=runtime({...fixture,withAccount:true});await settle();await app.create();const waiting=deferred();let signal;
+  app.context.fetch=async(_url,options)=>{signal=options.signal;return waiting.promise;};
+  const detail=app.$('day-list').querySelector('.place-detail');detail.open=true;detail.dispatch('toggle');
+  if(action==='close'){detail.open=false;detail.dispatch('toggle');}else app.$('day-list').querySelector('[data-event-id="place-0"] .event-move-button').parentNode.querySelectorAll('button')[1].click();
+  assert.equal(signal.aborted,true);
+  waiting.resolve({ok:true,json:async()=>({contentId:'101',contentTypeId:'12',title:'늦은 응답',overview:'화면에 남으면 안 됨'})});await settle();
+  assert.equal(detail.querySelector('.place-detail-result').textContent,'');assert.doesNotMatch(app.$('day-list').textContent,/화면에 남으면 안 됨/);
+});
+
+test('a valid detail photo and homepage render with attribution; partial results stay retryable',async()=>{
+  const fixture=actualPlannerFixture();Object.assign(fixture.cityData.areas[0].places[0],{contentId:'101',contentTypeId:'14'});
+  const app=runtime({...fixture,withAccount:true});await settle();await app.create();
+  app.context.fetch=async()=>({ok:true,json:async()=>({contentId:'101',contentTypeId:'14',title:'문화관',overview:'설명',imageUrl:'https://example.com/original.jpg',homepage:'https://example.com/',partial:true})});
+  const detail=app.$('day-list').querySelector('.place-detail');detail.open=true;detail.dispatch('toggle');await settle();
+  assert.equal(detail.querySelector('img').src,'https://example.com/original.jpg');assert.match(detail.querySelector('figcaption').textContent,/한국관광공사/);
+  assert.equal(detail.querySelector('.place-detail-retry').hidden,false);assert.match(detail.querySelector('.place-detail-status').textContent,/일부 운영정보/);
+  detail.querySelector('img').dispatch('error');assert.equal(detail.querySelector('img'),null);assert.match(detail.querySelector('figcaption').textContent,/불러오지 못했어요/);
+});
+
+test('invalid restored budget never replaces the current note or its browser draft',async()=>{
+  const fixture=actualPlannerFixture(),app=runtime({...fixture,withAccount:true});await settle();await app.create();addBudgetCost(app);
+  const before=noteParameters(app),raw=app.stored.get(storageKey);
+  for(const patch of [{amount:1.5},{amount:'100'},{dayIndex:1},{title:''},{category:'unknown'},{amount:1000000001}]){
+    const document=JSON.parse(JSON.stringify(app.account.options.getDocument()));Object.assign(document.itinerary.budget.items[0],patch);
+    assert.equal(await app.account.options.loadDocument(document),false);assert.deepEqual(noteParameters(app),before);assert.equal(app.stored.get(storageKey),raw);
+  }
+});
 function manualMeal(app,eventId='lunch'){
   return app.mounts.findLast(record=>record.kind==='manual-restaurant'&&!record.destroyed&&record.host.closest('.timeline-row').dataset.eventId===eventId);
 }

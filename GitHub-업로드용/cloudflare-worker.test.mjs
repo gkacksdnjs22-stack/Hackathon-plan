@@ -15,6 +15,7 @@ const routes = [
   ['/api/tour/backdrop', 'backdrop.getPhotos', []],
   ['/api/tour/areas', 'tour.getAreas', []],
   ['/api/tour/places?areaCode=6&city=seoul', 'tour.getPlaces', ['6']],
+  ['/api/tour/place-detail?contentId=101&contentTypeId=14','tour.getPlaceDetail',[{contentId:'101',contentTypeId:'14'}]],
   [`/api/departures/search?q=${encodeURIComponent('서울역')}`, 'departure.search', ['서울역']],
   [`/api/transport/stops?mode=bus&q=${encodeURIComponent('동서울')}&service=intercity`, 'transport.searchStops', [{ mode: 'bus', q: '동서울', service: 'intercity' }]],
   ['/api/transport/trips?service=train&from=NAT010000&to=NAT014445&date=2026-10-20', 'transport.getTrips', [{ service: 'train', from: 'NAT010000', to: 'NAT014445', date: '2026-10-20' }]],
@@ -27,7 +28,7 @@ function fixture({ failures = new Map(), assetStatus = 200 } = {}) {
   const worker = createPagesWorker({ createClients: ({ serviceKey }) => {
     keys.push(serviceKey);
     const clients = {};
-    for (const name of ['backdrop.getPhotos', 'tour.getAreas', 'tour.getPlaces', 'departure.search', 'transport.searchStops', 'transport.getTrips', 'restaurants.search', 'carRouting.getRoute']) {
+    for (const name of ['backdrop.getPhotos', 'tour.getAreas', 'tour.getPlaces', 'tour.getPlaceDetail', 'departure.search', 'transport.searchStops', 'transport.getTrips', 'restaurants.search', 'carRouting.getRoute']) {
       const [group, method] = name.split('.');
       clients[group] ||= {};
       clients[group][method] = async (...args) => {
@@ -63,7 +64,7 @@ async function safeError(response, status, code) {
   return body.error;
 }
 
-test('Worker의7개 API가 해당 클라이언트에 쿼리값을 정확히 전달한다', async () => {
+test('Worker API가 해당 클라이언트에 쿼리값을 정확히 전달한다', async () => {
   const { worker, env, calls, keys, assets } = fixture();
   for (const [path, name, args] of routes) {
     const response = await worker.fetch(request(path), env);

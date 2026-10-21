@@ -5,7 +5,7 @@ const EDITABLE = BASE.filter(id => !['departure','arrival-transfer','finish'].in
 const MODES = ['walk','local-bus','subway','car'];
 const SERVICES = { train:['train','15098552'], express:['bus','15098522'], intercity:['bus','15098541'], flight:['flight','15098526'], ferry:['ferry','15098523'] };
 const TRIP_FIELDS = ['id','service','departureId','arrivalId','departureName','arrivalName','date','departureMinutes','arrivalMinutes','durationMinutes','tripNo','grade','source','sourceUrl','fetchedAt'];
-const INPUTS = ['cityId','startDate','dayCount','dayAreaIds','selections','dayStarts','eventEdits','extraEvents','excludedEvents','eventOrders','departure','dayDepartures','dayArrivals','dayTransports','personalization'];
+const INPUTS = ['cityId','startDate','dayCount','dayAreaIds','selections','dayStarts','eventEdits','extraEvents','excludedEvents','eventOrders','departure','dayDepartures','dayArrivals','dayTransports','personalization','budget'];
 const COMPUTED = ['ok','cityName','countryName','dataSource','days','maxDays'];
 const EXTRA = /^extra-[1-9]\d{0,8}$/;
 const PLACE = /^tourapi-\d{1,60}$/;
@@ -213,6 +213,18 @@ export function normalizePlanDocument(input) {
   const result = { version:8,itinerary:{ cityId:source.cityId,startDate,dayCount:count,dayAreaIds:[...source.dayAreaIds],selections,
     dayStarts,eventEdits,extraEvents,excludedEvents,eventOrders,departure:dayDepartures[0],dayDepartures,dayArrivals,dayTransports } };
   if(source.personalization!==undefined)result.itinerary.personalization=normalizePersonalization(source.personalization,count,extraEvents,dayArrivals);
+  if(source.budget!==undefined){
+    const budget=source.budget;keys(budget,['limit','items'],['limit','items']);
+    if(!(budget.limit===null||integer(budget.limit,0,1000000000000))||!Array.isArray(budget.items)||budget.items.length>200)fail();
+    const ids=new Set();
+    result.itinerary.budget={limit:budget.limit,items:budget.items.map(item=>{
+      keys(item,['id','dayIndex','category','title','amount'],['id','dayIndex','category','title','amount']);
+      if(typeof item.id!=='string'||!/^cost-[a-zA-Z0-9_-]{1,64}$/.test(item.id)||ids.has(item.id)||!integer(item.dayIndex,0,count-1)
+        ||!['transport','stay','food','admission','other'].includes(item.category)||!integer(item.amount,0,1000000000)
+        ||typeof item.title!=='string'||/[\u0000-\u001f\u007f]/.test(item.title))fail();
+      ids.add(item.id);return {...item,title:string(item.title,80,1)};
+    })};
+  }
   if (ENCODER.encode(JSON.stringify(result)).byteLength > MAX_PLAN_DOCUMENT_BYTES) fail('PAYLOAD_TOO_LARGE');
   return result;
 }
