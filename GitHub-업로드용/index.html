@@ -23,8 +23,10 @@
   <link rel="stylesheet" href="./account-ui.css?v=3">
   <link rel="icon" type="image/png" href="./travel-sticker-v1.png">
   <script src="./places.js?v=10" defer></script>
-  <script src="./note-tools.js?v=1" defer></script>
-  <script src="./planner.js?v=19" defer></script>
+  <script src="./note-tools.js?v=2" defer></script>
+  <script src="./itinerary-export.js?v=1" defer></script>
+  <script src="./personalization-ui.js?v=1" defer></script>
+  <script src="./planner.js?v=20" defer></script>
   <script src="./tour-data.js?v=11" defer></script>
   <script src="./date-picker.js?v=5" defer></script>
   <script src="./select-ui.js?v=5" defer></script>
@@ -37,10 +39,11 @@
   <script src="./local-transfer-ui.js?v=4" defer></script>
   <script src="./connection-ui.js?v=2" defer></script>
   <script src="./schedule-ui.js?v=4" defer></script>
-  <script src="./account-ui.js?v=6" defer></script>
+  <script src="./account-ui.js?v=7" defer></script>
   <link rel="stylesheet" href="./travel-atmosphere.css?v=15">
-  <link rel="stylesheet" href="./note-tools.css?v=6">
-  <script src="./app.js?v=44" defer></script>
+  <link rel="stylesheet" href="./note-tools.css?v=8">
+  <link rel="stylesheet" href="./personalization-ui.css?v=1">
+  <script src="./app.js?v=49" defer></script>
   <script src="./backdrop-photos.js?v=2" defer></script>
   <script src="./travel-backdrop.js?v=4" defer></script>
 </head>
@@ -88,7 +91,10 @@
     <section id="itinerary-section" class="itinerary-section" aria-labelledby="itinerary-title" hidden>
       <div class="itinerary-heading"><div><span class="step-label"><span class="step-number">02</span> 나만의 여행 노트</span><h1 id="itinerary-title" class="note-page-title" tabindex="-1">이렇게 떠나보면 어때요? <span class="title-sticker" aria-hidden="true"><img class="travel-sticker" src="./travel-sticker-v1.png" alt="" width="44" height="44"></span></h1><p id="trip-summary"></p></div><div class="heading-actions"><div class="note-history" role="group" aria-label="일정 편집 기록"><button id="undo-button" class="button button-quiet note-history-button" type="button" disabled><span aria-hidden="true">↶</span> 되돌리기</button><button id="redo-button" class="button button-quiet note-history-button" type="button" disabled><span aria-hidden="true">↷</span> 다시 실행</button></div><button id="print-button" class="button button-quiet" type="button">인쇄 · PDF</button><button id="clear-button" class="button button-quiet" type="button">불러온 일정 지우기</button></div></div>
       <p id="note-timing-notice" class="note-timing-notice" role="status" aria-atomic="true" hidden></p>
+      <details id="pending-transfers" class="pending-transfers" hidden></details>
       <div id="account-save" class="account-save" aria-label="계획표 저장"></div>
+      <div id="note-export" class="note-export" role="group" aria-label="일정 복사와 캘린더 내보내기"></div>
+      <section id="personal-tools" class="personal-tools" aria-label="여행 준비물과 관광지 즐겨찾기" hidden></section>
       <div id="capacity-message" class="capacity-message" hidden></div>
       <nav id="day-bookmarks" class="day-bookmarks" aria-label="날짜별 일정 바로가기"></nav>
       <div id="day-list" class="day-list"></div>

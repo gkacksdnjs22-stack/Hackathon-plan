@@ -36,6 +36,21 @@ test('signup hashes passwords and opaque sessions, normalizes usernames and keep
   assert.deepEqual((await f.call('/api/auth/session')).data,{configured:true,user:null});
 });
 
+test('personalization survives account save, update and load without leaking through plan lists or to another owner', async t=>{
+  const f=fixture();t.after(()=>f.db.close());const owner=await f.signup('Personal'),other=await f.signup('Other');
+  const document=doc();document.itinerary.personalization={checklist:[{id:'item-1',text:'예약 확인서',done:false}],favoritePlaceIds:['tourapi-4'],eventTags:{0:{lunch:'booked'}}};
+  const created=await f.call('/api/plans',{method:'POST',cookie:owner.cookie,body:{title:'개인 여행',document}});
+  assert.equal(created.status,201);const id=created.data.plan.id;
+  const loaded=await f.call(`/api/plans/${id}`,{cookie:owner.cookie});
+  assert.deepEqual(loaded.data.plan.document.itinerary.personalization,document.itinerary.personalization);
+  document.itinerary.personalization.checklist[0].done=true;
+  const updated=await f.call(`/api/plans/${id}`,{method:'PUT',cookie:owner.cookie,body:{title:'개인 여행',document,revision:1}});
+  assert.equal(updated.status,200);
+  assert.equal((await f.call(`/api/plans/${id}`,{cookie:owner.cookie})).data.plan.document.itinerary.personalization.checklist[0].done,true);
+  assert.equal((await f.call(`/api/plans/${id}`,{cookie:other.cookie})).status,404);
+  const list=await f.call('/api/plans',{cookie:owner.cookie});assert.equal(JSON.stringify(list.data).includes('예약 확인서'),false);
+});
+
 test('password spaces are preserved, login failures are generic and successful login rotates a supplied session', async t=>{
   const f=fixture();t.after(()=>f.db.close());const signed=await f.signup('Alice');
   const wrong=await f.call('/api/auth/login',{method:'POST',body:{username:'alice',password:PASSWORD.trim()}});

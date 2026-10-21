@@ -1,13 +1,13 @@
 # 구글·카카오·네이버 로그인 연결
 
-현재는 연결 코드만 준비된 상태입니다. 각 제공자의 로그인용 개발 앱을 만들고 아래 설정을 등록해야 실제 계정으로 로그인할 수 있습니다. 설정이 없는 제공자는 사이트에 버튼을 표시하지 않으며 기존 아이디·비밀번호 로그인은 계속 사용할 수 있습니다.
+Google·카카오·네이버 로그인 연결을 지원합니다. 각 제공자의 로그인용 개발 앱과 아래 설정을 사용하는 환경에 등록해야 실제 계정으로 로그인할 수 있습니다. 설정이 없는 제공자는 사이트에 버튼을 표시하지 않으며 기존 아이디·비밀번호 로그인은 계속 사용할 수 있습니다. 네이버는 공개 서비스 검수가 끝난 뒤 운영 환경에서 활성화하세요.
 
 ## 공통 설정
 
 1. 로컬 `.env`에 `SOCIAL_AUTH_BASE_URL=http://localhost:3000`을 입력합니다. 브라우저도 `localhost:3000`으로 접속하세요. `127.0.0.1` 주소와 혼용하면 로그인을 시작할 수 없습니다.
 2. Cloudflare 배포 환경에는 `SOCIAL_AUTH_BASE_URL=https://rode-hackathon.pages.dev`를 등록합니다. 이 값은 주소 전체 중 origin만 사용하고, 경로·`#`·쿼리는 붙이지 않습니다. 실제 사용자 도메인으로 바꾸면 콜백 주소도 함께 변경해야 합니다.
 3. 아래 제공자별 Client ID·Client Secret을 로컬 `.env`와 Cloudflare의 해당 환경 변수/Secret에 등록합니다. **Client Secret은 Cloudflare Secret으로 등록하고 채팅·GitHub에 올리지 않습니다.** `AUTH_SECRET`과 `DB` 바인딩은 기존 계정 설정을 그대로 사용합니다.
-4. 로컬은 서버 시작 시 `account-schema.sql`의 추가 테이블이 자동 생성됩니다. Cloudflare D1은 기존 DB를 유지한 채 `npx wrangler d1 execute <실제 DB 이름> --remote --file=account-schema.sql`로 추가 테이블을 적용합니다. 이 SQL은 `CREATE TABLE IF NOT EXISTS`만 사용하며 기존 사용자·계획을 지우지 않습니다. 배포 전 해당 프로젝트의 DB 이름을 확인하세요.
+4. 로컬은 서버 시작 시 `account-schema.sql`의 추가 테이블이 자동 생성됩니다. Cloudflare D1은 기존 DB를 유지한 채 추가 테이블을 적용합니다. 저장소의 `wrangler.jsonc`는 로컬 개발용 임시 DB ID를 사용하므로 그대로 원격 실행에 쓰지 마세요. Pages의 `DB` 바인딩에 연결된 실제 D1을 확인한 뒤 해당 DB 콘솔에서 SQL을 실행하거나, 그 DB의 실제 ID를 등록한 별도 설정 파일로 `npx wrangler d1 execute DB --remote --config <배포 설정 파일> --file=account-schema.sql`을 실행합니다. 이 SQL은 `CREATE TABLE IF NOT EXISTS`와 `CREATE INDEX IF NOT EXISTS`를 사용하며 기존 사용자·계획을 지우지 않습니다.
 5. 서버 재시작 또는 새 배포 후 `/api/auth/providers`에 설정한 제공자가 나오는지 확인합니다. 키가 없거나 스키마가 준비되지 않으면 목록이 비어 있습니다. 키 자체는 응답에 포함되지 않습니다.
 
 ## Google

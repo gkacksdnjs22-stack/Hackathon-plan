@@ -41,7 +41,7 @@
     let epoch = 0, listVersion = 0, operation = 0, attachment = 0, draftVersion = 0, dirty = true;
     let currentPlan = null, plans = [], listPending = false, listError = '', savePending = false, initialReported = false;
     let attachmentState = 'none';
-    let planSort = 'updated';
+    let planSort = 'updated', planQuery = '';
     let dialogVersion = 0, dialogBusy = false, dialogControls = [], returnFocus = null;
     let verifying = false, verifyAgain = false, probingVisibility = false, signalVersion = 0;
     const sessionSignalKey = 'gil-account-session-change';
@@ -178,7 +178,7 @@
       epoch++; operation++; attachment++; listVersion++; abortRequests();
       const transition = epoch;
       user = next ? { id: next.id, username: next.username } : null;
-      currentPlan = null; attachmentState = 'none'; plans = []; planSort = 'updated'; dirty = true; savePending = false; listPending = false; listError = ''; sessionPending = true;
+      currentPlan = null; attachmentState = 'none'; plans = []; planSort = 'updated'; planQuery = ''; dirty = true; savePending = false; listPending = false; listError = ''; sessionPending = true;
       render();
       try { await onUserChange(known ? user : undefined, { initial, previousUser, socialReturn }); }
       catch (_error) { if (!destroyed && transition === epoch) notify('이 기기 노트를 준비하지 못했어요. 새로고침 후 다시 확인해 주세요.', 'error'); }
@@ -246,6 +246,9 @@
       saveActions.append(status);
     }
     function renderLibrary() {
+      const previousSearch = library.querySelector('.account-plan-search');
+      const restoreSearchFocus = previousSearch && document.activeElement === previousSearch;
+      const selection = restoreSearchFocus ? [previousSearch.selectionStart, previousSearch.selectionEnd] : null;
       library.replaceChildren();
       if(noticeRoot){
         noticeRoot.replaceChildren();
@@ -273,6 +276,16 @@
           : listPending ? '저장한 계획을 불러오고 있어요.' : listError || (!plans.length ? '아직 계정에 저장한 계획이 없어요.' : '');
       library.append(message);
       if (!user) return;
+      const searchRow = node('div', 'account-search-row');
+      const searchLabel = node('label', 'account-search-label', '계획 검색');
+      const search = node('input', 'account-plan-search'); search.type = 'search'; search.maxLength = 120;
+      search.placeholder = '계획 이름 또는 여행 지역'; search.value = planQuery;
+      search.setAttribute('aria-label', '저장한 계획 검색'); search.setAttribute('aria-controls', `${id}-plans`);
+      searchLabel.append(search);
+      const clearSearch = button('검색 지우기', () => {
+        planQuery = ''; search.value = ''; renderMatches(); search.focus({ preventScroll: true });
+      });
+      searchRow.append(searchLabel, clearSearch); library.append(searchRow);
       const sortLabel = node('label', 'account-sort', '계획 정렬');
       const sort = node('select', 'account-sort-select'); sort.setAttribute('aria-label', '저장한 계획 정렬');
       for (const [value, label] of [['updated', '최근 수정순'], ['start', '여행 시작일 빠른순']]) {
@@ -284,17 +297,30 @@
         library.querySelector('.account-sort-select')?.focus({ preventScroll: true });
       });
       sortLabel.append(sort); library.append(sortLabel);
-      const list = node('ul', 'account-plan-list'); list.setAttribute('aria-label', '계정에 저장한 여행 계획');
-      const ordered = [...plans].sort((a, b) => (planSort === 'start' ? a.startDate.localeCompare(b.startDate) : 0)
-        || Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || a.id.localeCompare(b.id));
-      for (const plan of ordered) {
-        const card = node('li', 'account-plan-card'), copy = node('div', 'account-plan-copy'), actions = node('div', 'account-plan-actions');
-        const cityName = window.TRAVEL_DATA?.cities?.[plan.cityId]?.name || '국내 여행';
-        copy.append(node('strong', 'account-plan-title', plan.title), node('span', 'account-plan-meta', `${cityName} · ${plan.startDate}부터 ${plan.dayCount}일 · 수정 ${new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(plan.updatedAt))}`));
-        actions.append(button('불러오기', () => confirmLoad(plan)), button('삭제', () => confirmDelete(plan), 'is-danger'));
-        card.append(copy, actions); list.append(card);
+      const result = node('p', 'account-search-result'); result.setAttribute('role', 'status');
+      const list = node('ul', 'account-plan-list'); list.id = `${id}-plans`; list.setAttribute('aria-label', '계정에 저장한 여행 계획');
+      library.append(result, list);
+      function renderMatches() {
+        const normalize = value => value.normalize('NFKC').toLowerCase();
+        const terms = normalize(planQuery).trim().split(/\s+/).filter(Boolean);
+        const cityName = plan => window.TRAVEL_DATA?.cities?.[plan.cityId]?.name || '국내 여행';
+        const ordered = plans.filter(plan => terms.every(term => normalize(`${plan.title} ${cityName(plan)}`).includes(term)))
+          .sort((a, b) => (planSort === 'start' ? a.startDate.localeCompare(b.startDate) : 0)
+            || Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || a.id.localeCompare(b.id));
+        result.textContent = listPending || listError || sessionPending ? '' : !terms.length ? `전체 ${plans.length}개`
+          : ordered.length ? `검색 결과 ${ordered.length}개 · 전체 ${plans.length}개` : '검색 결과가 없어요. 다른 이름이나 여행 지역으로 찾아보세요.';
+        clearSearch.disabled = !planQuery;
+        list.replaceChildren();
+        for (const plan of ordered) {
+          const card = node('li', 'account-plan-card'), copy = node('div', 'account-plan-copy'), actions = node('div', 'account-plan-actions');
+          copy.append(node('strong', 'account-plan-title', plan.title), node('span', 'account-plan-meta', `${cityName(plan)} · ${plan.startDate}부터 ${plan.dayCount}일 · 수정 ${new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(plan.updatedAt))}`));
+          actions.append(button('불러오기', () => confirmLoad(plan)), button('삭제', () => confirmDelete(plan), 'is-danger'));
+          card.append(copy, actions); list.append(card);
+        }
       }
-      library.append(list);
+      search.addEventListener('input', () => { planQuery = search.value; renderMatches(); });
+      renderMatches();
+      if (restoreSearchFocus) { search.focus({ preventScroll: true }); if (selection.every(Number.isInteger)) search.setSelectionRange(...selection); }
     }
     function render() { renderNav(); renderSave(); renderLibrary(); }
     async function initialize() {
@@ -584,6 +610,7 @@
     render(); const ready = initialize().then(consumeSocialResult);
     return {
       ready,
+      refreshDestinations() { if (!destroyed) renderLibrary(); },
       changed() { if (!destroyed) { draftVersion++; dirty = true; renderSave(); } },
       detach() { if (!destroyed) { attachment++; operation++; currentPlan = null; attachmentState = 'none'; dirty = true; attachmentChanged(); renderSave(); } },
       getAttachment,

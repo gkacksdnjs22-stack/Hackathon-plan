@@ -465,13 +465,37 @@
     return {ok:true};
   }
 
-  function createItinerary({city,startDate,dayCount,dayAreaIds,selections={},dayStarts={},eventEdits={},departure=null,dayDepartures={},dayArrivals={},dayTransports={},extraEvents={},excludedEvents={},eventOrders={}}={}){
+  function normalizePersonalization(value,count){
+    if(value===undefined)return {ok:true};
+    const invalid=()=>({ok:false,reason:'준비물·즐겨찾기·색상 태그의 저장 형식을 확인해 주세요.'});
+    if(!record(value)||Object.keys(value).some(key=>!['checklist','favoritePlaceIds','eventTags'].includes(key)))return invalid();
+    const checklist=value.checklist===undefined?[]:value.checklist,favorites=value.favoritePlaceIds===undefined?[]:value.favoritePlaceIds,tags=value.eventTags===undefined?{}:value.eventTags;
+    if(!Array.isArray(checklist)||!Array.isArray(favorites)||!record(tags))return invalid();
+    if(checklist.length>100)return {ok:false,reason:'준비물은 여행 노트마다 최대 100개까지 저장할 수 있어요.'};
+    if(favorites.length>100)return {ok:false,reason:'즐겨찾기는 여행 노트마다 최대 100곳까지 저장할 수 있어요.'};
+    const ids=new Set();
+    for(const item of checklist){
+      if(!record(item)||Object.keys(item).some(key=>!['id','text','done'].includes(key))||!/^item-[1-9]\d{0,8}$/.test(item.id)
+        ||ids.has(item.id)||typeof item.text!=='string'||!item.text.trim()||item.text.length>120||/[\u0000-\u001f\u007f]/.test(item.text)||typeof item.done!=='boolean')return invalid();
+      ids.add(item.id);
+    }
+    if(new Set(favorites).size!==favorites.length||favorites.some(id=>typeof id!=='string'||!/^[a-zA-Z0-9_-]{1,120}$/.test(id)))return invalid();
+    for(const [day,entries] of Object.entries(tags)){
+      if(!/^(0|[1-9]\d*)$/.test(day)||Number(day)>=count||!record(entries)||Object.keys(entries).length>34)return invalid();
+      if(Object.entries(entries).some(([id,tag])=>(!['arrival',...EVENT_IDS].includes(id)&&!extraId(id))||!['must','booked','flex'].includes(tag)))return invalid();
+    }
+    return {ok:true,personalization:{checklist:checklist.map(item=>({...item,text:item.text.trim()})),favoritePlaceIds:[...favorites],
+      eventTags:Object.fromEntries(Object.entries(tags).map(([day,entries])=>[day,{...entries}]))}};
+  }
+  function createItinerary({city,startDate,dayCount,dayAreaIds,selections={},dayStarts={},eventEdits={},departure=null,dayDepartures={},dayArrivals={},dayTransports={},extraEvents={},excludedEvents={},eventOrders={},personalization}={}){
     const validation=validateCity(city);
     if(!validation.ok)return {ok:false,reason:validation.reason,days:[],maxDays:0};
     const maxDays=Math.min(MAX_TRIP_DAYS,city.supportedDays,city.areas.length);
     const count=Number(dayCount);
     if(!validDate(startDate))return {ok:false,reason:'여행 시작일을 올바르게 선택해 주세요.',days:[],maxDays};
     if(!Number.isInteger(count)||count<1||count>MAX_TRIP_DAYS)return {ok:false,reason:`여행 기간은 1~${MAX_TRIP_DAYS}일 중에서 선택해 주세요.`,days:[],maxDays};
+    const personal=normalizePersonalization(personalization,count);
+    if(!personal.ok)return {ok:false,reason:personal.reason,days:[],maxDays};
     if(count>maxDays)return {ok:false,reason:`현재 데이터로 만들 수 있는 최대 일정은 ${maxDays}일입니다. 같은 장소로 빈 날짜를 채우지 않습니다.`,days:[],maxDays};
     const chosenAreaIds=dayAreaIds===undefined?city.areas.slice(0,count).map(area=>area.id):dayAreaIds;
     const areaValidation=validateDayAreas(city,chosenAreaIds,count,validation);
@@ -514,7 +538,16 @@
       recommended[index]=[...ids];
       days.push({index:index+1,date:fmtDate(startDate,index),area:area.name,areaId:area.id,departure:origins.dayDepartures[index],arrival:arrivals.dayArrivals[index],transport:transports.dayTransports[index],events:result.events,hiddenEvents:result.hiddenEvents,start:result.start,end:result.end,needsTravelTime:result.needsTravelTime,timesProvisional:result.timesProvisional});
     }
-    return {ok:true,cityId:city.id,cityName:city.name,countryName:window.TRAVEL_DATA.countries[city.country],startDate,dayCount:count,dayAreaIds:[...chosenAreaIds],selections:recommended,dayStarts:options.dayStarts,eventEdits:options.eventEdits,extraEvents:extras.extraEvents,excludedEvents:layout.excludedEvents,eventOrders:layout.eventOrders,departure:origins.dayDepartures[0],dayDepartures:origins.dayDepartures,dayArrivals:arrivals.dayArrivals,dayTransports:transports.dayTransports,days,maxDays};
+    if(personal.personalization){
+      // Keep hidden recommendations tagged, but discard tags of deleted extra
+      // events/arrival markers so reusing an event id cannot inherit an old tag.
+      personal.personalization.eventTags=Object.fromEntries(Object.entries(personal.personalization.eventTags).flatMap(([day,entries])=>{
+        const allowed=new Set([...days[day].events,...days[day].hiddenEvents].map(event=>event.id));
+        const kept=Object.entries(entries).filter(([id])=>allowed.has(id));
+        return kept.length?[[day,Object.fromEntries(kept)]]:[];
+      }));
+    }
+    return {ok:true,cityId:city.id,cityName:city.name,countryName:window.TRAVEL_DATA.countries[city.country],startDate,dayCount:count,dayAreaIds:[...chosenAreaIds],selections:recommended,dayStarts:options.dayStarts,eventEdits:options.eventEdits,extraEvents:extras.extraEvents,excludedEvents:layout.excludedEvents,eventOrders:layout.eventOrders,departure:origins.dayDepartures[0],dayDepartures:origins.dayDepartures,dayArrivals:arrivals.dayArrivals,dayTransports:transports.dayTransports,days,maxDays,...(personal.personalization?{personalization:personal.personalization}:{})};
   }
   function selectionsFromItinerary(itinerary){
     if(itinerary.selections!==undefined)return record(itinerary.selections)?Object.fromEntries(Object.entries(itinerary.selections)
@@ -533,8 +566,19 @@
   function rebuild(city,itinerary,changes={}){
     const next=createItinerary({city,startDate:itinerary.startDate,dayCount:itinerary.dayCount,
       dayAreaIds:areaIdsFromItinerary(city,itinerary),selections:selectionsFromItinerary(itinerary),
-      dayStarts:itinerary.dayStarts,eventEdits:itinerary.eventEdits,extraEvents:itinerary.extraEvents,excludedEvents:itinerary.excludedEvents,eventOrders:itinerary.eventOrders,departure:itinerary.departure,dayDepartures:itinerary.dayDepartures,dayArrivals:itinerary.dayArrivals,dayTransports:itinerary.dayTransports,...changes});
+      dayStarts:itinerary.dayStarts,eventEdits:itinerary.eventEdits,extraEvents:itinerary.extraEvents,excludedEvents:itinerary.excludedEvents,eventOrders:itinerary.eventOrders,departure:itinerary.departure,dayDepartures:itinerary.dayDepartures,dayArrivals:itinerary.dayArrivals,dayTransports:itinerary.dayTransports,personalization:itinerary.personalization,...changes});
     if(next.ok&&itinerary.dataSource!==undefined)next.dataSource=itinerary.dataSource;
+    if(next.ok&&next.personalization){
+      for(const [day,entries] of Object.entries(next.personalization.eventTags)){
+        const oldEvents=[...(itinerary.days[day]?.events||[]),...(itinerary.days[day]?.hiddenEvents||[])];
+        const newEvents=[...next.days[day].events,...next.days[day].hiddenEvents];
+        for(const id of Object.keys(entries)){
+          const before=oldEvents.find(event=>event.id===id),after=newEvents.find(event=>event.id===id);
+          if(before&&after&&(before.place?.id!==after.place?.id||before.departure?.id!==after.departure?.id||before.arrival?.id!==after.arrival?.id))delete entries[id];
+        }
+        if(!Object.keys(entries).length)delete next.personalization.eventTags[day];
+      }
+    }
     return next;
   }
   function editableItinerary(city,itinerary,dayIndex){
@@ -906,5 +950,10 @@
   }
   function validationPlace(city,id){return allPlaces(city).find(place=>place.id===id)||null;}
 
-  window.TravelPlanner={createItinerary,getAlternatives,replacePlace,replaceTouristEvent,changeDayArea,addEvent,removeEvent,restoreEvent,moveEvent,updateEvent,setTransferMode,getTransferSuggestion,setDayStart,setDeparture,setDayDeparture,setDayArrival,setDayTransport,setDayConnection,buildConnection,requiresArrival,validateCity,allPlaces,formatTime,areaIdsFromItinerary};
+  function updatePersonalization({city,itinerary,personalization}={}){
+    if(!itinerary||itinerary.cityId!==city?.id)return {ok:false,reason:'수정할 여행 노트를 확인해 주세요.'};
+    const next=rebuild(city,itinerary,{personalization});
+    return next.ok?{ok:true,itinerary:next}:{ok:false,reason:next.reason};
+  }
+  window.TravelPlanner={createItinerary,getAlternatives,replacePlace,replaceTouristEvent,changeDayArea,addEvent,removeEvent,restoreEvent,moveEvent,updateEvent,updatePersonalization,setTransferMode,getTransferSuggestion,setDayStart,setDeparture,setDayDeparture,setDayArrival,setDayTransport,setDayConnection,buildConnection,requiresArrival,validateCity,allPlaces,formatTime,areaIdsFromItinerary};
 })();

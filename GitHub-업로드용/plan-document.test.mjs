@@ -45,13 +45,18 @@ test('real planner output with hidden recommendations, a whole-catalog tourist a
   current=planner.updateEvent({city,itinerary:current,dayIndex:0,eventId:'lunch',title:'점심 식사 · 직접 정한 식당',description:'서울 골목 1\n예약 메모'}).itinerary;
   const extraMeal=planner.addEvent({city,itinerary:current,dayIndex:0,type:'meal',title:'식사 · 저녁 밥집',description:'주소와 메모',duration:50});
   assert.equal(extraMeal.ok,true);current=extraMeal.itinerary;
+  const personalized=planner.updatePersonalization({city,itinerary:current,personalization:{checklist:[{id:'item-1',text:'입장권',done:true}],
+    favoritePlaceIds:['tourapi-100','tourapi-104'],eventTags:{0:{'place-0':'must',[extraMeal.eventId]:'booked'}}}});
+  assert.equal(personalized.ok,true,personalized.reason);current=personalized.itinerary;
   const saved=normalizePlanDocument({version:8,itinerary:clone(current)});
   for (const eventId of ['transfer-0','transfer-1']) assert.equal(saved.itinerary.eventEdits[0][eventId].duration,0);
   const restored=planner.createItinerary({city,...saved.itinerary});
   assert.equal(restored.ok,true,restored.reason);assert.deepEqual(clone(restored.days),clone(current.days));
+  assert.deepEqual(clone(restored.personalization),clone(current.personalization));
   assert.equal(restored.days[0].events.find(item=>item.id==='lunch').description,'서울 골목 1\n예약 메모');
   const cleared=planner.updateEvent({city,itinerary:restored,dayIndex:0,eventId:'lunch',resetTitle:true,description:''});
   assert.equal(cleared.ok,true);
+  assert.deepEqual(clone(cleared.itinerary.personalization),clone(current.personalization));
   const clearSaved=normalizePlanDocument({version:8,itinerary:clone(cleared.itinerary)});
   assert.equal(planner.createItinerary({city,...clearSaved.itinerary}).days[0].events.find(item=>item.id==='lunch').description,'');
 });
@@ -102,6 +107,31 @@ test('arrival-transfer mode still requires its matching arrival and cannot be ap
     const invalid=clone(input);invalid.itinerary.eventEdits[0]={[id]:{travelMode:'local-bus'}};
     assert.throws(()=>normalizePlanDocument(invalid),error('INVALID_PLAN'));
   }
+});
+
+test('personal checklist, favorite ids and event tags round-trip as detached inputs while old documents remain compatible', () => {
+  const input=document();
+  input.itinerary.personalization={checklist:[{id:'item-1',text:'  여권  ',done:true}],favoritePlaceIds:['tourapi-100','tourapi-999'],eventTags:{0:{'place-0':'must',lunch:'booked'}}};
+  const saved=normalizePlanDocument(input);
+  assert.deepEqual(saved.itinerary.personalization,{checklist:[{id:'item-1',text:'여권',done:true}],favoritePlaceIds:['tourapi-100','tourapi-999'],eventTags:{0:{'place-0':'must',lunch:'booked'}}});
+  assert.deepEqual(normalizePlanDocument(saved),saved);
+  input.itinerary.personalization.checklist[0].done=false;input.itinerary.personalization.favoritePlaceIds.pop();input.itinerary.personalization.eventTags[0].lunch='flex';
+  assert.equal(saved.itinerary.personalization.checklist[0].done,true);assert.equal(saved.itinerary.personalization.favoritePlaceIds.length,2);
+  assert.equal(saved.itinerary.personalization.eventTags[0].lunch,'booked');
+  assert.equal(Object.hasOwn(normalizePlanDocument(document()).itinerary,'personalization'),false);
+});
+
+test('personal data validation rejects oversized, duplicate, malformed or arbitrary fields and unknown tag targets', () => {
+  const valid={checklist:[{id:'item-1',text:'충전기',done:false}],favoritePlaceIds:['tourapi-100'],eventTags:{0:{lunch:'booked'}}};
+  const invalid=[null,[],{...valid,privateProviderData:{}},{...valid,checklist:null},
+    {...valid,checklist:Array.from({length:101},(_,i)=>({id:`item-${i+1}`,text:'준비물',done:false}))},
+    {...valid,checklist:[valid.checklist[0],valid.checklist[0]]},
+    ...[{id:'item-1',text:' ',done:false},{id:'item-1',text:'x'.repeat(121),done:false},{id:'item-1',text:'줄\n바꿈',done:false},
+      {id:'item-1',text:'충전기',done:'true'},{id:'item-1',text:'충전기',done:false,address:'PRIVATE'}].map(item=>({...valid,checklist:[item]})),
+    {...valid,favoritePlaceIds:['tourapi-100','tourapi-100']},{...valid,favoritePlaceIds:[{id:'tourapi-100',name:'PRIVATE'}]},
+    {...valid,favoritePlaceIds:Array.from({length:101},(_,i)=>`tourapi-${i}`)},
+    {...valid,eventTags:{1:{lunch:'must'}}},{...valid,eventTags:{0:{lunch:'#fff'}}},{...valid,eventTags:{0:{'extra-1':'must'}}}];
+  for(const personal of invalid){const input=document();input.itinerary.personalization=personal;assert.throws(()=>normalizePlanDocument(input),error('INVALID_PLAN'));}
 });
 
 test('unknown top-level and nested API fields are rejected rather than stored', () => {
