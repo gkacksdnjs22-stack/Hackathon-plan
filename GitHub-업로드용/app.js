@@ -17,11 +17,12 @@
     timeZone:window.TRAVEL_DATA.cities[currentItinerary?.cityId]?.timezone||'Asia/Seoul'
   })});
   const personalTools=window.TravelPersonalization.mount($('personal-tools'),{onChange:savePersonalization,onAdd:addFavoritePlace});
+  const budgetTools=window.TravelBudget.mount($('trip-budget'),{onChange:saveBudget});
   let personalEventWidgets=[];
   const dayMap=window.TravelDayMap.mount($('day-map'),{onFocus:focusMappedEvent});
   const EDIT_HISTORY_LIMIT=20;
   const editHistory={undo:[],redo:[]};
-  const editingKeys=['cityId','startDate','dayCount','dayAreaIds','selections','dayStarts','eventEdits','extraEvents','excludedEvents','eventOrders','departure','dayDepartures','dayArrivals','dayTransports','personalization'];
+  const editingKeys=['cityId','startDate','dayCount','dayAreaIds','selections','dayStarts','eventEdits','extraEvents','excludedEvents','eventOrders','departure','dayDepartures','dayArrivals','dayTransports','personalization','budget'];
   let account=null;
   let activeAccountUser=null;
   const draftStorageKey=()=>activeAccountUser?`${STORAGE_KEY}:${activeAccountUser.id}`:STORAGE_KEY;
@@ -37,6 +38,12 @@
   const liveTransitDurations=new Map();
   let departureDraftModes={};
   let messageTimer=null,messageKind=null,messageVersion=0;
+  function localSaveStatus(state,at=null){
+    const status=$('local-save-status');if(!status)return;
+    status.hidden=!currentItinerary;status.dataset.state=state;
+    const clock=at&&Number.isFinite(Date.parse(at))?new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date(at)):'';
+    status.textContent=state==='saving'?'기기 자동저장 중…':state==='error'?'기기 자동저장 실패 · 현재 화면과 입력을 유지했어요. 저장 공간을 확인하고 다시 시도해 주세요.':state==='restored'?'기기 저장본을 불러왔어요.':`기기에 저장했어요${clock?` · ${clock}`:''}${Object.keys(editorDrafts).length?' · 작성 중 입력은 임시 보관 중이며 수정 저장을 누르면 일정에 반영돼요.':''}`;
+  }
   let activeReorder=null;
   function closeReorderControls(restoreFocus=false){
     const opened=activeReorder;
@@ -256,8 +263,9 @@
     destroyDepartureWidgets();
     departureDraftModes={};
     currentItinerary=null;
+    localSaveStatus('idle');
     currentAttachment=null;previousDraft=null;editorDrafts={};pendingReorders={};editorCaptures.clear();displayedDraftOwner=null;
-    personalTools.reset();
+    personalTools.reset();budgetTools.reset();
     dayMap.reset();
     collapsedDays.clear();
     activeDayIndex=0;
@@ -312,7 +320,7 @@
     departureDraftModes={};
     currentItinerary=result;
     currentAttachment=null;editorDrafts={};pendingReorders={};editorCaptures.clear();displayedDraftOwner=activeAccountUser?.id||null;
-    personalTools.reset();
+    personalTools.reset();budgetTools.reset();
     dayMap.reset();
     collapsedDays.clear();
     activeDayIndex=0;
@@ -407,7 +415,8 @@
   }
   function persistDraftContext(){
     if(!currentItinerary||displayedDraftOwner!==(activeAccountUser?.id||null))return false;
-    try{localStorage.setItem(draftStorageKey(),JSON.stringify(localDraft()));return true;}catch{return false;}
+    try{const draft=localDraft();localStorage.setItem(draftStorageKey(),JSON.stringify(draft));localSaveStatus('saved',draft.savedAt);return true;}
+    catch{localSaveStatus('error');return false;}
   }
   function captureEditors(){for(const capture of editorCaptures.values())capture();}
   function backupWorkingNote(){
@@ -442,13 +451,16 @@
   function saveItinerary(itinerary=currentItinerary){
     try{
       if(!itinerary)return false;
+      localSaveStatus('saving');
       const city=window.TRAVEL_DATA.cities[itinerary.cityId];
       itinerary.dataSource=city?.dataSource||'bundled';
-      localStorage.setItem(draftStorageKey(),JSON.stringify(localDraft(itinerary)));
+      const draft=localDraft(itinerary);
+      localStorage.setItem(draftStorageKey(),JSON.stringify(draft));
+      localSaveStatus('saved',draft.savedAt);
       requestVersion++;
-      account?.changed();
+      account?.changed(cloudDocument(itinerary));
       return true;
-    }catch(error){return false;}
+    }catch(error){localSaveStatus('error');return false;}
   }
   function editingSnapshot(itinerary=currentItinerary){
     if(!itinerary)return null;
@@ -577,9 +589,9 @@
     if(await loadItinerary())syncScreen({focus:false});
     refreshDraftRecovery();
   }
-  function cloudDocument(){
-    if(!currentItinerary)return null;
-    return {version:8,itinerary:JSON.parse(editingSnapshot())};
+  function cloudDocument(itinerary=currentItinerary){
+    if(!itinerary)return null;
+    return {version:8,itinerary:JSON.parse(editingSnapshot(itinerary))};
   }
   async function restoreDocument(parsed,{remote=false,previousOverride,isCurrent=()=>true}={}){
     const version=++requestVersion;
@@ -633,7 +645,7 @@
         return fail('여행지 구성이 갱신되어 이전 일정의 권역을 그대로 연결할 수 없습니다. 여행 조건을 골라 새 일정을 만들어 주세요.');
       dayAreaIds.splice(0,dayAreaIds.length,...migrated);
     }
-    const restored=window.TravelPlanner.createItinerary({city,startDate:saved.startDate,dayCount:saved.dayCount,dayAreaIds,selections,dayStarts:saved.dayStarts,eventEdits:saved.eventEdits,departure:saved.departure,dayDepartures:saved.dayDepartures,dayArrivals:saved.dayArrivals,dayTransports:saved.dayTransports,extraEvents:saved.extraEvents,excludedEvents:saved.excludedEvents,eventOrders:saved.eventOrders,personalization:saved.personalization});
+    const restored=window.TravelPlanner.createItinerary({city,startDate:saved.startDate,dayCount:saved.dayCount,dayAreaIds,selections,dayStarts:saved.dayStarts,eventEdits:saved.eventEdits,departure:saved.departure,dayDepartures:saved.dayDepartures,dayArrivals:saved.dayArrivals,dayTransports:saved.dayTransports,extraEvents:saved.extraEvents,excludedEvents:saved.excludedEvents,eventOrders:saved.eventOrders,personalization:saved.personalization,budget:saved.budget});
     if(!restored.ok)return fail(restored.reason);
     if(restored.days.length!==Number(saved.dayCount))return fail('저장한 여행 날짜 수와 복원 결과가 다릅니다.');
     restored.dataSource=city.dataSource||saved.dataSource||'bundled';
@@ -653,14 +665,14 @@
       suppressAttachmentChange=true;
       try{account?.detach();}finally{suppressAttachmentChange=false;}
     }
-    personalTools.reset();
+    personalTools.reset();budgetTools.reset();
     collapsedDays.clear();
     activeDayIndex=0;
     resetEditHistory();
     let persistenceWarning='';
     if(remote){
       if(!saveItinerary(restored))persistenceWarning='계정의 계획을 열었지만 이 기기 자동저장에 실패했어요. 새로고침하면 현재 작업이 사라질 수 있으니 수정한 내용은 계정에 저장해 주세요.';
-    }else account?.changed();
+    }else {account?.changed();localSaveStatus('restored');}
     country.value=city.country;
     updateCityOptions(false);
     citySelect.value=city.id;
@@ -821,6 +833,7 @@
     const usedPlaceIds=new Set([...Object.values(currentItinerary.selections||{}).flat(),...Object.values(currentItinerary.extraEvents||{}).flat().filter(event=>event.type==='place').map(event=>event.placeId)]);
     const excludedPlaceIds=new Set(currentItinerary.days.flatMap(day=>(day.hiddenEvents||[]).filter(event=>event.type==='place').map(event=>event.place.id)));
     personalTools.render({itinerary:currentItinerary,places,usedPlaceIds,excludedPlaceIds,dayIndex:activeDayIndex});
+    budgetTools.render(currentItinerary,activeDayIndex);
     personalEventWidgets.forEach(widget=>widget.sync(window.TravelPersonalization.data(currentItinerary)));
   }
   function savePersonalization(personalization){
@@ -833,6 +846,16 @@
     // existing transit widgets can still update and clear their live preview.
     currentItinerary.personalization=result.itinerary.personalization;
     renderPersonalization();
+    return {ok:true};
+  }
+  function saveBudget(budget){
+    if(!currentItinerary)return {ok:false,reason:'여행 노트를 먼저 만들어 주세요.'};
+    const city=window.TRAVEL_DATA.cities[currentItinerary.cityId];
+    const result=window.TravelPlanner.updateBudget({city,itinerary:currentItinerary,budget});
+    if(!result.ok)return result;
+    if(!saveEditedItinerary(result.itinerary))return {ok:false,reason:'예산을 기기에 저장하지 못했어요. 입력과 기존 노트는 유지했어요.'};
+    currentItinerary.budget=result.itinerary.budget;
+    budgetTools.render(currentItinerary,activeDayIndex);
     return {ok:true};
   }
   function setPersonalTag(dayIndex,eventId,tag){
@@ -1346,6 +1369,7 @@
       const theme=event.place.theme||((event.place.contentTypeId==='14'||event.place.category==='문화시설')?'culture':null);
       const themeName=({nature:'자연',culture:'문화',rest:'휴식'})[theme];
       if(themeName){const reason=document.createElement('p');reason.className='recommendation-reason';reason.textContent=`관광정보 분류: ${themeName}`;content.append(reason);}
+      departureWidgets.push(window.TravelPlaceDetail.mount(content,event.place));
     }else if(event.type==='finish'){
       content.innerHTML=`<h3 class="event-title">${esc(eventName(event))}</h3><p class="event-description">${esc(event.description||'')}</p>${event.duration?`<div class="event-meta"><span class="meta-pill">마무리 ${formatDuration(event.duration)}</span></div>`:''}`;
     }else{
@@ -1608,11 +1632,14 @@
   window.addEventListener('beforeprint',()=>{
     noteToolbar?.close();
     personalTools.preparePrint();
+    budgetTools.preparePrint();
+    $('day-list').querySelectorAll('.place-detail').forEach(details=>{details.open=false;});
     dayMap.setVisible(false);
     clearTransitTimePreviews();
     $('day-list').querySelectorAll('.transit-route-lookup').forEach(details=>{details.open=false;});
   });
   window.addEventListener('afterprint',()=>personalTools.finishPrint());
+  window.addEventListener('afterprint',()=>budgetTools.finishPrint());
   window.addEventListener('afterprint',()=>dayMap.setVisible(activeScreen==='note'));
   $('clear-button').addEventListener('click',()=>{
     if(!window.confirm('이 브라우저의 여행 노트와 자동저장본을 지울까요? 계정에 따로 저장하지 않은 내용은 되돌릴 수 없어요. 계정에 저장한 계획은 지워지지 않아요.'))return;
@@ -1693,7 +1720,7 @@
   noteToolbar=window.TravelNoteToolbar?.mount({root:$('note-toolbar'),groups:[
     {id:'share',label:'공유·보관',hosts:[$('note-sharing'),$('offline-tools'),$('note-export')]},
     {id:'check',label:'일정 점검',hosts:[$('pending-transfers'),$('visit-order-tools'),$('operating-tools')]},
-    {id:'prepare',label:'여행 준비',hosts:[$('personal-tools')]},
+    {id:'prepare',label:'여행 준비',hosts:[$('personal-tools'),$('trip-budget')]},
     {id:'map',label:'지도',hosts:[$('day-map')]}
   ],getScope:()=>activeScreen==='note'&&currentItinerary?JSON.stringify([
     window.location.hash,activeDayIndex,activeAccountUser?.id||null,currentAttachment?.plan?.id||null,

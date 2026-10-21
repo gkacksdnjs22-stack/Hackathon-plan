@@ -60,3 +60,7 @@
   .account-dialog-actions .account-button { flex:1 1 auto; }
 }
 @media print { .account-nav,.account-library,.account-notice,.account-save-actions,.account-dialog-backdrop { display:none!important; } }
+.local-save-status{margin:6px 2px 12px;color:#526c8b;font-size:14px;line-height:1.7}
+.local-save-status[data-state="error"],.account-save .account-save-status[data-state="error"],.account-save .account-save-status[data-state="conflict"]{color:#a03f27;font-weight:650}
+.account-save .account-save-status[data-state="saving"]{color:#365da0}
+@media print{.local-save-status{display:none!important}}

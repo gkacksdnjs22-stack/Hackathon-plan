@@ -588,6 +588,7 @@ test('a save response cannot mark subsequent edits clean or attach an older docu
   for (const detach of [false, true]) {
     const saved = deferred(), app = runtime({ user: person, handler: request => request.method === 'POST' && request.path === '/api/plans' ? saved.promise : undefined });
     await app.ready(); await app.click('계획표 저장', app.roots.saveRoot); app.find('account-dialog-form').dispatch('submit');
+    assert.match(app.roots.saveRoot.textContent,/계정에 저장 중/);
     app.state.document.itinerary.note = 'new edits'; app.controller.changed(); if (detach) app.controller.detach();
     saved.resolve(response({ plan: planFixture() })); await settle();
     assert.match(app.roots.saveRoot.textContent, detach ? /계획표 저장/ : /계정에 저장하지 않은 수정/);
@@ -595,6 +596,27 @@ test('a save response cannot mark subsequent edits clean or attach an older docu
     if(!detach)assert.equal(app.state.savedDocuments[0].itinerary.note,undefined,'the callback receives only the snapshot actually saved');
     assert.equal(app.state.document.itinerary.note, 'new edits'); app.controller.destroy();
   }
+});
+
+test('account status reports saving, failed, retry success and unsaved edits independently of local storage',async()=>{
+  let waiting;
+  const app=runtime({user:person,handler:request=>{if(request.path==='/api/plans'&&request.method==='POST'){waiting=deferred();return waiting.promise;}}});await app.ready();
+  await app.click('계획표 저장',app.roots.saveRoot);app.find('account-dialog-form').dispatch('submit');assert.match(app.roots.saveRoot.textContent,/저장 중/);
+  waiting.resolve(response({error:{code:'NETWORK_ERROR'}},500));await settle();assert.match(app.roots.saveRoot.textContent,/계정 저장에 실패/);
+  app.find('account-dialog-form').dispatch('submit');assert.match(app.roots.saveRoot.textContent,/저장 중/);
+  waiting.resolve(response({plan:planFixture()}));await settle();assert.match(app.roots.saveRoot.textContent,/계정에 저장했어요/);
+  app.controller.changed();assert.match(app.roots.saveRoot.textContent,/저장하지 않은 수정/);app.controller.destroy();
+});
+
+test('restored matching documents and undo to the last saved content show saved without another API write',async()=>{
+  const plan=planFixture(),app=runtime({user:person,plans:[plan]});await app.ready();
+  assert.equal((await app.controller.restoreAttachment({ownerId:person.id,plan})).ok,true);
+  assert.match(app.roots.saveRoot.textContent,/계정에 저장했어요/);
+  const saved=clone(app.state.document),changed=clone(saved);changed.itinerary.budget={limit:null,items:[{id:'cost-1',dayIndex:0,category:'food',title:'점심',amount:15000}]};
+  app.state.document=changed;app.controller.changed(changed);assert.match(app.roots.saveRoot.textContent,/저장하지 않은 수정/);
+  const reordered={itinerary:saved.itinerary,version:saved.version};app.state.document=reordered;app.controller.changed(reordered);
+  assert.match(app.roots.saveRoot.textContent,/계정에 저장했어요/);
+  assert.equal(app.calls.some(call=>call.path.startsWith('/api/plans')&&['PUT','POST'].includes(call.method)),false);app.controller.destroy();
 });
 
 test('revision conflicts offer explicit save-as or reload and never silently retry an update', async () => {

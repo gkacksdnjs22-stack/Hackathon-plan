@@ -13,7 +13,8 @@ const ERRORS = Object.freeze({
   UPSTREAM_ERROR: [502, '관광정보 제공 서비스에서 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.'],
   INVALID_RESPONSE: [502, '관광정보 API 응답을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.'],
   UNSUPPORTED_CITY: [400, '목록에서 국내 여행 지역을 선택해 주세요.'],
-  INVALID_PLACE: [400, '운영정보를 확인할 관광지와 관광 유형을 다시 선택해 주세요.'],
+  INVALID_PLACE: [400, '조회할 관광지의 식별자를 확인해 주세요.'],
+  PLACE_NOT_FOUND: [404, '이 장소의 상세정보가 제공되지 않습니다.'],
   INTERNAL_ERROR: [500, '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.']
 });
 
@@ -58,6 +59,17 @@ function publicImage(value) {
 function numericCode(value, maximumLength = 4) {
   const text = cleanText(value, maximumLength + 1);
   return new RegExp(`^[0-9]{1,${maximumLength}}$`).test(text) && Number(text) > 0 ? String(Number(text)) : '';
+}
+function detailText(value,maximum=5000){
+  return String(value??'').replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi,'').replace(/<br\s*\/?\s*>/gi,'\n').replace(/<[^>]*>/g,'')
+    .replace(/&(amp|lt|gt|quot|apos|nbsp);/gi,(_,name)=>({amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' '})[name.toLowerCase()])
+    .replace(/&#(x[0-9a-f]+|\d+);/gi,(_,code)=>{const number=code[0].toLowerCase()==='x'?parseInt(code.slice(1),16):Number(code);return number>0&&number<=0x10ffff?String.fromCodePoint(number):'';})
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g,'').trim().slice(0,maximum);
+}
+function detailRows(raw,id,type){
+  const rows=Array.isArray(raw)?raw:raw&&typeof raw==='object'?[raw]:[];
+  if(rows.some(item=>!item||typeof item!=='object'||Array.isArray(item)||String(item.contentid)!==id||item.contenttypeid&&String(item.contenttypeid)!==type))throw new TourApiError('INVALID_RESPONSE');
+  return rows;
 }
 
 const classificationCode = value => {
@@ -290,8 +302,10 @@ export function createTourClient({ serviceKey, fetchImpl = globalThis.fetch, now
     if (inFlight.has(key)) return inFlight.get(key);
     if (inFlight.size >= pendingLimit) throw new TourApiError('RATE_LIMIT');
     const request = fetchData().then(payload => {
-      if (cache.size >= cacheLimit) cache.delete(cache.keys().next().value);
-      cache.set(key, { expiresAt: now() + cacheMs, payload });
+      if(!payload.partial){
+        if(cache.size>=cacheLimit)cache.delete(cache.keys().next().value);
+        cache.set(key, { expiresAt: now() + cacheMs, payload });
+      }
       return payload;
     }).finally(() => inFlight.delete(key));
     inFlight.set(key, request);
@@ -320,6 +334,23 @@ export function createTourClient({ serviceKey, fetchImpl = globalThis.fetch, now
         const { hoursText = '', closedText = '' } = result.items[0] || {};
         return { provider: PROVIDER, contentId, contentTypeId, fetchedAt: new Date(now()).toISOString(), sourceUrl: SOURCE_URL,
           hoursText, closedText, status: hoursText || closedText ? 'available' : 'unknown' };
+      });
+    },
+    async getPlaceDetail({contentId,contentTypeId}={}){
+      if(typeof contentId!=='string'||!/^[1-9]\d{0,11}$/.test(contentId)||!['12','14'].includes(contentTypeId))throw new TourApiError('INVALID_PLACE');
+      return cachedRequest(`detail:${contentTypeId}:${contentId}`,async()=>{
+        const common=await fetchPage('detailCommon2',{contentId,numOfRows:'1',pageNo:'1'},raw=>detailRows(raw,contentId,contentTypeId));
+        if(common.items.length!==1)throw new TourApiError('PLACE_NOT_FOUND');
+        const place=common.items[0];if(!detailText(place.title,200))throw new TourApiError('INVALID_RESPONSE');
+        let intro={},partial=false;
+        try{const result=await fetchPage('detailIntro2',{contentId,contentTypeId,numOfRows:'1',pageNo:'1'},raw=>detailRows(raw,contentId,contentTypeId));intro=result.items[0]||{};}
+        catch{partial=true;}
+        const culture=contentTypeId==='14',homepage=String(place.homepage||''),href=homepage.match(/href\s*=\s*["']([^"']+)["']/i)?.[1]||homepage;
+        return {provider:PROVIDER,sourceUrl:'https://www.data.go.kr/data/15101578/openapi.do',fetchedAt:new Date(now()).toISOString(),partial,
+          contentId,contentTypeId,title:detailText(place.title,200),address:detailText([place.addr1,place.addr2].filter(Boolean).join(' '),500),
+          overview:detailText(place.overview),imageUrl:publicImage(place.firstimage||place.firstimage2),homepage:publicImage(detailText(href,2048)),
+          phone:detailText(place.tel||(culture?intro.infocenterculture:intro.infocenter),300),hours:detailText(culture?intro.usetimeculture:intro.usetime,2000),
+          closed:detailText(culture?intro.restdateculture:intro.restdate,1500),fee:detailText(intro.usefee,1500),parking:detailText(culture?intro.parkingculture:intro.parking,1500)};
       });
     },
     async getAreas() {

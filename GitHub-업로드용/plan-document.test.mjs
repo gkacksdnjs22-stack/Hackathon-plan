@@ -9,6 +9,18 @@ import { createLocalDatabase } from './local-db.mjs';
 const clone = value => JSON.parse(JSON.stringify(value));
 const document = () => ({ version:8,itinerary:{ cityId:'seoul',startDate:'2026-10-20',dayCount:1,
   dayAreaIds:['tour-cluster-100'],selections:{0:['tourapi-100','tourapi-101','tourapi-102']} } });
+
+test('budget canonical storage detaches costs, keeps exact won amounts and rejects invalid money and days',()=>{
+  const input=document();input.itinerary.budget={limit:100000,items:[{id:'cost-1',dayIndex:0,category:'food',title:' 점심 ',amount:0}]};
+  const stored=normalizePlanDocument(input);assert.equal(stored.itinerary.budget.items[0].title,'점심');
+  input.itinerary.budget.items[0].amount=5000;assert.equal(stored.itinerary.budget.items[0].amount,0);
+  for(const patch of [{amount:-1},{amount:1.5},{amount:'1000'},{amount:1000000001},{dayIndex:1},{category:'PRIVATE'},{title:''},{extra:'field'}]){
+    const value=clone(stored);Object.assign(value.itinerary.budget.items[0],patch);assert.throws(()=>normalizePlanDocument(value));
+  }
+  const duplicate=clone(stored);duplicate.itinerary.budget.items.push({...duplicate.itinerary.budget.items[0]});assert.throws(()=>normalizePlanDocument(duplicate));
+  const many=clone(stored);many.itinerary.budget.items=Array.from({length:201},(_,index)=>({...stored.itinerary.budget.items[0],id:`cost-${index}`}));assert.throws(()=>normalizePlanDocument(many));
+  for(const limit of [-1,1.1,'100',1000000000001]){const value=clone(stored);value.itinerary.budget.limit=limit;assert.throws(()=>normalizePlanDocument(value));}
+});
 const error = code => value => value instanceof PlanDocumentError && value.code===code && !value.message.includes('PRIVATE');
 const stop = (providerId='FROM') => ({ mode:'train',id:`tago-train-${providerId}`,name:providerId,address:'',latitude:null,longitude:null,
   source:'TAGO',service:'train',providerId,sourceUrl:'https://www.data.go.kr/data/15098552/openapi.do' });
@@ -86,6 +98,7 @@ test('a real first local transfer mode and manual duration save to the account D
     assert.equal(selected.ok,true,selected.reason);current=selected.itinerary;
     const timed=planner.updateEvent({city,itinerary:current,dayIndex:0,eventId:'arrival-transfer',duration});
     assert.equal(timed.ok,true,timed.reason);current=timed.itinerary;
+    current=planner.updateBudget({city,itinerary:current,budget:{limit:100000,items:[{id:'cost-trip',dayIndex:0,category:'transport',title:'교통비',amount:35000}]}}).itinerary;
     const saved=normalizePlanDocument({version:8,itinerary:clone(current)});
     assert.deepEqual(saved.itinerary.eventEdits[0]['arrival-transfer'],{travelMode,duration});
     const created=await send('/api/plans','POST',{title:`첫 관광지 ${travelMode}`,document:saved},cookie);
@@ -95,6 +108,7 @@ test('a real first local transfer mode and manual duration save to the account D
     assert.deepEqual(stored.itinerary.eventEdits[0]['arrival-transfer'],{travelMode,duration});
     const rebuilt=planner.createItinerary({city,...stored.itinerary});
     assert.equal(rebuilt.ok,true,rebuilt.reason);assert.deepEqual(clone(rebuilt.days),clone(current.days));
+    assert.deepEqual(clone(rebuilt.budget),clone(current.budget));
   }
 });
 

@@ -115,6 +115,10 @@ export function createAppServer({ root = ROOT, backdropClient = createBackdropCl
         return send(response, method, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: '허용되지 않은 요청 방식입니다.' } });
       }
       if (pathname === '/api/tour/backdrop') return send(response, method, 200, await backdropClient.getPhotos());
+      if (pathname === '/api/tour/place-detail') {
+        const query=new URL(request.url,'http://127.0.0.1').searchParams;
+        return send(response,method,200,await client.getPlaceDetail({contentId:query.get('contentId'),contentTypeId:query.get('contentTypeId')}));
+      }
       if (pathname === '/api/tour/places') {
         const url = new URL(request.url, 'http://127.0.0.1');
         return send(response, method, 200, await client.getPlaces(url.searchParams.get('areaCode') ?? url.searchParams.get('city') ?? '1'));

@@ -491,7 +491,23 @@
     return {ok:true,personalization:{checklist:checklist.map(item=>({...item,text:item.text.trim()})),favoritePlaceIds:[...favorites],
       eventTags:Object.fromEntries(Object.entries(tags).map(([day,entries])=>[day,{...entries}]))}};
   }
-  function createItinerary({city,startDate,dayCount,dayAreaIds,selections={},dayStarts={},eventEdits={},departure=null,dayDepartures={},dayArrivals={},dayTransports={},extraEvents={},excludedEvents={},eventOrders={},personalization,preferences=[]}={}){
+  function normalizeBudget(value,count){
+    if(value===undefined)return {ok:true};
+    const invalid=()=>({ok:false,reason:'예산은 날짜·분류·항목 이름과 0~10억 원의 정수 금액으로 입력해 주세요.'});
+    if(!record(value)||Object.keys(value).some(key=>!['limit','items'].includes(key))||!Array.isArray(value.items)||value.items.length>200
+      ||!(value.limit===null||Number.isSafeInteger(value.limit)&&value.limit>=0&&value.limit<=1000000000000))return invalid();
+    const ids=new Set(),items=[];
+    for(const item of value.items){
+      if(!record(item)||Object.keys(item).some(key=>!['id','dayIndex','category','title','amount'].includes(key))
+        ||typeof item.id!=='string'||!/^cost-[a-zA-Z0-9_-]{1,64}$/.test(item.id)||ids.has(item.id)
+        ||!Number.isInteger(item.dayIndex)||item.dayIndex<0||item.dayIndex>=count||!['transport','stay','food','admission','other'].includes(item.category)
+        ||typeof item.title!=='string'||!item.title.trim()||item.title.length>80||/[\u0000-\u001f\u007f]/.test(item.title)
+        ||!Number.isSafeInteger(item.amount)||item.amount<0||item.amount>1000000000)return invalid();
+      ids.add(item.id);items.push({...item,title:item.title.trim()});
+    }
+    return {ok:true,budget:{limit:value.limit,items}};
+  }
+  function createItinerary({city,startDate,dayCount,dayAreaIds,selections={},dayStarts={},eventEdits={},departure=null,dayDepartures={},dayArrivals={},dayTransports={},extraEvents={},excludedEvents={},eventOrders={},personalization,budget,preferences=[]}={}){
     const validation=validateCity(city);
     if(!validation.ok)return {ok:false,reason:validation.reason,days:[],maxDays:0};
     const maxDays=Math.min(MAX_TRIP_DAYS,city.supportedDays,city.areas.length);
@@ -502,6 +518,8 @@
     if(!Number.isInteger(count)||count<1||count>MAX_TRIP_DAYS)return {ok:false,reason:`여행 기간은 1~${MAX_TRIP_DAYS}일 중에서 선택해 주세요.`,days:[],maxDays};
     const personal=normalizePersonalization(personalization,count);
     if(!personal.ok)return {ok:false,reason:personal.reason,days:[],maxDays};
+    const costs=normalizeBudget(budget,count);
+    if(!costs.ok)return {ok:false,reason:costs.reason,days:[],maxDays};
     if(count>maxDays)return {ok:false,reason:`현재 데이터로 만들 수 있는 최대 일정은 ${maxDays}일입니다. 같은 장소로 빈 날짜를 채우지 않습니다.`,days:[],maxDays};
     const chosenAreaIds=dayAreaIds===undefined?city.areas.slice(0,count).map(area=>area.id):dayAreaIds;
     const areaValidation=validateDayAreas(city,chosenAreaIds,count,validation);
@@ -553,7 +571,7 @@
         return kept.length?[[day,Object.fromEntries(kept)]]:[];
       }));
     }
-    return {ok:true,cityId:city.id,cityName:city.name,countryName:window.TRAVEL_DATA.countries[city.country],startDate,dayCount:count,dayAreaIds:[...chosenAreaIds],selections:recommended,dayStarts:options.dayStarts,eventEdits:options.eventEdits,extraEvents:extras.extraEvents,excludedEvents:layout.excludedEvents,eventOrders:layout.eventOrders,departure:origins.dayDepartures[0],dayDepartures:origins.dayDepartures,dayArrivals:arrivals.dayArrivals,dayTransports:transports.dayTransports,days,maxDays,...(personal.personalization?{personalization:personal.personalization}:{})};
+    return {ok:true,cityId:city.id,cityName:city.name,countryName:window.TRAVEL_DATA.countries[city.country],startDate,dayCount:count,dayAreaIds:[...chosenAreaIds],selections:recommended,dayStarts:options.dayStarts,eventEdits:options.eventEdits,extraEvents:extras.extraEvents,excludedEvents:layout.excludedEvents,eventOrders:layout.eventOrders,departure:origins.dayDepartures[0],dayDepartures:origins.dayDepartures,dayArrivals:arrivals.dayArrivals,dayTransports:transports.dayTransports,days,maxDays,...(personal.personalization?{personalization:personal.personalization}:{}),...(costs.budget?{budget:costs.budget}:{})};
   }
   function selectionsFromItinerary(itinerary){
     if(itinerary.selections!==undefined)return record(itinerary.selections)?Object.fromEntries(Object.entries(itinerary.selections)
@@ -572,7 +590,7 @@
   function rebuild(city,itinerary,changes={}){
     const next=createItinerary({city,startDate:itinerary.startDate,dayCount:itinerary.dayCount,
       dayAreaIds:areaIdsFromItinerary(city,itinerary),selections:selectionsFromItinerary(itinerary),
-      dayStarts:itinerary.dayStarts,eventEdits:itinerary.eventEdits,extraEvents:itinerary.extraEvents,excludedEvents:itinerary.excludedEvents,eventOrders:itinerary.eventOrders,departure:itinerary.departure,dayDepartures:itinerary.dayDepartures,dayArrivals:itinerary.dayArrivals,dayTransports:itinerary.dayTransports,personalization:itinerary.personalization,...changes});
+      dayStarts:itinerary.dayStarts,eventEdits:itinerary.eventEdits,extraEvents:itinerary.extraEvents,excludedEvents:itinerary.excludedEvents,eventOrders:itinerary.eventOrders,departure:itinerary.departure,dayDepartures:itinerary.dayDepartures,dayArrivals:itinerary.dayArrivals,dayTransports:itinerary.dayTransports,personalization:itinerary.personalization,budget:itinerary.budget,...changes});
     if(next.ok&&itinerary.dataSource!==undefined)next.dataSource=itinerary.dataSource;
     if(next.ok&&next.personalization){
       for(const [day,entries] of Object.entries(next.personalization.eventTags)){
@@ -1011,5 +1029,10 @@
     const next=rebuild(city,itinerary,{personalization});
     return next.ok?{ok:true,itinerary:next}:{ok:false,reason:next.reason};
   }
-  window.TravelPlanner={createItinerary,proposeVisitOrder,getAlternatives,replacePlace,replaceTouristEvent,changeDayArea,addEvent,removeEvent,restoreEvent,moveEvent,updateEvent,updatePersonalization,setTransferMode,getTransferSuggestion,setDayStart,setDeparture,setDayDeparture,setDayArrival,setDayTransport,setDayConnection,buildConnection,requiresArrival,validateCity,allPlaces,formatTime,areaIdsFromItinerary};
+  function updateBudget({city,itinerary,budget}={}){
+    if(!itinerary||itinerary.cityId!==city?.id)return {ok:false,reason:'수정할 여행 노트를 확인해 주세요.'};
+    const next=rebuild(city,itinerary,{budget});
+    return next.ok?{ok:true,itinerary:next}:{ok:false,reason:next.reason};
+  }
+  window.TravelPlanner={createItinerary,proposeVisitOrder,getAlternatives,replacePlace,replaceTouristEvent,changeDayArea,addEvent,removeEvent,restoreEvent,moveEvent,updateEvent,updatePersonalization,updateBudget,setTransferMode,getTransferSuggestion,setDayStart,setDeparture,setDayDeparture,setDayArrival,setDayTransport,setDayConnection,buildConnection,requiresArrival,validateCity,allPlaces,formatTime,areaIdsFromItinerary};
 })();

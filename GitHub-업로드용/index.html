@@ -20,7 +20,7 @@
   <link rel="stylesheet" href="./connection-ui.css?v=2">
   <link rel="stylesheet" href="./restaurant-ui.css?v=5">
   <link rel="stylesheet" href="./schedule-ui.css?v=3">
-  <link rel="stylesheet" href="./account-ui.css?v=3">
+  <link rel="stylesheet" href="./account-ui.css?v=4">
   <link rel="icon" type="image/png" href="./travel-sticker-v1.png">
   <script src="./places.js?v=10" defer></script>
   <script src="./note-tools.js?v=2" defer></script>
@@ -29,6 +29,8 @@
   <script src="./vendor/leaflet/leaflet.js?v=1.9.4" defer></script>
   <script src="./day-map.js?v=3" defer></script>
   <script src="./personalization-ui.js?v=2" defer></script>
+  <script src="./budget-ui.js?v=1" defer></script>
+  <script src="./place-detail-ui.js?v=1" defer></script>
   <script src="./planner.js?v=24" defer></script>
   <script src="./timeline-drag.js?v=1" defer></script>
   <script src="./tour-data.js?v=12" defer></script>
@@ -47,6 +49,8 @@
   <link rel="stylesheet" href="./travel-atmosphere.css?v=15">
   <link rel="stylesheet" href="./note-tools.css?v=8">
   <link rel="stylesheet" href="./personalization-ui.css?v=2">
+  <link rel="stylesheet" href="./budget-ui.css?v=1">
+  <link rel="stylesheet" href="./place-detail-ui.css?v=1">
   <link rel="stylesheet" href="./day-map.css?v=1">
   <link rel="stylesheet" href="./note-view.css?v=1">
   <link rel="stylesheet" href="./sharing-ui.css?v=1">
@@ -59,9 +63,9 @@
   <script src="./operating-info.js?v=1" defer></script>
   <script src="./operating-ui.js?v=2" defer></script>
   <script src="./visit-order-ui.js?v=2" defer></script>
-  <link rel="stylesheet" href="./note-toolbar.css?v=1">
+  <link rel="stylesheet" href="./note-toolbar.css?v=2">
   <script src="./note-toolbar.js?v=1" defer></script>
-  <script src="./app.js?v=55" defer></script>
+  <script src="./app.js?v=56" defer></script>
   <script src="./backdrop-photos.js?v=2" defer></script>
   <script src="./travel-backdrop.js?v=4" defer></script>
 </head>
@@ -112,6 +116,7 @@
       <div class="itinerary-heading"><div><span class="step-label"><span class="step-number">02</span> 나만의 여행 노트</span><h1 id="itinerary-title" class="note-page-title" tabindex="-1">이렇게 떠나보면 어때요? <span class="title-sticker" aria-hidden="true"><img class="travel-sticker" src="./travel-sticker-v1.png" alt="" width="44" height="44"></span></h1><p id="trip-summary"></p></div><div class="heading-actions"><div class="note-history" role="group" aria-label="일정 편집 기록"><button id="undo-button" class="button button-quiet note-history-button" type="button" disabled><span aria-hidden="true">↶</span> 되돌리기</button><button id="redo-button" class="button button-quiet note-history-button" type="button" disabled><span aria-hidden="true">↷</span> 다시 실행</button></div><button id="print-button" class="button button-quiet" type="button">인쇄 · PDF</button><button id="clear-button" class="button button-quiet" type="button">불러온 일정 지우기</button></div></div>
       <p id="note-timing-notice" class="note-timing-notice" role="status" aria-atomic="true" hidden></p>
       <div id="account-save" class="account-save" aria-label="계획표 저장"></div>
+      <p id="local-save-status" class="local-save-status" role="status" aria-live="polite" hidden></p>
       <div id="note-toolbar" class="note-toolbar" role="toolbar" aria-label="여행 노트 도구"></div>
       <div id="note-tool-panels" hidden>
       <details id="pending-transfers" class="pending-transfers" hidden></details>
@@ -121,6 +126,7 @@
       <details id="operating-tools" class="note-sharing" hidden></details>
       <div id="note-export" class="note-export" role="group" aria-label="일정 복사와 캘린더 내보내기"></div>
       <section id="personal-tools" class="personal-tools" aria-label="여행 준비물과 관광지 즐겨찾기" hidden></section>
+      <details id="trip-budget" class="trip-budget" aria-label="여행 예산 관리" hidden></details>
       <details id="day-map" class="day-map" hidden></details>
       </div>
       <div id="capacity-message" class="capacity-message" hidden></div>

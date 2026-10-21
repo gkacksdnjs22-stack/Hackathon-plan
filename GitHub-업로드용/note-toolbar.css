@@ -29,5 +29,5 @@
 @media print {
   .note-toolbar,.note-tool-dialog { display:none!important; }
   #note-tool-panels[hidden] { display:block!important; }
-  #note-tool-panels > :not(#personal-tools) { display:none!important; }
+  #note-tool-panels > :not(#personal-tools):not(#trip-budget) { display:none!important; }
 }

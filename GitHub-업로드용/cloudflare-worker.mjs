@@ -8,7 +8,7 @@ import { createTransitRoutingClient, TransitRoutingError } from './transit-routi
 import { PUBLIC_FILES } from './public-assets.mjs';
 import { createAccountHandler } from './auth-store.mjs';
 
-const API_PATHS = new Set(['/api/tour/backdrop', '/api/tour/areas', '/api/tour/places', '/api/tour/place-details', '/api/departures/search', '/api/transport/stops', '/api/transport/trips', '/api/restaurants', '/api/car-route', '/api/transit-routes']);
+const API_PATHS = new Set(['/api/tour/backdrop', '/api/tour/areas', '/api/tour/places', '/api/tour/place-details', '/api/tour/place-detail', '/api/departures/search', '/api/transport/stops', '/api/transport/trips', '/api/restaurants', '/api/car-route', '/api/transit-routes']);
 const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin' };
 function json(request, status, data, extra = {}) {
   return new Response(request.method === 'HEAD' ? null : JSON.stringify(data), { status, headers: { ...headers, 'Content-Type': 'application/json; charset=utf-8', ...extra } });
@@ -48,6 +48,7 @@ export function createPagesWorker({ createClients = createDefaultClients, authFe
           let result;
           if (pathname === '/api/tour/backdrop') result = await api.backdrop.getPhotos();
           else if (pathname === '/api/tour/areas') result = await api.tour.getAreas();
+          else if (pathname === '/api/tour/place-detail') result = await api.tour.getPlaceDetail({contentId:query.get('contentId'),contentTypeId:query.get('contentTypeId')});
           else if (pathname === '/api/tour/places') result = await api.tour.getPlaces(query.get('areaCode') ?? query.get('city') ?? '1');
           else if (pathname === '/api/tour/place-details') result = await api.tour.getPlaceDetails({ contentId: query.get('contentId'), contentTypeId: query.get('contentTypeId') });
           else if (pathname === '/api/departures/search') result = await api.departure.search(query.get('q'));
