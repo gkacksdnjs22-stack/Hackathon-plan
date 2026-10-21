@@ -4,9 +4,11 @@
 .address-copy-status { max-width:280px; color:#586c89; font-size:11px; line-height:1.7; overflow-wrap:anywhere; }
 .address-copy-status:empty { display:none; }
 .trip-countdown { display:inline-block; margin-left:9px; padding:2px 8px; border:1px solid #cadbf4; border-radius:6px; background:#eaf2ff; color:#31577f; font-size:11px; font-weight:700; line-height:1.6; white-space:nowrap; }
-.day-bookmarks { display:flex; gap:7px; overflow-x:auto; padding:8px 3px 0; margin-bottom:-1px; scrollbar-width:thin; }
+.day-bookmarks { display:flex; gap:0; overflow-x:auto; padding:8px 3px 0; margin-bottom:-1px; scrollbar-width:thin; }
 .day-bookmark { flex:0 0 auto; min-height:48px; padding:10px 19px 16px; border:1px solid #b9cdeb; border-bottom:0; border-radius:10px 10px 0 0; background:#e2edff; color:#2d4c77; font:inherit; font-size:12px; font-weight:800; letter-spacing:.025em; cursor:pointer; clip-path:polygon(0 0,100% 0,100% 100%,50% 88%,0 100%); }
 .day-bookmark:hover,.day-bookmark:focus-visible { background:#cdddff; }
+.day-bookmark + .day-bookmark { margin-inline-start:-1px; }
+.day-bookmark[aria-current="page"]:not(:first-child),.day-bookmark[aria-current="page"] + .day-bookmark { margin-inline-start:7px; }
 .day-bookmark[aria-current="page"] { border-color:#3e67ad; background:#3e67ad; color:#fff; }
 .day-bookmark[aria-current="page"]:focus-visible { background:#284b83; }
 .day-bookmarks-bottom { margin-top:-1px; margin-bottom:0; padding:0 18px 8px; }
