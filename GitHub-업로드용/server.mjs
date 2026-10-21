@@ -100,7 +100,12 @@ export function createAppServer({ root = ROOT, backdropClient = createBackdropCl
         });
         const result=await accountHandler(webRequest);
         if(result){
-          response.writeHead(result.status,Object.fromEntries(result.headers));
+          const resultHeaders=Object.fromEntries(result.headers);
+          // OAuth callback issues the session and clears its state cookie.
+          // They must remain separate Set-Cookie fields in Node as in Workers.
+          const cookies=result.headers.getSetCookie();
+          if(cookies.length)resultHeaders['set-cookie']=cookies;
+          response.writeHead(result.status,resultHeaders);
           return response.end(method==='HEAD'?undefined:Buffer.from(await result.arrayBuffer()));
         }
         return send(response,method,404,{error:{code:'NOT_FOUND',message:'요청한 기능을 찾을 수 없어요.'}});
@@ -174,7 +179,7 @@ export async function startServer() {
   const kakaoApiKey = resolveCarRoutingApiKey(env);
   const secret = process.env.AUTH_SECRET || env.AUTH_SECRET || await ensureLocalAccountSecret(ROOT);
   const db = createLocalDatabase({filename:path.join(ROOT,'.local','gil.sqlite')});
-  const server = createAppServer({ backdropClient: createBackdropClient({serviceKey}), client: createTourClient({ serviceKey }), transportClient: createTransportClient({serviceKey}),restaurantClient:createTourRestaurantClient({serviceKey}), carRoutingClient:createCarRoutingClient({apiKey:kakaoApiKey}), transitRoutingClient:createTransitRoutingClient({apiKey:kakaoApiKey}), accountHandler:createAccountHandler({db,secret}) });
+  const server = createAppServer({ backdropClient: createBackdropClient({serviceKey}), client: createTourClient({ serviceKey }), transportClient: createTransportClient({serviceKey}),restaurantClient:createTourRestaurantClient({serviceKey}), carRoutingClient:createCarRoutingClient({apiKey:kakaoApiKey}), transitRoutingClient:createTransitRoutingClient({apiKey:kakaoApiKey}), accountHandler:createAccountHandler({db,secret,oauthEnv:{...env,...process.env}}) });
   server.on('close',()=>db.close());
   server.on('error', () => {
     console.error('서버를 시작할 수 없습니다. 포트 사용 여부를 확인해 주세요.');

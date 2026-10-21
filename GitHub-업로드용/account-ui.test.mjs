@@ -47,7 +47,7 @@ function byText(root, text) {
   for (const child of root.children) { const match = byText(child, text); if (match) return match; }
   return null;
 }
-function runtime({ user = null, configured = true, plans = [], handler, onUserChange, loadDocument, broadcast = false, notice = false } = {}) {
+function runtime({ user = null, configured = true, plans = [], handler, onUserChange, onAttachmentChange, loadDocument, broadcast = false, notice = false, providers = [], location, socialPending = null, sessionStorageError = false } = {}) {
   const listeners = new Map(), timers = new Map(); let timerId = 0, reads = 0;
   const document = { activeElement: null, createElement: tag => new Element(tag, document),
     addEventListener(type, listener) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(listener); },
@@ -57,7 +57,7 @@ function runtime({ user = null, configured = true, plans = [], handler, onUserCh
   document.body = document.createElement('body');
   const roots = Object.fromEntries(['accountRoot', 'libraryRoot', 'saveRoot', ...(notice ? ['noticeRoot'] : [])].map(name => [name, document.createElement('div')]));
   document.body.append(...Object.values(roots));
-  const state = { user, configured, plans: plans.map(plan => ({ ...plan })), document: documentFixture(), messages: [], users: [], loads: [] };
+  const state = { user, configured, plans: plans.map(plan => ({ ...plan })), document: documentFixture(), messages: [], users: [], loads: [], attachments: [], navigations: [], history: [] };
   const calls = [], signals = [], channels = [], storedDocuments = new Map(plans.map(plan => [plan.id, documentFixture()]));
   let controller;
   async function backend(path, options) {
@@ -65,6 +65,7 @@ function runtime({ user = null, configured = true, plans = [], handler, onUserCh
     const request = { path, method, body, options }; calls.push(request);
     if (handler) { const result = await handler(request, state); if (result !== undefined) return result; }
     if (path === '/api/auth/session') return response({ configured: state.configured, user: state.user });
+    if (path === '/api/auth/providers') return response({ configured: providers.length > 0, providers });
     if (path === '/api/auth/login' || path === '/api/auth/signup') { state.user = { id: 'user-one', username: body.username }; return response({ user: state.user }); }
     if (path === '/api/auth/logout') { state.user = null; return response({ user: null }); }
     if (path === '/api/plans' && method === 'GET') return response({ plans: clone(state.plans) });
@@ -81,7 +82,15 @@ function runtime({ user = null, configured = true, plans = [], handler, onUserCh
     return response({ error: { code: 'NOT_FOUND', message: 'private server detail' } }, 404);
   }
   const windowListeners = new Map();
+  const sessionStore = new Map(socialPending ? [['gil-social-login-pending', JSON.stringify(socialPending)]] : []);
   const window = { TRAVEL_DATA: { cities: { sejong: { name: '세종' } } },
+    sessionStorage: {
+      getItem: key => sessionStore.get(key) ?? null,
+      setItem(key, value) { if (sessionStorageError) throw Error('private storage detail'); sessionStore.set(key, value); },
+      removeItem: key => sessionStore.delete(key)
+    },
+    location: { pathname: '/', search: '', hash: '#/start', ...location, assign: target => state.navigations.push(target) },
+    history: { state: null, replaceState: (...args) => state.history.push(args) },
     addEventListener(type, listener) { if (!windowListeners.has(type)) windowListeners.set(type, new Set()); windowListeners.get(type).add(listener); },
     removeEventListener(type, listener) { windowListeners.get(type)?.delete(listener); },
     dispatch(type, event) { for (const listener of windowListeners.get(type) || []) listener(event); }
@@ -94,7 +103,7 @@ function runtime({ user = null, configured = true, plans = [], handler, onUserCh
     emit(data) { for (const listener of this.listeners) listener({ data }); }
     close() { this.closed = true; }
   };
-  const context = vm.createContext({ window, document, TextEncoder, Intl, Date, AbortController,
+  const context = vm.createContext({ window, document, TextEncoder, Intl, Date, AbortController, URLSearchParams,
     fetch: backend, localStorage: { setItem() { throw Error('Authentication must not use localStorage'); }, getItem() { throw Error('Authentication must not use localStorage'); } },
     setTimeout: (callback, delay) => { const id = ++timerId; timers.set(id, { callback, delay }); return id; }, clearTimeout: id => timers.delete(id)
   });
@@ -102,9 +111,10 @@ function runtime({ user = null, configured = true, plans = [], handler, onUserCh
   controller = window.TravelAccount.mount({ ...roots, getDocument: () => { reads++; return state.document; }, getDefaultTitle: () => '세종 · 1일',
     loadDocument: async (doc, settings) => { state.loads.push({ doc, settings }); return loadDocument ? await loadDocument(doc, settings, state) : true; },
     onUserChange: async (next, metadata) => { state.users.push({ user: next, metadata }); if (onUserChange) await onUserChange(next, metadata, state); },
+    onAttachmentChange: snapshot => { state.attachments.push(clone(snapshot)); if (onAttachmentChange) return onAttachmentChange(snapshot, state); },
     onMessage: (text, kind) => state.messages.push({ text, kind }) });
   const find = name => all(document.body, name)[0] || null;
-  return { controller, document, window, roots, state, calls, timers, signals, channels, find, all: name => all(document.body, name),
+  return { controller, document, window, roots, state, calls, timers, signals, channels, sessionStore, find, all: name => all(document.body, name),
     get reads() { return reads; },
     async ready() { await controller.ready; await settle(); },
     async click(text, root = document.body) { const button = byText(root, text); assert.ok(button, `button exists: ${text}`); button.click(); await settle(); },
@@ -112,6 +122,268 @@ function runtime({ user = null, configured = true, plans = [], handler, onUserCh
   };
 }
 function fillLogin(app, username = 'traveler_1') { app.find('account-username').value = username; app.find('account-password').value = 'a-long-password'; }
+
+test('a restored account attachment verifies ownership and updates the same plan after a refresh', async () => {
+  const existing = planFixture(), app = runtime({ user: person, plans: [existing] }); await app.ready();
+  const draft = clone(app.state.document);
+  const result = await app.controller.restoreAttachment({ ownerId: person.id, plan: existing });
+  assert.equal(result.ok, true); assert.deepEqual(app.state.document, draft);
+  assert.match(app.roots.saveRoot.textContent, /변경사항 저장/);
+  await app.click('변경사항 저장', app.roots.saveRoot); await app.submit();
+  const writes = app.calls.filter(call => ['POST', 'PUT'].includes(call.method));
+  assert.equal(writes.length, 1); assert.equal(writes[0].method, 'PUT');
+  assert.equal(writes[0].path, '/api/plans/plan-one'); assert.equal(writes[0].body.revision, 1);
+  const attached = clone(app.controller.getAttachment());
+  assert.equal(attached.ownerId, person.id); assert.equal(attached.plan.revision, 2);
+  assert.equal(Object.hasOwn(attached.plan, 'document'), false);
+  assert.deepEqual(app.state.attachments.at(-1), attached); app.controller.destroy();
+});
+
+test('restoration never adopts a newer cloud revision over the local draft or writes without resolving the conflict', async () => {
+  const app = runtime({ user: person, plans: [planFixture({ revision: 4 })] }); await app.ready();
+  const draft = clone(app.state.document);
+  const result = await app.controller.restoreAttachment({ ownerId: person.id, plan: planFixture({ revision: 2 }) });
+  assert.equal(result.reason, 'conflict'); assert.equal(app.controller.getAttachment().plan.revision, 2);
+  await app.click('변경사항 저장', app.roots.saveRoot);
+  assert.match(app.find('account-dialog-title').textContent, /다른 기기/);
+  assert.equal(app.calls.some(call => ['POST', 'PUT'].includes(call.method)), false);
+  assert.deepEqual(app.state.document, draft); app.controller.destroy();
+});
+
+test('a failed attachment check preserves the link and blocks accidental duplicate creates until retry succeeds', async () => {
+  let unavailable = true;
+  const app = runtime({ user: person, plans: [planFixture()], handler: request => request.path === '/api/plans/plan-one'
+    && request.method === 'GET' && unavailable ? Promise.reject(Error('network detail')) : undefined });
+  await app.ready();
+  const result = await app.controller.restoreAttachment({ ownerId: person.id, plan: planFixture() });
+  assert.equal(result.reason, 'unavailable'); assert.equal(app.controller.getAttachment().plan.id, 'plan-one');
+  await app.click('저장 연결 다시 확인', app.roots.saveRoot);
+  assert.equal(app.find('account-plan-name'), null);
+  assert.equal(app.calls.some(call => call.method === 'POST'), false);
+  assert.doesNotMatch(app.document.body.textContent, /network detail/);
+  unavailable = false; await app.click('저장 연결 다시 확인', app.roots.saveRoot);
+  assert.equal(app.find('account-dialog-title').textContent, '계획표 변경사항 저장');
+  await app.submit();
+  assert.equal(app.calls.filter(call => call.method === 'PUT').length, 1);
+  assert.equal(app.calls.filter(call => call.method === 'POST').length, 0); app.controller.destroy();
+});
+
+test('attachments belonging to another account never trigger a document request', async () => {
+  const app = runtime({ user: person }); await app.ready();
+  const before = app.calls.length;
+  const result = await app.controller.restoreAttachment({ ownerId: 'someone-else', plan: planFixture() });
+  assert.equal(result.reason, 'not-owned'); assert.equal(app.calls.length, before);
+  assert.equal(app.controller.getAttachment(), null); assert.deepEqual(app.state.attachments, []); app.controller.destroy();
+});
+
+test('a missing attached plan detaches metadata while preserving the working note', async () => {
+  const app = runtime({ user: person }); await app.ready();
+  const draft = clone(app.state.document);
+  const result = await app.controller.restoreAttachment({ ownerId: person.id, plan: planFixture() });
+  assert.equal(result.reason, 'missing'); assert.equal(app.controller.getAttachment(), null);
+  assert.deepEqual(app.state.attachments, [null]); assert.deepEqual(app.state.document, draft);
+  assert.match(app.state.messages.at(-1).text, /이 기기 노트는 유지/); app.controller.destroy();
+});
+
+test('an obsolete attachment verification cannot replace a newly detached note', async () => {
+  const gate = deferred(), app = runtime({ user: person, plans: [planFixture()], handler: request => request.path === '/api/plans/plan-one'
+    && request.method === 'GET' ? gate.promise : undefined }); await app.ready();
+  const pending = app.controller.restoreAttachment({ ownerId: person.id, plan: planFixture() });
+  app.controller.detach(); gate.resolve(response({ plan: planFixture({ document: documentFixture() }) }));
+  const result = await pending;
+  assert.equal(result.ok, false); assert.equal(app.controller.getAttachment(), null);
+  assert.match(app.roots.saveRoot.textContent, /계획표 저장/); app.controller.destroy();
+});
+
+test('account initialization can await restored metadata before enabling cloud saves', async () => {
+  let app, restored;
+  app = runtime({ user: person, plans: [planFixture()], onUserChange: async next => {
+    if (next) restored = await app.controller.restoreAttachment({ ownerId: next.id, plan: planFixture() });
+  } });
+  await app.ready(); assert.equal(restored.ok, true);
+  assert.equal(app.controller.getAttachment().plan.id, 'plan-one');
+  assert.equal(app.roots.saveRoot.children[0].disabled, false);
+  assert.ok(app.calls.findIndex(call => call.path === '/api/plans/plan-one') < app.calls.findIndex(call => call.path === '/api/plans'));
+  app.controller.destroy();
+});
+
+test('logout invalidates a pending restoration and never attaches another account response', async () => {
+  const gate = deferred(), app = runtime({ user: person, plans: [planFixture()], handler: request => request.path === '/api/plans/plan-one'
+    && request.method === 'GET' ? gate.promise : undefined }); await app.ready();
+  const pending = app.controller.restoreAttachment({ ownerId: person.id, plan: planFixture() });
+  await app.click('로그아웃');
+  gate.resolve(response({ plan: planFixture({ document: documentFixture() }) })); await pending;
+  assert.equal(app.controller.getAttachment(), null); assert.equal(app.state.attachments.length, 0);
+  assert.equal(app.find('account-user'), null); app.controller.destroy();
+});
+
+test('attachment callbacks contain only owner and plan metadata and an account reset cannot clear the former owner draft', async () => {
+  const app = runtime({ user: person }); await app.ready();
+  app.controller.setCurrentPlan({ ...planFixture(), document: documentFixture(), accessToken: 'private', ownerId: 'untrusted' });
+  assert.deepEqual(Object.keys(app.state.attachments.at(-1)).sort(), ['ownerId', 'plan']);
+  assert.deepEqual(Object.keys(app.state.attachments.at(-1).plan).sort(), ['cityId', 'createdAt', 'dayCount', 'id', 'revision', 'startDate', 'title', 'updatedAt']);
+  await app.click('로그아웃');
+  assert.equal(app.state.attachments.length, 1); assert.equal(app.controller.getAttachment(), null); app.controller.destroy();
+});
+
+test('successful cloud writes retain a local attachment persistence warning instead of reporting unqualified success', async () => {
+  for (const fail of [() => false, () => { throw Error('private local error'); }]) {
+    const app = runtime({ user: person, onAttachmentChange: fail }); await app.ready();
+    await app.click('계획표 저장', app.roots.saveRoot); await app.submit();
+    assert.equal(app.calls.filter(call => call.path === '/api/plans' && call.method === 'POST').length, 1);
+    assert.equal(app.controller.getAttachment().plan.id, 'plan-1');
+    assert.match(app.state.messages.at(-1).text, /계정에는 저장.*새로고침 후/);
+    assert.equal(app.state.messages.at(-1).kind, 'error'); assert.doesNotMatch(app.document.body.textContent, /private local error/);
+    app.controller.destroy();
+  }
+});
+
+test('every plan request carries the expected owner while account requests do not', async () => {
+  const existing = planFixture(), app = runtime({ user: person, plans: [existing] }); await app.ready();
+  await app.click('계획표 저장', app.roots.saveRoot); await app.submit();
+  await app.click('변경사항 저장', app.roots.saveRoot); await app.submit();
+  await app.click('삭제', app.roots.libraryRoot); await app.click('삭제', app.find('account-dialog'));
+  for (const method of ['POST', 'PUT', 'DELETE']) {
+    const request = app.calls.find(call => call.path.startsWith('/api/plans') && call.method === method);
+    assert.ok(request); assert.equal(request.options.headers['X-Gil-Expected-User'], person.id);
+  }
+  assert.ok(app.calls.filter(call => call.path.startsWith('/api/plans')).every(call => call.options.headers['X-Gil-Expected-User'] === person.id));
+  assert.ok(app.calls.filter(call => call.path.startsWith('/api/auth')).every(call => !Object.hasOwn(call.options.headers, 'X-Gil-Expected-User')));
+  await app.click('로그아웃');
+  assert.equal(Object.hasOwn(app.calls.find(call => call.path === '/api/auth/logout').options.headers, 'X-Gil-Expected-User'), false);
+  app.controller.destroy();
+});
+
+test('a cross-tab account mismatch rechecks the session instead of saving or deleting under the new owner', async () => {
+  for (const method of ['POST', 'PUT', 'DELETE']) {
+    const replacement = { id: 'user-two', username: 'traveler_2' }, existing = planFixture();
+    const app = runtime({ user: person, plans: [existing], handler: (request, state) => {
+      if (request.path.startsWith('/api/plans') && request.method === method) {
+        state.user = replacement; return response({ error: { code: 'SESSION_CHANGED' } }, 409);
+      }
+      if (request.path === '/api/plans' && request.method === 'GET' && state.user?.id === replacement.id) return response({ plans: [] });
+      return undefined;
+    } }); await app.ready();
+    if (method === 'PUT') app.controller.setCurrentPlan(existing);
+    if (method === 'DELETE') { await app.click('삭제', app.roots.libraryRoot); await app.click('삭제', app.find('account-dialog')); }
+    else { await app.click(method === 'POST' ? '계획표 저장' : '변경사항 저장', app.roots.saveRoot); await app.submit(); }
+    assert.equal(app.calls.filter(call => call.method === method && call.path.startsWith('/api/plans')).length, 1);
+    assert.equal(app.calls.filter(call => call.path === '/api/auth/session').length, 2);
+    assert.equal(app.state.users.at(-1).user.id, replacement.id); assert.equal(app.controller.getAttachment(), null);
+    assert.match(app.state.messages.at(-1).text, method === 'DELETE' ? /계정이 바뀌어 삭제하지 않았어요/ : /계정이 바뀌어 저장하지 않았어요/);
+    assert.equal(app.state.messages.at(-1).kind, 'error');
+    assert.equal(app.find('account-dialog-backdrop').hidden, true); app.controller.destroy();
+  }
+});
+
+test('a changed cookie owner cannot expose another account list or document through a plan read', async () => {
+  for (const operation of ['list', 'load', 'restore']) {
+    const replacement = { id: 'user-two', username: 'traveler_2' }, existing = planFixture();
+    const app = runtime({ user: person, plans: [existing], handler: (request, state) => {
+      if (request.method === 'GET' && request.path === (operation === 'list' ? '/api/plans' : '/api/plans/plan-one')
+        && state.user.id === person.id) {
+        assert.equal(request.options.headers['X-Gil-Expected-User'], person.id);
+        state.user = replacement; return response({ error: { code: 'SESSION_CHANGED' } }, 409);
+      }
+      if (request.path === '/api/plans' && request.method === 'GET' && state.user?.id === replacement.id) {
+        assert.equal(request.options.headers['X-Gil-Expected-User'], replacement.id);
+        return response({ plans: [] });
+      }
+      return undefined;
+    } }); await app.ready();
+    if (operation === 'load') { await app.click('불러오기', app.roots.libraryRoot); await app.click('불러오기', app.find('account-dialog')); }
+    if (operation === 'restore') {
+      const result = await app.controller.restoreAttachment({ ownerId: person.id, plan: existing });
+      assert.equal(result.reason, 'invalid');
+    }
+    assert.equal(app.state.users.at(-1).user.id, replacement.id);
+    assert.equal(app.find('account-user').textContent, replacement.username);
+    assert.equal(app.state.loads.length, 0); assert.equal(app.controller.getAttachment(), null);
+    assert.equal(app.all('account-plan-card').length, 0);
+    assert.equal(app.calls.filter(call => call.path === '/api/auth/session').length, 2);
+    assert.match(app.state.messages.at(-1).text, /로그인 계정이 바뀌어/);
+    app.controller.destroy();
+  }
+});
+
+test('configured social providers preserve the current day return route and keep password login available', async () => {
+  const providers = ['google', 'kakao', 'naver'].map(id => ({ id, label: id, startUrl: `/api/auth/oauth/${id}/start` }));
+  const app = runtime({ providers, location: { hash: '#/note/day/2' } }); await app.ready();
+  await app.click('로그인 · 회원가입');
+  assert.ok(app.find('account-username')); assert.ok(app.find('account-password'));
+  assert.equal(app.all('account-social-button').length, 3);
+  await app.click('카카오로 계속하기');
+  assert.deepEqual(app.state.navigations, ['/api/auth/oauth/kakao/start?returnTo=%2F%23%2Fnote%2Fday%2F2']);
+  assert.equal(app.calls.some(call => call.method !== 'GET'), false); app.controller.destroy();
+});
+
+test('unconfigured, unknown and unsafe social links stay hidden without blocking password login', async () => {
+  for (const providers of [[], [{ id: 'untrusted', startUrl: 'https://external.test/' }], [{ id: 'google', startUrl: '//external.test/' }],
+    [{ id: 'google', startUrl: '/api/auth/oauth/google/start' }, { id: 'google', startUrl: '/api/auth/oauth/google/start' }]]) {
+    const app = runtime({ providers }); await app.ready(); await app.click('로그인 · 회원가입');
+    assert.equal(app.all('account-social-button').length, 0); assert.ok(app.find('account-username'));
+    assert.deepEqual(app.state.navigations, []); app.controller.destroy();
+  }
+});
+
+test('delayed provider responses cannot insert controls in a replacement dialog', async () => {
+  const gate = deferred(), app = runtime({ handler: request => request.path === '/api/auth/providers' ? gate.promise : undefined });
+  await app.ready(); await app.click('로그인 · 회원가입');
+  app.document.dispatch('keydown', { key: 'Escape' });
+  gate.resolve(response({ configured: true, providers: [{ id: 'google', label: 'Google', startUrl: '/api/auth/oauth/google/start' }] }));
+  await settle(); assert.equal(app.all('account-social-button').length, 0); app.controller.destroy();
+});
+
+test('social callback feedback removes only its status query and preserves the note route', async () => {
+  const app = runtime({ user: person, location: { search: '?keep=yes&social=success', hash: '#/note/day/2' } });
+  await app.ready();
+  assert.equal(app.state.history.at(-1)[2], '/?keep=yes#/note/day/2');
+  assert.match(app.state.messages.at(-1).text, /로그인했어요/);
+  assert.equal(app.state.messages.at(-1).kind, 'success'); app.controller.destroy();
+  const failed = runtime({ location: { search: '?social=failed' } }); await failed.ready();
+  assert.match(failed.state.messages.at(-1).text, /완료하지 못했어요/); assert.equal(failed.state.messages.at(-1).kind, 'error'); failed.controller.destroy();
+});
+
+test('a verified social sign-in notifies other tabs to recheck their account without broadcasting identity data', async () => {
+  const app = runtime({ user: person, broadcast: true, location: { search: '?social=success' } }); await app.ready();
+  assert.equal(app.signals.length, 1); assert.equal(app.signals[0].type, 'session-changed');
+  assert.deepEqual(Object.keys(app.signals[0]).sort(), ['nonce', 'type']);
+  assert.equal(JSON.stringify(app.signals).includes(person.id), false);
+  assert.equal(JSON.stringify(app.signals).includes(person.username), false);
+  app.controller.destroy();
+  for (const location of [{ search: '?social=failed' }, { search: '?social=success' }]) {
+    const guest = runtime({ broadcast: true, location }); await guest.ready(); assert.equal(guest.signals.length, 0); guest.controller.destroy();
+  }
+});
+
+test('only a recent same-tab social attempt can request adoption of the guest note and the marker is consumed once', async () => {
+  const marker = { returnTo: '/#/note/day/2', at: Date.now() - 1000 };
+  const app = runtime({ user: person, location: { search: '?social=success', hash: '#/note/day/2' }, socialPending: marker });
+  await app.ready(); assert.equal(app.state.users[0].metadata.socialReturn, true);
+  assert.equal(app.sessionStore.has('gil-social-login-pending'), false); app.controller.destroy();
+  for (const [location, socialPending, user] of [
+    [{ search: '?social=success', hash: '#/note/day/2' }, null, person],
+    [{ search: '?social=success', hash: '#/note/day/2' }, { ...marker, at: Date.now() - 600001 }, person],
+    [{ search: '?social=success', hash: '#/note/day/1' }, marker, person],
+    [{ search: '?social=failed', hash: '#/note/day/2' }, marker, person],
+    [{ search: '?social=success', hash: '#/note/day/2' }, marker, null]
+  ]) {
+    const rejected = runtime({ user, location, socialPending }); await rejected.ready();
+    assert.equal(rejected.state.users[0].metadata.socialReturn, false);
+    assert.equal(rejected.sessionStore.has('gil-social-login-pending'), false); rejected.controller.destroy();
+  }
+});
+
+test('social redirect records only a return route and time, and blocked session storage prevents unsafe navigation', async () => {
+  const providers = [{ id: 'google', label: 'Google', startUrl: '/api/auth/oauth/google/start' }];
+  const app = runtime({ providers }); await app.ready(); await app.click('로그인 · 회원가입'); await app.click('Google로 계속하기');
+  const marker = JSON.parse(app.sessionStore.get('gil-social-login-pending'));
+  assert.deepEqual(Object.keys(marker).sort(), ['at', 'returnTo']); assert.equal(marker.returnTo, '/#/start');
+  assert.equal(Number.isSafeInteger(marker.at), true); assert.equal(app.state.navigations.length, 1); app.controller.destroy();
+  const blocked = runtime({ providers, sessionStorageError: true }); await blocked.ready(); await blocked.click('로그인 · 회원가입'); await blocked.click('Google로 계속하기');
+  assert.equal(blocked.state.navigations.length, 0); assert.match(blocked.find('account-dialog-message').textContent, /브라우저 저장/);
+  assert.doesNotMatch(blocked.document.body.textContent, /private storage detail/); blocked.controller.destroy();
+});
 
 test('ready awaits the initial account transition and does not fetch plans before the correct draft owner is selected', async () => {
   const gate = deferred(), app = runtime({ user: person, onUserChange: () => gate.promise });

@@ -20,7 +20,7 @@ function secretFrom(env) {
   return [env.DATA_GO_KR_SERVICE_KEY, env.TOURAPI_SERVICE_KEY, env.TAGO_SERVICE_KEY].find(value => typeof value === 'string' && value.trim())?.trim();
 }
 
-export function createPagesWorker({ createClients = createDefaultClients } = {}) {
+export function createPagesWorker({ createClients = createDefaultClients, authFetch = globalThis.fetch } = {}) {
   let clients, currentKey, currentCarRoutingKey, initialized = false;
   function services(env) {
     const serviceKey = secretFrom(env);
@@ -39,7 +39,7 @@ export function createPagesWorker({ createClients = createDefaultClients } = {})
         catch { return json(request, 400, { error: { code: 'BAD_REQUEST', message: '올바르지 않은 요청입니다.' } }); }
         if (!pathname.startsWith('/') || /[\\\u0000]/.test(pathname) || pathname.split('/').some(part => part === '.' || part === '..')) return json(request, 404, { error: { code: 'NOT_FOUND', message: '파일을 찾을 수 없습니다.' } });
         if(pathname.startsWith('/api/auth/')||pathname==='/api/plans'||pathname.startsWith('/api/plans/')){
-          const accountResponse=await createAccountHandler({db:env.DB,secret:env.AUTH_SECRET})(request);
+          const accountResponse=await createAccountHandler({db:env.DB,secret:env.AUTH_SECRET,oauthEnv:env,fetchImpl:authFetch})(request);
           return accountResponse||json(request,404,{error:{code:'NOT_FOUND',message:'요청한 기능을 찾을 수 없어요.'}});
         }
         if (!['GET', 'HEAD'].includes(request.method)) return json(request, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: '허용되지 않은 요청 방식입니다.' } }, { Allow: 'GET, HEAD' });

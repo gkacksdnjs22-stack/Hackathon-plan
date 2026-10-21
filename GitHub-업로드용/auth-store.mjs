@@ -1,4 +1,5 @@
 import { normalizePlanDocument, normalizePlanTitle, PlanDocumentError } from './plan-document.mjs';
+import { createSocialAuthHandler } from './oauth-login.mjs';
 
 const ENCODER = new TextEncoder();
 const SESSION_AGE = 7 * 86400000;
@@ -13,6 +14,7 @@ const ERRORS = {
   AUTH_REQUIRED:[401,'로그인한 뒤 이용해 주세요.'], FORBIDDEN:[403,'현재 사이트에서 다시 시도해 주세요.'],
   RATE_LIMIT:[429,'시도 횟수가 많아요. 잠시 후 다시 시도해 주세요.'],
   NOT_FOUND:[404,'저장한 계획을 찾을 수 없어요.'], CONFLICT:[409,'다른 창이나 기기에서 변경한 계획이에요. 목록을 새로 불러와 주세요.'],
+  SESSION_CHANGED:[409,'다른 창에서 로그인 계정이 바뀌었어요. 현재 계정을 다시 확인한 뒤 저장해 주세요.'],
   PLAN_LIMIT:[409,'계획은 계정당 최대 100개까지 저장할 수 있어요.'],
   PAYLOAD_TOO_LARGE:[413,'저장 요청의 용량이 너무 커요.'], METHOD_NOT_ALLOWED:[405,'허용되지 않은 요청 방식입니다.'],
   INTERNAL_ERROR:[500,'저장 서비스에 일시적인 문제가 있어요. 잠시 후 다시 시도해 주세요.']
@@ -67,7 +69,7 @@ const PLAN_COLUMNS='id,title,city_id,start_date,day_count,revision,created_at,up
  * Node integration must overwrite CF-Connecting-IP from its trusted socket,
  * rather than accepting the incoming browser's header.
  */
-export function createAccountHandler({db,secret,cryptoImpl=globalThis.crypto,now=Date.now}={}){
+export function createAccountHandler({db,secret,oauthEnv={},fetchImpl=globalThis.fetch,cryptoImpl=globalThis.crypto,now=Date.now}={}){
   // Copying a one-line secret file can include its final line ending. Do not
   // trim spaces or any other content, which would change an existing key.
   const signingSecret=typeof secret==='string'?secret.replace(/\r?\n$/,''):secret;
@@ -113,7 +115,7 @@ export function createAccountHandler({db,secret,cryptoImpl=globalThis.crypto,now
   async function limit(request,username,kind){
     const time=now(),windowMs=kind==='signup'?3600000:900000,start=Math.floor(time/windowMs)*windowMs;
     const ip=(request.headers.get('cf-connecting-ip')??'unknown').slice(0,128);
-    const scopes=[['ip',ip,kind==='signup'?10:30],['username',username,kind==='signup'?5:10]];
+    const scopes=kind==='oauth'?[['ip',ip,30]]:[['ip',ip,kind==='signup'?10:30],['username',username,kind==='signup'?5:10]];
     const statements=[db.prepare('DELETE FROM gil_rate_limits WHERE window_start<?').bind(time-86400000),
       db.prepare('DELETE FROM gil_sessions WHERE expires_at<=?').bind(time)];
     for(const [scope,value,maximum]of scopes){
@@ -142,8 +144,10 @@ export function createAccountHandler({db,secret,cryptoImpl=globalThis.crypto,now
     const row=await db.prepare(`SELECT ${PLAN_COLUMNS}${includeDocument?',document_json':''} FROM gil_plans WHERE id=? AND user_id=?`).bind(id,owner.id).first();
     if(!row)fail('NOT_FOUND');return row;
   }
+  const socialAuth=createSocialAuthHandler({db,env:oauthEnv,configured,cryptoImpl,now,fetchImpl,hash,hmac,uuid,startSession,limit});
   return async function handle(request){
     const url=new URL(request.url),path=url.pathname;
+    if(path==='/api/auth/providers'||path.startsWith('/api/auth/oauth/'))return socialAuth(request);
     if(!['/api/auth/session','/api/auth/signup','/api/auth/login','/api/auth/logout','/api/plans'].includes(path)&&!path.startsWith('/api/plans/'))return null;
     try{
       const id=path.startsWith('/api/plans/')?path.slice('/api/plans/'.length):null;
@@ -172,6 +176,13 @@ export function createAccountHandler({db,secret,cryptoImpl=globalThis.crypto,now
         return json(request,200,{ok:true},{'Set-Cookie':cookie(request,'',0)});
       }
       const owner=await user(request);if(!owner)fail('AUTH_REQUIRED');
+      // This is an additional race guard, never an authorization credential.
+      // A tab can still display account A while another tab replaces the
+      // browser cookie with account B. Reject before exposing B's plans or
+      // writing A's document under B. Legacy clients without this optional
+      // header retain the existing cookie/CSRF/SQL ownership checks.
+      const expectedOwner=request.headers.get('x-gil-expected-user');
+      if(expectedOwner!==null&&expectedOwner!==owner.id)fail('SESSION_CHANGED');
       if(id===null&&['GET','HEAD'].includes(request.method)){
         const result=await db.prepare(`SELECT ${PLAN_COLUMNS} FROM gil_plans WHERE user_id=? ORDER BY updated_at DESC,id LIMIT 100`).bind(owner.id).all();
         return json(request,200,{plans:result.results.map(metadata)});

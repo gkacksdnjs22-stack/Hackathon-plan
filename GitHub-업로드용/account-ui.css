@@ -44,6 +44,11 @@
   .account-dialog-tabs [aria-pressed="true"] { border-color:#a8b3d2; background:#eef0fb; color:#52638f; }
   .account-dialog-message { margin:11px 0 0; color:#817669; font-size:11px; line-height:1.8; overflow-wrap:anywhere; }
   .account-dialog-message:empty { display:none; }
+  .account-social-options { display:grid; gap:8px; margin:16px 0 4px; }
+  .account-social-options[hidden] { display:none; }
+  .account-social-options .account-social-button { width:100%; min-height:46px; border-color:#b6cbf3; background:#f4f8ff; color:#163d78; font-size:13px; font-weight:650; }
+  .account-social-options .account-social-button:hover { border-color:#5d8dd8; background:#e8f1ff; color:#12346a; }
+  .account-social-options .account-social-button:focus-visible { outline:3px solid #6795e1; outline-offset:2px; }
   .account-nav :focus-visible,.account-library :focus-visible,.account-save-actions :focus-visible,.account-dialog :focus-visible { outline:3px solid #8798c5; outline-offset:2px; }
 }
 @media screen and (max-width:600px) {

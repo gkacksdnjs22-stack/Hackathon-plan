@@ -4,6 +4,10 @@
   const $=id=>document.getElementById(id);
   const country=$('country-select'),citySelect=$('city-select'),dateInput=$('start-date'),duration=$('day-count');
   let currentItinerary=null;
+  let currentAttachment=null,displayedDraftOwner=null;
+  let previousDraft=null,suppressAttachmentChange=false;
+  let editorDrafts={};
+  const editorCaptures=new Map();
   const collapsedDays=new Set();
   let activeDayIndex=0;
   const EDIT_HISTORY_LIMIT=20;
@@ -235,6 +239,7 @@
     destroyDepartureWidgets();
     departureDraftModes={};
     currentItinerary=null;
+    currentAttachment=null;previousDraft=null;editorDrafts={};editorCaptures.clear();displayedDraftOwner=null;
     collapsedDays.clear();
     activeDayIndex=0;
     resetEditHistory();
@@ -247,6 +252,7 @@
     $('note-timing-notice').hidden=true;
     $('note-timing-notice').textContent='';
     syncScreen();
+    refreshDraftRecovery();
   }
   function discardItineraryForChangedConditions(){
     requestVersion++;
@@ -276,8 +282,12 @@
       return;
     }
     result.dataSource=city.dataSource||'bundled';
+    if(currentItinerary&&!backupWorkingNote()){
+      showMessage('지금 노트를 보관하지 못해 새 노트로 바꾸지 않았어요. 저장 공간 설정을 확인해 주세요.','error');return;
+    }
     departureDraftModes={};
     currentItinerary=result;
+    currentAttachment=null;editorDrafts={};editorCaptures.clear();displayedDraftOwner=activeAccountUser?.id||null;
     collapsedDays.clear();
     activeDayIndex=0;
     resetEditHistory();
@@ -286,13 +296,88 @@
     const saved=saveItinerary();
     navigate('note');
     showMessage(saved?'추천 장소를 여행 노트에 담았어요. 일정과 시간을 내 계획에 맞게 다듬어 보세요.':'추천 노트는 만들었지만 브라우저 저장에 실패했어요. 저장 공간 설정을 확인해 주세요.',saved?'success':'error');
+    refreshDraftRecovery();
+  }
+  function localDraft(itinerary=currentItinerary){
+    return {version:8,ownerId:activeAccountUser?.id||null,savedAt:new Date().toISOString(),itinerary,
+      attachment:currentAttachment,editorDrafts,previous:previousDraft};
+  }
+  function flatDraft(value,owner=activeAccountUser?.id||null){
+    if(!value||typeof value!=='object'||Array.isArray(value)||![1,2,3,4,5,6,7,8].includes(value.version)
+      ||(value.ownerId||null)!==owner||!value.itinerary)return null;
+    // Keep exactly one independent backup; never copy a recursive backup chain.
+    return JSON.parse(JSON.stringify({version:value.version,ownerId:owner,savedAt:value.savedAt,
+      itinerary:value.itinerary,attachment:value.attachment||null,editorDrafts:validatedEditorDrafts(value.editorDrafts)}));
+  }
+  function validatedEditorDrafts(value){
+    const result={};
+    if(!value||typeof value!=='object'||Array.isArray(value))return result;
+    for(const [key,item] of Object.entries(value).slice(0,256)){
+      if(!/^[0-6]:(?:departure|arrival-transfer|place-[0-2]|transfer-[01]|free-[01]|lunch|dinner|rest|finish|extra-[1-9]\d{0,8})$/.test(key)||!item||typeof item!=='object')continue;
+      if(typeof item.base!=='string'||item.base.length>2000||typeof item.title!=='string'||item.title.length>200
+        ||typeof item.description!=='string'||item.description.length>500||typeof item.minutes!=='string'||item.minutes.length>16
+        ||!(item.hours===null||typeof item.hours==='string'&&item.hours.length<=16))continue;
+      result[key]={base:item.base,title:item.title,description:item.description,minutes:item.minutes,hours:item.hours};
+    }
+    return result;
+  }
+  function editorIdentity(event,dayIndex){
+    const day=currentItinerary.days[dayIndex],at=day.events.findIndex(item=>item.id===event.id);
+    const before=event.id==='arrival-transfer'?day.arrival:day.events.slice(0,at).reverse().find(item=>item.type==='place')?.place;
+    const after=day.events.slice(at+1).find(item=>item.type==='place')?.place;
+    return JSON.stringify([event.type,event.place?.id||null,event.departure?.id||null,event.travelMode||null,
+      event.departure?.mode||null,event.departure?.source||null,event.departure?.service||null,
+      event.type==='transfer'?before?.id||null:null,event.type==='transfer'?after?.id||null:null,
+      event.type==='departure'?(day.arrival||day.events.find(item=>item.type==='place')?.place)?.id||null:null]);
+  }
+  function pruneEditorDrafts(){
+    let changed=false;
+    for(const key of Object.keys(editorDrafts)){
+      const [index,id]=key.split(':'),event=currentItinerary.days[Number(index)]?.events.find(item=>item.id===id);
+      if(!event||editorDrafts[key].base!==editorIdentity(event,Number(index))){delete editorDrafts[key];changed=true;}
+    }
+    if(changed)persistDraftContext();
+  }
+  function persistDraftContext(){
+    if(!currentItinerary||displayedDraftOwner!==(activeAccountUser?.id||null))return false;
+    try{localStorage.setItem(draftStorageKey(),JSON.stringify(localDraft()));return true;}catch{return false;}
+  }
+  function captureEditors(){for(const capture of editorCaptures.values())capture();}
+  function backupWorkingNote(){
+    if(!currentItinerary)return true;
+    captureEditors();
+    const before=previousDraft;
+    try{
+      previousDraft=flatDraft(localDraft());
+      // A single write preserves the working note and its backup together.
+      if(!persistDraftContext())throw Error('storage');
+      return true;
+    }catch{previousDraft=before;return false;}
+  }
+  function refreshDraftRecovery(){
+    const host=$('draft-recovery');if(!host)return;
+    const previous=previousDraft;
+    host.replaceChildren();host.hidden=!previous||previous.ownerId!==(activeAccountUser?.id||null)||!previous.itinerary;
+    if(host.hidden)return;
+    const copy=document.createElement('span');copy.textContent='이전에 작성하던 노트를 보관했어요.';
+    const restore=document.createElement('button');restore.type='button';restore.className='button button-quiet';restore.textContent='이전 노트로 돌아가기';
+    restore.addEventListener('click',async()=>{
+      const owner=activeAccountUser?.id||null;restore.disabled=true;
+      captureEditors();
+      const before=currentItinerary?flatDraft(localDraft()):null;
+      const restored=await restoreDocument(previous,{previousOverride:before,isCurrent:()=>owner===(activeAccountUser?.id||null)});
+      if(!restored){restore.disabled=false;return;}
+      if(!persistDraftContext()){showMessage('이전 노트는 열었지만 기기 저장에 실패했어요. 기존 저장본과 이전 노트는 기기에 그대로 남아 있어요.','error');return;}
+      refreshDraftRecovery();navigate('note');showMessage('이전 노트로 돌아왔어요. 방금 보던 노트도 보관했어요.','success');
+    });
+    host.append(copy,restore);
   }
   function saveItinerary(itinerary=currentItinerary){
     try{
       if(!itinerary)return false;
       const city=window.TRAVEL_DATA.cities[itinerary.cityId];
       itinerary.dataSource=city?.dataSource||'bundled';
-      localStorage.setItem(draftStorageKey(),JSON.stringify({version:8,ownerId:activeAccountUser?.id||null,savedAt:new Date().toISOString(),itinerary}));
+      localStorage.setItem(draftStorageKey(),JSON.stringify(localDraft(itinerary)));
       requestVersion++;
       account?.changed();
       return true;
@@ -379,8 +464,13 @@
     if((parsed.ownerId||null)!==(activeAccountUser?.id||null))return false;
     return restoreDocument(parsed);
   }
-  async function accountUserChanged(user,{initial=false}={}){
+  async function accountUserChanged(user,{initial=false,socialReturn=false}={}){
     const previous=activeAccountUser;
+    if(previous?.id!==user?.id)captureEditors();
+    let guestRaw=null;
+    if(!previous&&user&&(currentItinerary||initial&&socialReturn)){
+      try{guestRaw=currentItinerary?JSON.stringify(localDraft()):localStorage.getItem(STORAGE_KEY);}catch{}
+    }
     activeAccountUser=user||null;
     if(previous?.id!==activeAccountUser?.id)resetEditHistory();
     if(user===undefined&&!initial){
@@ -389,24 +479,40 @@
       navigate('start',{replace:true});
       return;
     }
-    if(initial||previous?.id===activeAccountUser?.id)return;
-    requestVersion++;
-    if(!previous&&activeAccountUser&&currentItinerary){
-      // Adopt the signed-out working draft once, then remove its shared slot.
-      // Other accounts use their own slots and never inherit this account's note.
-      const saved=saveItinerary();
-      if(saved){try{localStorage.removeItem(STORAGE_KEY);}catch(error){}}
-      return;
+    if(guestRaw&&activeAccountUser){
+      let guest=null;
+      try{guest=JSON.parse(guestRaw);}catch{}
+      if(guest&&guest.ownerId==null&&guest.itinerary&&[1,2,3,4,5,6,7,8].includes(guest.version)){
+        try{
+          const key=draftStorageKey(),existing=localStorage.getItem(key);
+          let existingDraft=null;
+          try{existingDraft=existing?flatDraft(JSON.parse(existing)):null;}catch{}
+          const guestPrevious=flatDraft(guest.previous,null);
+          const adopted={...guest,ownerId:activeAccountUser.id,attachment:null,
+            previous:existingDraft||(guestPrevious?{...guestPrevious,ownerId:activeAccountUser.id,attachment:null}:null)};
+          localStorage.setItem(key,JSON.stringify(adopted));
+          if(currentItinerary){currentAttachment=null;previousDraft=adopted.previous;displayedDraftOwner=activeAccountUser.id;}
+          localStorage.removeItem(STORAGE_KEY);refreshDraftRecovery();
+          if(!initial)return;
+        }catch{
+          if(!initial){resetDisplayedItinerary();navigate('start',{replace:true});await loadItinerary();}
+          showMessage('로그인 전 노트를 옮기지 못했어요. 기존 초안과 로그인 전 저장본은 그대로 보관했어요.','error');
+          return;
+        }
+      }
     }
+    if(initial||previous?.id===activeAccountUser?.id){refreshDraftRecovery();return;}
+    requestVersion++;
     resetDisplayedItinerary();
     navigate('start',{replace:true});
     if(await loadItinerary())syncScreen({focus:false});
+    refreshDraftRecovery();
   }
   function cloudDocument(){
     if(!currentItinerary)return null;
     return {version:8,itinerary:JSON.parse(editingSnapshot())};
   }
-  async function restoreDocument(parsed,{remote=false,isCurrent=()=>true}={}){
+  async function restoreDocument(parsed,{remote=false,previousOverride,isCurrent=()=>true}={}){
     const version=++requestVersion;
     const fail=reason=>{
       showMessage(`저장된 일정을 복원하지 못했어요. ${reason} 저장본은 삭제하지 않았습니다.`,'error');
@@ -463,8 +569,20 @@
     if(restored.days.length!==Number(saved.dayCount))return fail('저장한 여행 날짜 수와 복원 결과가 다릅니다.');
     restored.dataSource=city.dataSource||saved.dataSource||'bundled';
     if(version!==requestVersion||!isCurrent())return false;
+    if(remote&&currentItinerary&&!backupWorkingNote())return fail('지금 작성하던 노트를 보관하지 못했어요.');
     departureDraftModes={};
     currentItinerary=restored;
+    const restoredOwner=activeAccountUser?.id||null;
+    displayedDraftOwner=restoredOwner;
+    const desiredAttachment=remote?null:parsed.attachment||null;
+    currentAttachment=desiredAttachment;
+    if(!remote)previousDraft=flatDraft(previousOverride===undefined?parsed.previous:previousOverride);
+    editorDrafts=remote?{}:validatedEditorDrafts(parsed.editorDrafts);editorCaptures.clear();
+    if(!remote){
+      // A recovered unlinked note must never keep the previously open plan's ID.
+      suppressAttachmentChange=true;
+      try{account?.detach();}finally{suppressAttachmentChange=false;}
+    }
     collapsedDays.clear();
     activeDayIndex=0;
     resetEditHistory();
@@ -481,6 +599,12 @@
     setBusy(false);
     updateCityHint();
     renderItinerary();
+    refreshDraftRecovery();
+    if(!remote&&desiredAttachment&&account?.restoreAttachment){
+      const attachmentResult=await account.restoreAttachment(desiredAttachment);
+      if(currentItinerary!==restored||restoredOwner!==(activeAccountUser?.id||null)||!isCurrent())return false;
+      if(['invalid','not-owned'].includes(attachmentResult?.reason)){currentAttachment=null;persistDraftContext();}
+    }
     showMessage(persistenceWarning||'저장된 여행 일정과 수정한 내용을 불러왔어요.',persistenceWarning?'error':'success');
     return persistenceWarning?{ok:true,warning:persistenceWarning}:true;
   }
@@ -508,6 +632,7 @@
   }
   function renderItinerary(){
     if(!currentItinerary)return;
+    captureEditors();editorCaptures.clear();
     const city=window.TRAVEL_DATA.cities[currentItinerary.cityId];
     if(!city)return;
     $('trip-summary').textContent=`${currentItinerary.countryName} ${currentItinerary.cityName} · ${currentItinerary.startDate}부터 ${currentItinerary.dayCount}일 · 현지 시간 ${city.timezone}`;
@@ -547,6 +672,7 @@
     window.TravelSelect?.refresh();
     window.TravelTimePicker?.refresh();
     syncScreen();
+    pruneEditorDrafts();
   }
   function selectDayPage(index,{focus=false,scroll=false,expand=false}={}){
     if(!currentItinerary||!Number.isInteger(index)||index<0||index>=currentItinerary.days.length)return false;
@@ -1156,8 +1282,9 @@
   }
   function showEventEditor(content,event,dayIndex,city,trigger){
     const old=content.querySelector('.event-editor');
-    if(old){old.remove();trigger.setAttribute('aria-expanded','false');return;}
+    if(old){editorCaptures.get(old)?.();editorCaptures.delete(old);old.remove();trigger.setAttribute('aria-expanded','false');return;}
     for(const other of $('day-list').querySelectorAll('.event-editor')){
+      editorCaptures.get(other)?.();editorCaptures.delete(other);
       other.closest('.timeline-content')?.querySelector('.event-edit-button')?.setAttribute('aria-expanded','false');
       other.remove();
     }
@@ -1200,14 +1327,30 @@
     description.rows=2;description.maxLength=500;
     description.value=event.description??event.label??(event.type==='place'?event.place.intro:'');
     field('설명·메모',description,true);
-    window.TravelNoteTools.memoCounter(description);
+    const updateCounter=window.TravelNoteTools.memoCounter(description);
+    const draftKey=`${dayIndex}:${event.id}`,base=editorIdentity(event,dayIndex);
+    const original={base,title:title.value,description:description.value,minutes:minutes.value,hours:hours?.value??null};
+    const draft=editorDrafts[draftKey];
+    if(draft?.base===base){
+      if(!title.readOnly)title.value=draft.title;
+      description.value=draft.description;minutes.value=draft.minutes;if(hours&&draft.hours!==null)hours.value=draft.hours;
+      updateCounter();
+    }
+    const draftStatus=document.createElement('p');draftStatus.className='editor-help editor-draft-status';draftStatus.setAttribute('role','status');
+    draftStatus.textContent=draft?.base===base?'저장 전 입력을 불러왔어요. 수정 저장을 누르면 일정에 반영돼요.':'';
+    function capture(){
+      const value={base,title:title.value,description:description.value,minutes:minutes.value,hours:hours?.value??null};
+      if(JSON.stringify(value)===JSON.stringify(original))delete editorDrafts[draftKey];else editorDrafts[draftKey]=value;
+      if(!persistDraftContext())draftStatus.textContent='입력 내용을 기기에 보관하지 못했어요. 이 창을 유지하고 수정 저장을 눌러 주세요.';
+    }
+    editorCaptures.set(form,capture);form.addEventListener('input',capture);form.addEventListener('change',capture);
     const help=document.createElement('p');help.className='editor-help';help.textContent=event.type==='departure'?(currentItinerary.days[dayIndex].arrival?'선택한 도착역·터미널 등에 내릴 때까지의 시간을 입력해 주세요. 대기·환승도 포함하고, 도착 후 관광지까지 이동은 다음 항목에서 정해요. 미정이면 0시간 0분으로 두세요.':'교통편과 대기시간을 포함해 직접 입력해 주세요. 미정이면 0시간 0분으로 두면 돼요.'):event.id==='arrival-transfer'?'도착한 곳에서 첫 관광지까지 걸리는 시간을 입력해 주세요. 미정이면 0시간 0분으로 두세요.':event.type==='transfer'?'이 구간의 예상 이동시간을 입력해 주세요. 0시간 0분은 미정이며, 뒤 시각도 임시 계획으로 표시돼요.':event.type==='finish'?'숙소 복귀나 귀가 시간을 입력하면 종료 시각에 더해져요. 마무리 표시만 남기려면 0시간 0분으로 두세요.':event.type==='place'?'관광지명은 공공정보 기준이에요. 체류시간을 바꾸면 뒤 일정도 함께 이동해요.':'소요시간을 바꾸면 뒤 일정도 함께 이동해요.';
     const actions=document.createElement('div');actions.className='editor-actions';
     const save=document.createElement('button');save.className='editor-save';save.type='submit';save.textContent='수정 저장';
     const cancel=document.createElement('button');cancel.className='editor-cancel';cancel.type='button';cancel.textContent='취소';
     const error=document.createElement('p');error.className='editor-error';error.setAttribute('role','alert');error.hidden=true;
-    function close(){form.remove();trigger.setAttribute('aria-expanded','false');trigger.focus({preventScroll:true});}
-    cancel.addEventListener('click',close);
+    function close(discard=false){if(discard){delete editorDrafts[draftKey];persistDraftContext();}else capture();editorCaptures.delete(form);form.remove();trigger.setAttribute('aria-expanded','false');trigger.focus({preventScroll:true});}
+    cancel.addEventListener('click',()=>close(true));
     form.addEventListener('keydown',key=>{if(key.key==='Escape'){key.preventDefault();close();}});
     form.addEventListener('submit',submission=>{
       submission.preventDefault();
@@ -1218,14 +1361,15 @@
       }
       const result=window.TravelPlanner.updateEvent({city,itinerary:currentItinerary,dayIndex,eventId:event.id,title:title.readOnly?undefined:title.value,description:description.value,duration:editedDuration});
       if(!result.ok){error.textContent=result.reason;error.hidden=false;return;}
-      if(!saveEditedItinerary(result.itinerary)){error.textContent='수정 내용을 저장하지 못했어요. 다시 시도해 주세요.';error.hidden=false;return;}
+      const previousDraft=editorDrafts[draftKey];delete editorDrafts[draftKey];editorCaptures.delete(form);
+      if(!saveEditedItinerary(result.itinerary)){if(previousDraft)editorDrafts[draftKey]=previousDraft;editorCaptures.set(form,capture);error.textContent='수정 내용을 저장하지 못했어요. 다시 시도해 주세요.';error.hidden=false;return;}
       currentItinerary=result.itinerary;
       renderItinerary();
       focusEvent(dayIndex,event.id);
       showMessage('수정한 내용을 저장하고 뒤 일정을 함께 조정했어요.','success');
     });
     actions.append(save,cancel);
-    form.append(grid,help,actions,error);content.append(form);
+    form.append(grid,draftStatus,help,actions,error);content.append(form);
     window.TravelSelect?.refresh();
     trigger.setAttribute('aria-expanded','true');(event.type==='finish'?title:hours||(title.readOnly?minutes:title)).focus();
   }
@@ -1323,6 +1467,11 @@
       return restored;
     },
     onMessage:showMessage,
+    onAttachmentChange:snapshot=>{
+      if(suppressAttachmentChange)return;
+      currentAttachment=snapshot?.ownerId===activeAccountUser?.id?snapshot:null;
+      if(currentItinerary&&displayedDraftOwner===(activeAccountUser?.id||null)&&!persistDraftContext())throw Error('Attachment storage unavailable');
+    },
     onUserChange:accountUserChanged
   })||null;
   duration.disabled=true;
