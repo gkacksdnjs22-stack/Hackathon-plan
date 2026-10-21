@@ -488,7 +488,7 @@ test('bookmarks reopen and focus the target day while collapse survives another 
   const beforeJump = app.writes.length;
   app.$('day-bookmarks').children[0].click(); await settle();
   assert.equal(first.querySelector('.day-card-body').hidden, false);
-  assert.equal(app.document.activeElement, first); assert.equal(first.lastScrollIntoView.block, 'start');
+  assert.equal(app.document.activeElement, first); assert.equal(app.$('day-bookmarks').lastScrollIntoView.block, 'start');
   assert.equal(app.window.location.hash, '#/note/day/1'); assert.equal(app.writes.length, beforeJump);
   assert.equal(app.$('day-list').children[1].querySelector('.day-card-body').hidden, false);
   app.$('day-bookmarks').children[1].click(); await settle();
@@ -496,7 +496,7 @@ test('bookmarks reopen and focus the target day while collapse survives another 
   app.$('day-bookmarks-bottom').children[1].click(); await settle();
   assert.equal(second.querySelector('.day-card-body').hidden,false);
   assert.equal(app.document.activeElement,second);
-  assert.equal(second.lastScrollIntoView.block,'start');
+  assert.equal(app.$('day-bookmarks').lastScrollIntoView.block,'start');
   assert.equal(app.writes.length,beforeJump);
   app.$('clear-button').click();
   assert.equal(app.$('day-bookmarks').children.length,0);
@@ -515,7 +515,8 @@ test('top and bottom day bookmarks show separate day pages while preserving ever
     assert.equal(app.window.location.hash, `#/note/day/${index + 1}`);
     assert.deepEqual(app.$('day-list').children, cards, 'day navigation preserves existing cards and widgets');
     assert.equal(cards[index].querySelector('.day-card-body').hidden, false);
-    assert.equal(app.document.activeElement, cards[index]); assert.equal(cards[index].lastScrollIntoView.block, 'start');
+    assert.equal(app.document.activeElement, cards[index]); assert.equal(app.$('day-bookmarks').lastScrollIntoView.block, 'start');
+    assert.equal(app.$('day-bookmarks').lastScrollIntoView.behavior, 'instant');
     assert.equal(app.stored.get(storageKey), raw); assert.equal(app.writes.length, writes);
     assert.deepEqual(noteParameters(app), parameters); assert.equal(app.account.changes, changes);
     assert.equal(app.$('undo-button').disabled, true); assert.equal(app.$('redo-button').disabled, true);
@@ -572,6 +573,74 @@ test('loading or creating another note resets the current day without persisting
   assert.equal(document.itinerary.activeDayIndex, undefined); assert.equal(document.itinerary.selectedDay, undefined);
   app.$('day-bookmarks').children[1].click(); await settle(); selectedDay(app, 1);
   await app.create(); selectedDay(app, 0);
+});
+
+test('top and bottom bookmarks show one day at a time without saving or discarding an unfinished memo', async () => {
+  const app = runtime({ ...timedNoteFixture(3), withAccount: true }); await settle();
+  app.$('day-count').value = '3'; await app.create();
+  const cards = [...app.$('day-list').children], saved = app.stored.get(storageKey), writes = app.writes.length;
+  const visible = () => app.$('day-list').children.filter(day => !day.hidden).map(day => day.dataset.dayIndex);
+  const current = id => app.$(id).children.filter(button => button.getAttribute('aria-current') === 'page').map(button => button.textContent);
+  assert.deepEqual(visible(), ['0']);
+  assert.equal(cards[0].querySelector('.day-index-label').textContent, 'Day 01');
+  app.$('day-bookmarks').children[1].click();
+  assert.deepEqual(visible(), ['1']);
+  const row = cards[1].querySelector('[data-event-id="place-0"]'); row.querySelector('.event-edit-button').click();
+  const memo = row.querySelector('textarea'); memo.value = '저장하기 전 둘째 날 메모'; memo.dispatch('input');
+  const details = app.document.createElement('details'); details.open = true; cards[1].append(details);
+  app.$('day-bookmarks-bottom').children[2].click();
+  assert.deepEqual(visible(), ['2']); assert.equal(details.open, false);
+  assert.deepEqual(current('day-bookmarks'), ['Day 03']); assert.deepEqual(current('day-bookmarks-bottom'), ['Day 03']);
+  assert.equal(app.document.activeElement, cards[2]); assert.equal(app.$('day-bookmarks').lastScrollIntoView.behavior, 'instant');
+  app.$('day-bookmarks-bottom').children[1].click();
+  assert.deepEqual(visible(), ['1']); assert.equal(row.querySelector('textarea'), memo);
+  assert.equal(memo.value, '저장하기 전 둘째 날 메모');
+  assert.deepEqual(app.$('day-list').children, cards); assert.equal(app.writes.length, writes); assert.equal(app.stored.get(storageKey), saved);
+  assert.equal(app.window.location.hash, '#/note/day/2');
+});
+
+test('the selected page and collapsed day remain selected through editing, undo and redo', async () => {
+  const app = runtime({ ...timedNoteFixture(2), withAccount: true }); await settle();
+  app.$('day-count').value = '2'; await app.create();
+  app.$('day-bookmarks-bottom').children[1].click();
+  const original = noteParameters(app);
+  assert.equal(currentSchedule(app).options.onAdd({ type: 'free', title: '둘째 날 일정', duration: 30 }).ok, true);
+  const edited = noteParameters(app);
+  app.$('day-list').children[1].querySelector('.day-collapse').click();
+  for (const [action, expected] of [['undo', original], ['redo', edited]]) {
+    app.$(`${action}-button`).click();
+    assert.deepEqual(noteParameters(app), expected);
+    assert.deepEqual(app.$('day-list').children.map(day => day.hidden), [true, false]);
+    assert.equal(app.$('day-list').children[1].querySelector('.day-card-body').hidden, true);
+    assert.equal(app.$('day-bookmarks-bottom').children[1].getAttribute('aria-current'), 'page');
+    assert.equal(app.account.options.getDocument().itinerary.activeDayIndex, undefined);
+  }
+});
+
+test('page selection resets for a new or successfully loaded note and survives a failed load', async () => {
+  const app = runtime({ ...timedNoteFixture(2), withAccount: true }); await settle();
+  app.$('day-count').value = '2'; await app.create();
+  const saved = app.account.options.getDocument();
+  app.$('day-bookmarks').children[1].click();
+  const invalid = { ...saved, itinerary: { ...saved.itinerary, dayAreaIds: [] } };
+  assert.equal(await app.account.options.loadDocument(invalid), false);
+  assert.deepEqual(app.$('day-list').children.map(day => day.hidden), [true, false]);
+  assert.equal(await app.account.options.loadDocument(saved), true);
+  assert.deepEqual(app.$('day-list').children.map(day => day.hidden), [false, true]);
+  app.$('day-bookmarks-bottom').children[1].click(); await app.create();
+  assert.deepEqual(app.$('day-list').children.map(day => day.hidden), [false, true]);
+});
+
+test('a seven-day trip retains every day while paging exposes exactly one at either end', async () => {
+  const app = runtime({ ...timedNoteFixture(7), withAccount: true }); await settle();
+  app.$('day-count').value = '7'; await app.create();
+  assert.equal(app.$('day-list').children.length, 7);
+  assert.equal(app.$('day-bookmarks').children.length, 7); assert.equal(app.$('day-bookmarks-bottom').children.length, 7);
+  app.$('day-bookmarks-bottom').children[6].click();
+  assert.deepEqual(app.$('day-list').children.filter(day => !day.hidden).map(day => day.dataset.dayIndex), ['6']);
+  assert.equal(app.account.options.getDocument().itinerary.dayCount, 7);
+  app.$('day-bookmarks').children[0].click();
+  assert.deepEqual(app.$('day-list').children.filter(day => !day.hidden).map(day => day.dataset.dayIndex), ['0']);
 });
 
 test('undo and redo preserve each days current collapsed or expanded state', async () => {
@@ -1435,6 +1504,33 @@ test('switching day pages clears the old live preview and permits route projecti
   assert.equal(previewClock(app, 'place-0', 1), secondOriginal);
   assert.equal(app.stored.get(storageKey), raw); assert.equal(app.writes.length, writes);
   assert.deepEqual(noteParameters(app), parameters);
+});
+
+test('bookmark and browser-history navigation preserve a working memo while clearing outgoing transit previews', async () => {
+  const app = previewRuntime(transitPreviewFixture({ dayCount: 2 })); await settle();
+  const cards = [...app.$('day-list').children], raw = app.stored.get(storageKey), writes = app.writes.length;
+  const parameters = noteParameters(app), changes = app.account.changes;
+  const row = previewRow(app, 'place-0'); row.querySelector('.event-edit-button').click();
+  const memo = row.querySelector('textarea'); memo.value = '날짜를 오가며 작성 중인 메모'; memo.dispatch('input');
+  const first = previewMount(app, 'transit', 'departure'), second = previewMount(app, 'transit', 'departure', 1);
+  const firstDetails = first.host.querySelector('.transit-route-lookup'), secondDetails = second.host.querySelector('.transit-route-lookup');
+  const firstOriginal = previewClock(app, 'place-0'), secondOriginal = previewClock(app, 'place-0', 1);
+  firstDetails.open = true; first.options.onPreviewDuration(53);
+  assert.match(previewClock(app, 'place-0'), /09:53/);
+  app.$('day-bookmarks-bottom').children[1].click(); await settle(); selectedDay(app, 1);
+  assert.equal(app.window.location.hash, '#/note/day/2'); assert.equal(firstDetails.open, false);
+  secondDetails.open = true; second.options.onPreviewDuration(40);
+  assert.match(previewClock(app, 'place-0', 1), /09:40/);
+  app.window.history.back(); await settle(); selectedDay(app, 0);
+  assert.equal(secondDetails.open, false); assert.equal(previewClock(app, 'place-0'), firstOriginal);
+  assert.equal(previewClock(app, 'place-0', 1), secondOriginal);
+  second.options.onPreviewDuration(90); assert.equal(previewClock(app, 'place-0', 1), secondOriginal);
+  assert.equal(row.querySelector('textarea'), memo); assert.equal(memo.value, '날짜를 오가며 작성 중인 메모');
+  app.window.history.forward(); await settle(); selectedDay(app, 1);
+  assert.equal(app.window.location.hash, '#/note/day/2');
+  assert.equal(app.$('day-bookmarks').lastScrollIntoView.behavior, 'instant');
+  assert.deepEqual(app.$('day-list').children, cards); assert.deepEqual(noteParameters(app), parameters);
+  assert.equal(app.stored.get(storageKey), raw); assert.equal(app.writes.length, writes); assert.equal(app.account.changes, changes);
 });
 
 test('browser printing restores canonical times and closes the active transit lookup', async () => {
