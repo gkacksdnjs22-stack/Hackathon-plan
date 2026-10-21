@@ -148,7 +148,8 @@ export function createAppServer({ root = ROOT, backdropClient = createBackdropCl
       // Refuse symlinks that point outside the public app directory.
       const publicRoot = await realpath(root);
       const filenamePath = await realpath(path.join(publicRoot, filename));
-      if (path.dirname(filenamePath) !== publicRoot) {
+      const relativePath = path.relative(publicRoot, filenamePath);
+      if (relativePath === '..' || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
         return send(response, method, 404, { error: { code: 'NOT_FOUND', message: '파일을 찾을 수 없습니다.' } });
       }
       return send(response, method, 200, await readFile(filenamePath), PUBLIC_FILES.get(filename));

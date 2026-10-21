@@ -12,6 +12,7 @@
   })});
   const personalTools=window.TravelPersonalization.mount($('personal-tools'),{onChange:savePersonalization,onAdd:addFavoritePlace});
   let personalEventWidgets=[];
+  const dayMap=window.TravelDayMap.mount($('day-map'),{onFocus:focusMappedEvent});
   const EDIT_HISTORY_LIMIT=20;
   const editHistory={undo:[],redo:[]};
   const editingKeys=['cityId','startDate','dayCount','dayAreaIds','selections','dayStarts','eventEdits','extraEvents','excludedEvents','eventOrders','departure','dayDepartures','dayArrivals','dayTransports','personalization'];
@@ -72,6 +73,7 @@
     $('itinerary-section').hidden=screen!=='note';
     $('screen-loading').hidden=screen!=='loading';
     const dayChanged=screen==='note'?syncDayPage():false;
+    dayMap.setVisible(screen==='note');
     syncEditHistoryControls();
     $('resume-note').hidden=!currentItinerary;
     $('empty-state').hidden=Boolean(currentItinerary);
@@ -243,6 +245,7 @@
     departureDraftModes={};
     currentItinerary=null;
     personalTools.reset();
+    dayMap.reset();
     collapsedDays.clear();
     activeDayIndex=0;
     exportTools.refresh();
@@ -291,6 +294,7 @@
     departureDraftModes={};
     currentItinerary=result;
     personalTools.reset();
+    dayMap.reset();
     collapsedDays.clear();
     activeDayIndex=0;
     resetEditHistory();
@@ -476,6 +480,7 @@
     if(restored.days.length!==Number(saved.dayCount))return fail('저장한 여행 날짜 수와 복원 결과가 다릅니다.');
     restored.dataSource=city.dataSource||saved.dataSource||'bundled';
     if(version!==requestVersion||!isCurrent())return false;
+    dayMap.reset();
     departureDraftModes={};
     currentItinerary=restored;
     personalTools.reset();
@@ -575,6 +580,7 @@
     activeDayIndex=index;
     exportTools.refresh();
     renderPersonalization();
+    dayMap.update(currentItinerary,index);
     $('day-list').querySelectorAll('.day-card').forEach(card=>{card.hidden=Number(card.dataset.dayIndex)!==index;});
     for(const id of ['day-bookmarks','day-bookmarks-bottom']){
       $(id)?.querySelectorAll('.day-bookmark').forEach(button=>{
@@ -587,6 +593,15 @@
     if(focus)card.focus({preventScroll:true});
     if(scroll)($('day-bookmarks')||card).scrollIntoView({block:'start',behavior:'instant'});
     return changed;
+  }
+  function focusMappedEvent(dayIndex,eventId){
+    if(!currentItinerary?.days[dayIndex]?.events.some(event=>event.type==='place'&&event.id===eventId))return;
+    window.location.hash=`#/note/day/${dayIndex+1}`;
+    syncScreen({focus:false});
+    selectDayPage(dayIndex,{expand:true});
+    focusEvent(dayIndex,eventId);
+    const row=[...$(`travel-day-${dayIndex}`).querySelectorAll('.timeline-row')].find(row=>row.dataset.eventId===eventId);
+    row?.scrollIntoView({block:'center',behavior:'instant'});
   }
   function renderPendingTransfers(){
     const panel=$('pending-transfers');
@@ -1368,10 +1383,12 @@
   $('print-button').addEventListener('click',()=>window.print());
   window.addEventListener('beforeprint',()=>{
     personalTools.preparePrint();
+    dayMap.setVisible(false);
     clearTransitTimePreviews();
     $('day-list').querySelectorAll('.transit-route-lookup').forEach(details=>{details.open=false;});
   });
   window.addEventListener('afterprint',()=>personalTools.finishPrint());
+  window.addEventListener('afterprint',()=>dayMap.setVisible(activeScreen==='note'));
   $('clear-button').addEventListener('click',()=>{
     if(!window.confirm('이 브라우저의 여행 노트와 자동저장본을 지울까요? 계정에 따로 저장하지 않은 내용은 되돌릴 수 없어요. 계정에 저장한 계획은 지워지지 않아요.'))return;
     requestVersion++;
