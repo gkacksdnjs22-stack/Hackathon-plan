@@ -348,7 +348,7 @@ export function createTourClient({ serviceKey, fetchImpl = globalThis.fetch, now
         const culture=contentTypeId==='14',homepage=String(place.homepage||''),href=homepage.match(/href\s*=\s*["']([^"']+)["']/i)?.[1]||homepage;
         return {provider:PROVIDER,sourceUrl:'https://www.data.go.kr/data/15101578/openapi.do',fetchedAt:new Date(now()).toISOString(),partial,
           contentId,contentTypeId,title:detailText(place.title,200),address:detailText([place.addr1,place.addr2].filter(Boolean).join(' '),500),
-          overview:detailText(place.overview),imageUrl:publicImage(place.firstimage||place.firstimage2),homepage:publicImage(detailText(href,2048)),
+          overview:detailText(place.overview,Infinity),imageUrl:publicImage(place.firstimage||place.firstimage2),homepage:publicImage(detailText(href,2048)),
           phone:detailText(place.tel||(culture?intro.infocenterculture:intro.infocenter),300),hours:detailText(culture?intro.usetimeculture:intro.usetime,2000),
           closed:detailText(culture?intro.restdateculture:intro.restdate,1500),fee:detailText(intro.usefee,1500),parking:detailText(culture?intro.parkingculture:intro.parking,1500)};
       });

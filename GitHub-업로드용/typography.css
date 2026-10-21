@@ -1,0 +1,86 @@
+/* Noto Sans CJK KR 2.004, SIL OFL 1.1; see vendor/fonts/OFL.txt.
+   Self-hosted subsets include every modern Hangul syllable, Hangul jamo,
+   Latin, numbers and punctuation. Other scripts use the system fallback.
+   Source: https://github.com/notofonts/noto-cjk (Korean face, index 1).
+   Generated from NotoSansCJK-{Regular,Bold}.ttc with fontTools.subset,
+   --font-number=1 --flavor=woff --name-IDs='*' --name-languages='*'
+   --unicodes=U+0000-024F,U+1100-11FF,U+2000-206F,U+20A0-20CF,U+2100-214F,
+   U+2190-21FF,U+3000-303F,U+3130-318F,U+A960-A97F,U+AC00-D7AF,
+   U+D7B0-D7FF,U+FE00-FE0F,U+FF00-FFEF */
+@font-face {
+  font-family:"Gil Noto Sans";
+  src:url("./vendor/fonts/noto-sans-kr-regular.woff") format("woff");
+  font-style:normal;
+  font-weight:400;
+  font-display:swap;
+}
+@font-face {
+  font-family:"Gil Noto Sans";
+  src:url("./vendor/fonts/noto-sans-kr-bold.woff") format("woff");
+  font-style:normal;
+  font-weight:700;
+  font-display:swap;
+}
+@media screen {
+  :root {
+    --reading-font:"Gil Noto Sans","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+    --reading-body:16px;
+    --reading-small:13px;
+    --reading-control:14px;
+    --reading-place:17px;
+  }
+  body {
+    font-family:var(--reading-font);
+    font-size:var(--reading-body);
+    font-weight:400;
+    letter-spacing:-.012em;
+    line-height:1.75;
+  }
+  body :is(button,input,select,textarea,dialog),
+  body .day-card.is-compact .compact-event-toggle { font-family:var(--reading-font); }
+  body :is(button,input,select,textarea) { letter-spacing:-.01em; }
+  body[data-screen] :is(.intro h1,.note-page-title,.panel-heading h2,.itinerary-heading h2) { font-weight:600; letter-spacing:-.03em; line-height:1.45; }
+  body .intro h1 { font-size:clamp(29px,6vw,38px); }
+  body[data-screen] .note-page-title { font-size:27px; }
+  body .panel-heading h2 { font-size:24px; }
+  body .intro-copy { font-size:var(--reading-body); line-height:1.85; }
+  body[data-screen] :is(.day-title strong,.account-dialog-title,.note-tool-dialog-title,.place-detail-dialog-heading h2) { font-weight:600; letter-spacing:-.02em; }
+  body[data-screen] .day-title strong { font-size:21px; }
+  body[data-screen] .day-card .event-title { font-size:var(--reading-place); font-weight:500; letter-spacing:-.02em; line-height:1.6; }
+  body[data-screen] :is(.meal-row,.transfer-row,.free-row,.rest-row,.buffer-row) .event-title { font-size:var(--reading-body); }
+  body[data-screen] .day-card.is-compact .compact-event-toggle { font-size:var(--reading-body); font-weight:400; letter-spacing:-.012em; line-height:1.8; }
+  body .compact-event-time { font-weight:500; }
+  body .compact-event-name { font-weight:400; }
+  body[data-screen] :is(.event-description,.event-user-memo,#trip-summary) { font-size:var(--reading-body); line-height:1.85; }
+  body[data-screen] :is(.timeline-time,.timeline-time small) { font-size:var(--reading-control); font-weight:500; }
+  body[data-screen] :is(.field label,.day-title span,.day-area-select,.account-button,.button,.button-quiet,.day-bookmark,.day-view-toggle,.day-collapse,.event-edit-button,.event-remove-button,.swap-button,.map-link,.event-show-map,.schedule-insert-button,.schedule-leg-add,.note-toolbar-button,.personal-button,.account-notice-link) { font-size:var(--reading-control); font-weight:500; line-height:1.65; }
+  body[data-screen] .heading-actions :is(.button,.note-history-button),
+  body[data-screen] .timeline-content .event-footer>.event-edit-button,
+  body[data-screen] :is(.swap-picker,.schedule-actions,.editor-actions,.restaurant-manual-actions) button { font-size:var(--reading-control); font-weight:500; }
+  body[data-screen] :is(.field input,.field select,.date-trigger,.select-trigger,.select-option,.button-primary,.editor-field input,.editor-field textarea,.schedule-field input,.schedule-field textarea,.schedule-field select,.account-dialog-field input,.restaurant-manual-label input,.restaurant-manual-label textarea) { font-size:16px; font-weight:400; }
+  body[data-screen] :is(.eyebrow,.step-label,.step-number,.field-hint,.form-footer p,.app-message,.capacity-message,.empty-state>span,.site-footer,.account-user,.account-notice-copy,.account-library-copy,.account-library-message,.account-plan-meta,.account-dialog-copy,.account-dialog-field,.account-dialog-message,.backdrop-story p,.resume-note p,.data-status,.note-timing-notice,.account-save-status,.fine-print,.day-footnote,.event-subtitle,.meta-pill,.editor-help,.schedule-help,.memo-counter,.personal-hint,.personal-status,.timeline-guide,.timeline-guide p,.timeline-guide-desktop,.timeline-guide-desktop p,.day-card.is-compact .compact-event-alerts) { font-size:var(--reading-small); line-height:1.75; }
+  body[data-screen] :is(.editor-field,.schedule-field,.restaurant-manual-label,.duration-field legend,.duration-part>span,.schedule-duration legend,.schedule-duration-part,.day-start-form label) { font-size:var(--reading-small); line-height:1.65; }
+  body[data-screen] :is(.personal-tools summary,.trip-budget summary,.day-origin-heading,.restaurant-heading,.transport-heading,.car-route-heading,.transit-route-heading,.connection-heading) { font-size:var(--reading-body); font-weight:500; }
+  body[data-screen] :is(.event-tag-badge,.personal-checklist-form label,.personal-place-search-label,.personal-place-copy,.personal-place-copy span,.personal-check-item,.restaurant-address,.restaurant-note,.restaurant-meta,.restaurant-message,.departure-intro,.local-transfer-context,.local-transfer-hint,.local-transfer-message,.transport-preview,.transport-note,.transport-message,.car-route-preview,.car-route-introduction,.transit-route-preview,.transit-route-introduction,.transit-route-note,.connection-note,.connection-date-hint,.origin-result span,.origin-selection-copy>span) { font-size:var(--reading-small); line-height:1.75; }
+  body[data-screen] :is(.place-detail-dialog-body,.place-detail-body) { font-size:var(--reading-body); }
+  /* The introduction clamp is exactly 3 × 1.8 lines at every viewport. */
+  body .place-detail-overview.is-collapsed { line-height:1.8; }
+  body[data-screen] :is(.place-detail-status,.place-detail-source,.place-detail-hint,.place-detail-dialog figcaption) { font-size:var(--reading-small); }
+  body .site-header .wordmark small { font-size:12px; white-space:normal; }
+  body .site-header .account-button { font-size:var(--reading-control); }
+  body .timeline-guide p { white-space:normal; }
+}
+@media screen and (min-width:901px) {
+  :root {
+    --reading-body:17px;
+    --reading-small:14px;
+    --reading-control:15px;
+    --reading-place:19px;
+  }
+  body .intro h1 { font-size:44px; }
+  body[data-screen] .note-page-title { font-size:34px; }
+  body .panel-heading h2 { font-size:28px; }
+  body[data-screen] .day-title strong { font-size:24px; }
+  body .site-header .wordmark small { font-size:13px; }
+  body[data-screen] :is(.field input,.field select,.select-trigger,.select-option,.button-primary) { font-size:17px; }
+}

@@ -18,6 +18,14 @@ test('place detail makes sequential common and type-specific calls, sanitizes fi
   await client.getPlaceDetail({contentId:'101',contentTypeId:'14'});assert.equal(calls.length,2);
 });
 
+test('the full introduction preserves text beyond 5000 characters while removing upstream markup',async()=>{
+  const overview='원문 소개입니다. '.repeat(600)+'<br>마지막 안내<script>private script</script>';
+  const client=createTourClient({serviceKey:'TEST',fetchImpl:async url=>ok([url.pathname.endsWith('detailCommon2')?{...common,overview}:intro])});
+  const detail=await client.getPlaceDetail({contentId:'101',contentTypeId:'14'});
+  assert.equal(detail.overview,'원문 소개입니다. '.repeat(600)+'\n마지막 안내');
+  assert.ok(detail.overview.length>5000);
+});
+
 test('partial introduction errors are retryable, empty introductions stay unknown and type-12 hours use their own fields',async()=>{
   let failure=true,calls=0;
   const client=createTourClient({serviceKey:'TEST',fetchImpl:async url=>{
