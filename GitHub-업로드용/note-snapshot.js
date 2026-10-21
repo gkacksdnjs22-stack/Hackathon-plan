@@ -6,9 +6,13 @@
     return {version:1,title:clean(title,80),cityName:clean(itinerary.cityName,80),startDate:itinerary.startDate,dayCount:itinerary.dayCount,
       days:itinerary.days.map((day,index)=>({date:new Date(Date.parse(`${itinerary.startDate}T00:00:00Z`)+index*86400000).toISOString().slice(0,10),
         provisional:Boolean(day.timesProvisional),events:day.events.map(event=>{
-          const sensitive=['departure','arrival'].includes(event.type);
+          // The first transfer carries arrival details, including its generated memo
+          // and an editable title, even though its event type is only 'transfer'.
+          const arrivalTransfer=event.id==='arrival-transfer'||(event.type==='transfer'&&Boolean(event.arrival));
+          const sensitive=['departure','arrival'].includes(event.type)||arrivalTransfer||Boolean(event.departure||event.arrival);
           const title=event.type==='place'?event.place?.name:event.type==='departure'?(includeDeparture&&event.departure?`${event.departure.name}에서 출발`:'출발')
-            :event.type==='arrival'?(includeDeparture?event.title||event.arrival?.name:'도착'):event.title||event.meal||'일정';
+            :event.type==='arrival'?(includeDeparture?event.title||event.arrival?.name:'도착')
+            :sensitive&&!includeDeparture?(arrivalTransfer?'첫 관광지로 이동':'이동'):event.title||event.meal||'일정';
           return {type:event.type,title:clean(title,240),start:event.start,end:event.end,
             address:clean(sensitive&&!includeDeparture?'':event.place?.address||event.departure?.address||event.arrival?.address,500),
             memo:clean(includeMemos&&(!sensitive||includeDeparture)?event.description:'',500)};

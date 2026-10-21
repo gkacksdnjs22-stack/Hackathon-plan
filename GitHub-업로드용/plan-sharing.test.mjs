@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 import { createLocalDatabase } from './local-db.mjs';
 import { createAccountHandler } from './auth-store.mjs';
 import { createAppServer } from './server.mjs';
@@ -59,6 +61,53 @@ test('sharing is opt-in, stores only a token hash and returns a fixed text snaps
   assert.equal(loaded.status, 200); assert.deepEqual(loaded.data, { snapshot: snapshot(), sharedAt: published.data.createdAt });
   assert.equal(loaded.text.includes(f.owner.user.id), false); assert.equal(loaded.text.includes(plan.id), false);
   assert.equal(loaded.response.headers.get('referrer-policy'), 'no-referrer');
+});
+
+test('a saved real-planner arrival transfer respects all four departure and memo publication settings', async t => {
+  const area = { id: 'tour-cluster-1', name: '합성 관광권역', places: [1, 2, 3].map(index => ({
+    id: `tourapi-${index}`, name: `합성 관광지 ${index}`, areaId: 'tour-cluster-1', area: '합성 관광권역', areaName: '합성 관광권역',
+    stayMinutes: 60, address: `합성 공개 관광주소 ${index}`, intro: '합성 공개 소개'
+  })) };
+  const city = { id: 'seoul', name: '서울', country: 'KR', supportedDays: 1, areas: [area] };
+  const window = { TRAVEL_DATA: { countries: { KR: '대한민국' }, cities: { seoul: city } } };
+  const context = vm.createContext({ window });
+  for (const name of ['planner.js', 'note-snapshot.js']) vm.runInContext(readFileSync(new URL(name, import.meta.url), 'utf8'), context);
+  const stop = (id, name, address) => ({ mode: 'train', id: `tago-train-${id}`, name, address, latitude: null, longitude: null,
+    source: 'TAGO', service: 'train', providerId: id, sourceUrl: 'https://www.data.go.kr/data/15098552/openapi.do' });
+  const departure = stop('SYNTHETIC_FROM', '합성 비공개 출발역', '합성 비공개 출발주소');
+  const arrival = stop('SYNTHETIC_TO', '합성 비공개 도착역', '합성 비공개 도착주소');
+  const itinerary = window.TravelPlanner.createItinerary({ city, ...document().itinerary, dayDepartures: { 0: departure }, dayArrivals: { 0: arrival },
+    eventEdits: { 0: { departure: { duration: 60 }, 'arrival-transfer': { duration: 12 },
+      'place-0': { description: '합성 개인 예약메모' }, 'transfer-0': { description: '합성 일반 이동메모' } } } });
+  assert.equal(itinerary.ok, true, itinerary.reason);
+  const title = '공개설정 회귀 여행', f = await fixture(t);
+  const saved = await f.call('/api/plans', { method: 'POST', body: { title, document: { version: 8, itinerary } } });
+  assert.equal(saved.status, 201);
+  const loaded = await f.call(`/api/plans/${saved.data.plan.id}`); assert.equal(loaded.status, 200);
+  const plan = loaded.data.plan, restored = window.TravelPlanner.createItinerary({ city, ...plan.document.itinerary });
+  assert.equal(restored.ok, true, restored.reason);
+  const arrivalTransferIndex = restored.days[0].events.findIndex(event => event.id === 'arrival-transfer');
+  assert.ok(arrivalTransferIndex >= 0);
+  assert.equal(restored.days[0].events[arrivalTransferIndex].type, 'transfer');
+  assert.equal(restored.days[0].events[arrivalTransferIndex].arrival.address, arrival.address);
+  for (const includeDeparture of [false, true]) for (const includeMemos of [false, true]) {
+    await t.test(`departure=${includeDeparture}, memos=${includeMemos}`, async () => {
+      const publicSnapshot = window.TravelNoteSnapshot.create(restored, { title, includeDeparture, includeMemos });
+      const published = await f.publish(plan, { document: plan.document, snapshot: publicSnapshot }); assert.equal(published.status, 201);
+      const shared = await f.read(published.data.token); assert.equal(shared.status, 200);
+      const events = shared.data.snapshot.days[0].events, transfer = events[arrivalTransferIndex];
+      assert.equal(transfer.type, 'transfer'); assert.equal(transfer.title, '첫 관광지로 이동');
+      assert.equal(transfer.address, includeDeparture ? arrival.address : '');
+      assert.equal(transfer.memo, includeDeparture && includeMemos ? `${arrival.name} → ${area.places[0].name}` : '');
+      for (const value of [departure.name, departure.address, arrival.name, arrival.address]) {
+        assert.equal(shared.text.includes(value), includeDeparture, `public response disclosure: ${value}`);
+      }
+      assert.equal(events.find(event => event.type === 'place').address, area.places[0].address);
+      assert.equal(shared.text.includes('합성 개인 예약메모'), includeMemos);
+      assert.equal(shared.text.includes('합성 일반 이동메모'), includeMemos);
+      if (!includeMemos) assert.ok(events.every(event => event.memo === ''));
+    });
+  }
 });
 
 test('republishing atomically rotates the link and the owner can revoke even after a saved-plan edit', async t => {

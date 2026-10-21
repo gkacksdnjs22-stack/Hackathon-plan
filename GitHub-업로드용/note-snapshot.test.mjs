@@ -22,6 +22,34 @@ test('memo inclusion does not silently include private departure data; departure
   const origin=make({includeDeparture:true});assert.match(JSON.stringify(origin),/비공개 상세주소/);assert.doesNotMatch(JSON.stringify(origin),/비공개 출발 메모|개인 예약번호/);
   const both=make({includeMemos:true,includeDeparture:true});assert.equal(both.days[0].events[0].memo,'비공개 출발 메모');
 });
+for(const includeMemos of [false,true])for(const includeDeparture of [false,true]){
+  test(`arrival transfer hides edited station titles unless opted in (memos=${includeMemos}, departure=${includeDeparture})`,()=>{
+    const source=structuredClone(itinerary);
+    const transfer={id:'arrival-transfer',type:'transfer',arrival:{name:'비공개 도착역',address:'비공개 역 상세주소'},
+      title:'비공개 도착역에서 택시 타기',description:'비공개 도착역 → 공개 관광지',start:600,end:620};
+    source.days[0].events.push(transfer,{id:'transfer-0',type:'transfer',title:'관광지 사이 이동',description:'공개 이동 메모',start:660,end:680});
+    const before=JSON.stringify(source);
+    const value=window.TravelNoteSnapshot.create(source,{includeMemos,includeDeparture});validateShareSnapshot(value);
+    const shared=value.days[0].events.at(-2),ordinary=value.days[0].events.at(-1);
+    assert.equal(shared.title,includeDeparture?transfer.title:'첫 관광지로 이동');
+    assert.equal(shared.address,includeDeparture?transfer.arrival.address:'');
+    assert.equal(shared.memo,includeMemos&&includeDeparture?transfer.description:'');
+    assert.equal(shared.start,600);assert.equal(shared.end,620);
+    assert.equal(ordinary.title,'관광지 사이 이동');assert.equal(ordinary.memo,includeMemos?'공개 이동 메모':'');
+    assert.equal(value.days[0].events[1].address,'서울 관광지');
+    if(!includeDeparture)assert.doesNotMatch(JSON.stringify(value),/비공개/);
+    assert.equal(JSON.stringify(source),before,'creating a public copy must not redact the private original');
+  });
+}
+
+test('arrival transfer stays private when its arrival object is absent',()=>{
+  const source=structuredClone(itinerary);
+  source.days[0].events.push({id:'arrival-transfer',type:'transfer',title:'비공개 역에서 이동',description:'비공개 역 메모',start:600,end:620});
+  const value=window.TravelNoteSnapshot.create(source,{includeMemos:true});
+  assert.equal(value.days[0].events.at(-1).title,'첫 관광지로 이동');
+  assert.doesNotMatch(JSON.stringify(value),/비공개/);
+});
+
 test('snapshot is an independent fixed copy and keeps canonical minutes even when display-only route fields exist',()=>{
   const source=structuredClone(itinerary),before=JSON.stringify(source);source.liveTransitDurations={departure:53};
   const value=window.TravelNoteSnapshot.create(source,{title:'사본'});source.days[0].events[1].place.name='바뀐 장소';
